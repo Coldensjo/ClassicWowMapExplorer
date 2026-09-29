@@ -97,14 +97,75 @@ button:disabled {
 	font-size: 22px;
 }
 
-.card ol {
-	padding-left: 20px;
+#drop {
 	display: grid;
-	gap: 14px;
+	justify-items: center;
+	gap: 8px;
+	margin: 18px 0 14px;
+	padding: 22px 16px;
+	border: 2px dashed var(--line);
+	border-radius: 8px;
 }
 
-.card li > button, .card li > select {
-	margin: 0 6px 6px 0;
+#drop.dragging {
+	border-color: var(--accent);
+	background: #d9a44114;
+}
+
+#loading {
+	margin: 18px 0 14px;
+	display: grid;
+	gap: 8px;
+}
+
+.loading-bar {
+	height: 10px;
+	border-radius: 5px;
+	background: #262a31;
+	overflow: hidden;
+}
+
+/* Stripes keep moving through long steps, so it never looks stuck. */
+#loading-fill {
+	width: 0%;
+	height: 100%;
+	border-radius: 5px;
+	background: repeating-linear-gradient(-45deg, var(--accent) 0 10px, #e7b95e 10px 20px);
+	background-size: 28px 28px;
+	animation: loading-stripes 0.8s linear infinite;
+	transition: width 0.4s ease-out;
+}
+
+@keyframes loading-stripes {
+	to { background-position: 28px 0; }
+}
+
+#loading-text {
+	font-weight: 600;
+}
+
+button.big {
+	font-size: 16px;
+	padding: 10px 20px;
+}
+
+#product-step {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+}
+
+#product-step[hidden] {
+	display: none;
+}
+
+.card details {
+	margin-top: 12px;
+}
+
+.card summary {
+	cursor: pointer;
 }
 
 #hud {

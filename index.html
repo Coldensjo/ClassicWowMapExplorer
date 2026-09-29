@@ -16,21 +16,32 @@
 	<div id="start">
 		<div class="card">
 			<h1>Map Explorer</h1>
-			<p>Fly over Azeroth, rendered from the game files on your own computer. Nothing is uploaded.</p>
-			<ol>
-				<li>
-					<button id="pick" class="primary">Open World of Warcraft folder</button>
-					<button id="pick-direct" title="Faster, but Chrome/Edge refuse folders under Program Files">Direct access</button>
-					<input id="pick-input" type="file" webkitdirectory hidden>
-					<div class="muted small">Usually <code>C:\Program Files (x86)\World of Warcraft</code>. The browser asks to "upload" the files; they stay on your computer.</div>
-				</li>
-				<li id="product-step" hidden>
-					<select id="product"></select>
-					<button id="explore" class="primary">Explore</button>
-				</li>
-			</ol>
+			<p>Fly over Azeroth, drawn from the game files on your own computer.</p>
+			<div id="drop">
+				<button id="pick" class="primary big">Choose your World of Warcraft folder</button>
+				<div class="muted small">or drag the folder onto this page</div>
+			</div>
+			<input id="pick-input" type="file" webkitdirectory hidden>
+			<div id="loading" hidden aria-live="polite">
+				<div class="loading-bar"><div id="loading-fill"></div></div>
+				<div id="loading-text"></div>
+				<div class="muted small">Loading the whole world takes a little while the first time.</div>
+			</div>
+			<p class="muted small">
+				It's usually <code>C:\Program Files (x86)\World of Warcraft</code>: the folder that contains
+				<code>_classic_</code> or <code>_classic_beta_</code>. The browser will ask to "upload" it, but nothing
+				leaves your computer; the files are only read here.
+			</p>
+			<div id="product-step" hidden>
+				<label>Game version <select id="product"></select></label>
+				<button id="explore" class="primary">Explore</button>
+			</div>
 			<p id="status" class="muted"></p>
-			<p class="small"><a href="/inspector.html">Storage inspector</a></p>
+			<details class="small muted">
+				<summary>More options</summary>
+				<p><button id="pick-direct">Open with direct access</button> Opens faster, but Chrome and Edge refuse folders under Program Files.</p>
+				<p><a href="/inspector.html">Storage inspector</a>: browse the game's files and formats.</p>
+			</details>
 		</div>
 	</div>
 

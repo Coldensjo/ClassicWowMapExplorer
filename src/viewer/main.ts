@@ -1,4 +1,4 @@
-import { filesToSource, hasDirectoryPicker, pickDirectory } from '../app/folderPicker';
+import { droppedFolderToSource, filesToSource, hasDirectoryPicker, pickDirectory } from '../app/folderPicker';
 import { createStorageClient } from '../worker/client';
 import type { SourceInit } from '../worker/protocol';
 import type { SpawnInfo } from '../explorer/spawns';
@@ -8,33 +8,123 @@ import { Viewer, type HudInfo } from './viewer';
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = $('status');
 
-const storage = createStorageClient((message) => setStatus(`${message}…`));
+const storage = createStorageClient((message) => showProgress(message));
 
+/** A message under the buttons; errors also end the loading bar, so the buttons come back. */
 function setStatus(text: string, isError = false): void {
 	status.textContent = text;
 	status.className = isError ? 'bad' : 'muted';
+	if (isError) hideProgress();
+}
+
+// --- Loading bar ---
+
+/**
+ * How far along each loading step starts, as a share of the whole. Reading the folder is the
+ * longest step (the browser listing every file), but it reports nothing, so the bar creeps
+ * toward where it ends meanwhile.
+ */
+const LOADING_STEPS: [RegExp, number, string][] = [
+	[/^Reading your folder/, 0.02, 'Reading your World of Warcraft folder'],
+	[/^Reading \.build\.info/, 0.45, 'Finding the game version'],
+	[/^Reading local indexes/, 0.5, 'Opening the game files'],
+	[/^Reading encoding table/, 0.57, 'Opening the game files'],
+	[/^Reading root table/, 0.64, 'Opening the game files'],
+	[/^Reading Eastern Kingdoms/, 0.72, 'Loading Eastern Kingdoms'],
+	[/^Reading Kalimdor/, 0.82, 'Loading Kalimdor'],
+	[/^Reading lighting/, 0.9, 'Loading light and zones'],
+	[/^Starting/, 0.97, 'Starting'],
+];
+/** Where the bar creeps to while the folder is read, and how long that takes (s). */
+const FOLDER_CREEP = [0.42, 20] as const;
+
+/** Shows the loading bar at a step, in place of the folder buttons. */
+function showProgress(message: string): void {
+	const step = LOADING_STEPS.find(([pattern]) => pattern.test(message));
+	const appearing = $('loading').hidden;
+	$('drop').hidden = true;
+	$('loading').hidden = false;
+	// A bar that was hidden has no width to animate from until it's laid out once.
+	if (appearing) void $('loading-fill').offsetWidth;
+	status.textContent = '';
+	if (!step) return;
+	const fill = $('loading-fill');
+	const creep = step === LOADING_STEPS[0];
+	const target = creep ? FOLDER_CREEP[0] : step[1];
+	fill.style.transition = creep ? `width ${FOLDER_CREEP[1]}s cubic-bezier(0.1, 0.7, 0.3, 1)` : '';
+	// Never backwards, whatever order messages arrive in.
+	if (parseFloat(fill.style.width || '0') < target * 100) fill.style.width = `${target * 100}%`;
+	$('loading-text').textContent = `${step[2]}…`;
+}
+
+function hideProgress(): void {
+	$('loading').hidden = true;
+	$('drop').hidden = false;
+	$('loading-fill').style.width = '0%';
 }
 
 async function useSource(init: SourceInit): Promise<void> {
-	setStatus('Reading .build.info');
+	showProgress('Reading .build.info');
 	try {
 		const products = (await storage.setSource(init)).filter((p) => p.product.startsWith('wow'));
 		const select = $<HTMLSelectElement>('product');
 		select.replaceChildren(...products.map((p) => new Option(`${p.product} ${p.version}`, p.product)));
 		// Prefer a classic build: the continent file IDs are the classic ones.
 		const preferred = products.find((p) => p.product === 'wow_classic_beta') ?? products.find((p) => p.product.startsWith('wow_classic'));
-		if (preferred) select.value = preferred.product;
+		if (preferred) {
+			// Nothing to choose: straight in.
+			select.value = preferred.product;
+			await explore();
+			return;
+		}
+		hideProgress();
 		$('product-step').hidden = products.length === 0;
-		setStatus(products.length ? 'Choose a game version and press Explore.' : 'No WoW products found in .build.info', !products.length);
-	} catch (e) {
-		setStatus(`${(e as Error).message}. Pick the World of Warcraft folder itself (the one containing .build.info).`, true);
+		setStatus(products.length ? 'No Classic version found; choose a game version and press Explore.' : 'No World of Warcraft game found in this folder.', true);
+	} catch {
+		setStatus('That isn\'t the World of Warcraft folder. Choose the folder that contains _classic_ or _classic_beta_ (not that folder itself).', true);
 	}
 }
 
-$('pick').addEventListener('click', () => $<HTMLInputElement>('pick-input').click());
+// Dropping the folder on the page works like choosing it.
+const drop = $('drop');
+const start = $('start');
+start.addEventListener('dragover', (e) => {
+	e.preventDefault();
+	drop.classList.add('dragging');
+});
+start.addEventListener('dragleave', (e) => {
+	if (e.target === start) drop.classList.remove('dragging');
+});
+start.addEventListener('drop', async (e) => {
+	e.preventDefault();
+	drop.classList.remove('dragging');
+	const entry = e.dataTransfer?.items[0]?.webkitGetAsEntry();
+	if (!entry?.isDirectory) {
+		setStatus('Drop the World of Warcraft folder itself, not a file.', true);
+		return;
+	}
+	showProgress('Reading your folder');
+	await useSource(await droppedFolderToSource(entry as FileSystemDirectoryEntry));
+});
+
+// After "Upload", the browser lists the whole folder before telling the page anything; show
+// the bar as soon as the dialog closes (the page gets focus back), and drop it if it was cancelled.
+let choosingFolder = false;
+$('pick').addEventListener('click', () => {
+	choosingFolder = true;
+	$<HTMLInputElement>('pick-input').click();
+});
+window.addEventListener('focus', () => {
+	if (choosingFolder) showProgress('Reading your folder');
+});
+$('pick-input').addEventListener('cancel', () => {
+	choosingFolder = false;
+	hideProgress();
+});
 $<HTMLInputElement>('pick-input').addEventListener('change', async (event) => {
+	choosingFolder = false;
 	const files = (event.target as HTMLInputElement).files ?? [];
-	setStatus(`Selected ${files.length.toLocaleString()} files`);
+	showProgress('Reading your folder');
 	await useSource(filesToSource(files));
 });
 
@@ -48,15 +138,20 @@ $('pick-direct').addEventListener('click', async () => {
 	}
 });
 
-$('explore').addEventListener('click', async () => {
+$('explore').addEventListener('click', () => void explore());
+
+/** Opens the chosen game version and starts the viewer. */
+async function explore(): Promise<void> {
 	const button = $<HTMLButtonElement>('explore');
 	button.disabled = true;
+	for (const id of ['pick', 'pick-direct']) $<HTMLButtonElement>(id).disabled = true;
 	try {
 		await storage.open($<HTMLSelectElement>('product').value);
 		const viewer = new Viewer($('view'), storage, showHud, showInfo, $('nameplates'));
 		// For poking at the scene from the console (and test scripts) while developing.
 		if (import.meta.env.DEV) (globalThis as unknown as { mapExplorerViewer: Viewer }).mapExplorerViewer = viewer;
-		await viewer.load((text) => setStatus(`${text}…`));
+		await viewer.load((text) => showProgress(text));
+		showProgress('Starting');
 		$('start').hidden = true;
 		$('hud').hidden = $('help').hidden = false;
 		viewer.start();
@@ -64,8 +159,9 @@ $('explore').addEventListener('click', async () => {
 	} catch (e) {
 		setStatus(`Could not start: ${(e as Error).message}`, true);
 		button.disabled = false;
+		for (const id of ['pick', 'pick-direct']) $<HTMLButtonElement>(id).disabled = false;
 	}
-});
+}
 
 // --- Going to any map ---
 

@@ -13,11 +13,27 @@ export interface WdtTile {
 	files: Record<TileFileKind, number>;
 }
 
+/** The one building a WMO-only map (most dungeons) consists of, placed by the WDT's MODF. */
+export interface WdtGlobalWmo {
+	fdid: number;
+	/** Placement space, like an ADT's MODF, but relative to the map's centre. */
+	position: [number, number, number];
+	/** Degrees. */
+	rotation: [number, number, number];
+	/** Bounds, relative to the map's centre like position. */
+	min: [number, number, number];
+	max: [number, number, number];
+	doodadSet: number;
+	nameSet: number;
+	scale: number;
+}
+
 export interface Wdt {
 	flags: number;
 	/** Indexed by y * 64 + x; null where the map has no tile. */
 	tiles: (WdtTile | null)[];
 	tileCount: number;
+	globalWmo: WdtGlobalWmo | null;
 }
 
 export function parseWdt(bytes: Uint8Array): Wdt {
@@ -25,19 +41,35 @@ export function parseWdt(bytes: Uint8Array): Wdt {
 	let flags = 0;
 	let main: number | null = null;
 	let maid: number | null = null;
+	let globalWmo: WdtGlobalWmo | null = null;
 	for (const c of chunks(bytes)) {
 		if (c.id === 'MPHD') flags = view.getUint32(c.offset, true);
 		else if (c.id === 'MAIN') main = c.offset;
 		else if (c.id === 'MAID') maid = c.offset;
+		else if (c.id === 'MODF' && c.size >= 64) {
+			const o = c.offset;
+			const f = (k: number) => view.getFloat32(o + k, true);
+			globalWmo = {
+				fdid: view.getUint32(o, true),
+				position: [f(8), f(12), f(16)],
+				rotation: [f(20), f(24), f(28)],
+				min: [f(32), f(36), f(40)],
+				max: [f(44), f(48), f(52)],
+				doodadSet: view.getUint16(o + 58, true),
+				nameSet: view.getUint16(o + 60, true),
+				scale: view.getUint16(o + 62, true) / 1024 || 1,
+			};
+		}
 	}
 	if (main === null) throw new Error('WDT has no MAIN chunk');
-	if (maid === null) throw new Error('WDT has no MAID chunk (pre-8.1 maps are not supported)');
+	// WMO-only maps have no tiles, and so no tile file list.
+	if (maid === null && !globalWmo) throw new Error('WDT has no MAID chunk (pre-8.1 maps are not supported)');
 
 	const tiles: (WdtTile | null)[] = new Array(MAP_SIZE * MAP_SIZE).fill(null);
 	let tileCount = 0;
 	for (let i = 0; i < MAP_SIZE * MAP_SIZE; i++) {
 		const tileFlags = view.getUint32(main + i * 8, true);
-		if (!(tileFlags & 1)) continue;
+		if (!(tileFlags & 1) || maid === null) continue;
 		const files = {} as Record<TileFileKind, number>;
 		TILE_FILE_KINDS.forEach((kind, k) => {
 			files[kind] = view.getUint32(maid + i * 32 + k * 4, true);
@@ -45,5 +77,5 @@ export function parseWdt(bytes: Uint8Array): Wdt {
 		tiles[i] = { x: i % MAP_SIZE, y: Math.floor(i / MAP_SIZE), flags: tileFlags, files };
 		tileCount++;
 	}
-	return { flags, tiles, tileCount };
+	return { flags, tiles, tileCount, globalWmo };
 }

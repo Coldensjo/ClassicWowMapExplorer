@@ -7,7 +7,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 const DB = process.argv[2] ?? '.cache/vmangos/sqlite-dump/mangos.sqlite';
-const MAPS = [0, 1];
+/** The continents; the dungeons reachable from them are added below. */
+const CONTINENTS = [0, 1];
 const LISTFILE = '.cache/listfile.csv';
 /** Final vanilla content patch (1.12). */
 const PATCH = 10;
@@ -92,6 +93,34 @@ if (existsSync(LISTFILE)) {
 } else {
 	console.warn(`${LISTFILE} not found; NPCs will have no hair textures`);
 }
+// Area triggers that teleport (dungeon entrances and exits, and a few in-world ones): the
+// trigger's sphere or box, and where it sends you.
+interface Teleport {
+	id: number; name: string; map: number; x: number; y: number; z: number; radius: number;
+	box_x: number; box_y: number; box_z: number; box_o: number;
+	target_map: number; tx: number; ty: number; tz: number; to: number;
+}
+const teleports = query<Teleport>(`select t.id, t.name, a.map_id as map, a.x, a.y, a.z, a.radius, a.box_x, a.box_y, a.box_z,
+	a.box_orientation as box_o, t.target_map, t.target_position_x as tx, t.target_position_y as ty, t.target_position_z as tz,
+	t.target_orientation as "to"
+	from areatrigger_teleport t
+	join (select id, max(patch) as patch from areatrigger_teleport where patch <= ${PATCH} group by id) latest
+		on latest.id = t.id and latest.patch = t.patch
+	join areatrigger_template a on a.id = t.id
+		and a.build = (select max(build) from areatrigger_template b where b.id = t.id)`);
+// Dungeons you can walk into from a continent (directly or through another dungeon, like
+// Blackwing Lair from Blackrock Spire), and every trigger among those maps.
+const MAPS = [...CONTINENTS];
+for (let i = 0; i < MAPS.length; i++) {
+	for (const t of teleports) if (t.map === MAPS[i] && !MAPS.includes(t.target_map)) MAPS.push(t.target_map);
+}
+const triggers = teleports
+	.filter((t) => MAPS.includes(t.map) && MAPS.includes(t.target_map))
+	.map((t) => [t.id, t.name, t.map, round(t.x), round(t.y), round(t.z), round(t.radius), round(t.box_x), round(t.box_y), round(t.box_z),
+		round(t.box_o, 3), t.target_map, round(t.tx), round(t.ty), round(t.tz), round(t.to, 3)]);
+writeFileSync('public/spawns/triggers.json', JSON.stringify({ source: 'VMaNGOS world database (GPL-2.0), patch 1.12', triggers }));
+console.log('public/spawns/triggers.json', triggers.length, 'teleports across', MAPS.length, 'maps');
+
 for (const map of MAPS) {
 	const creatures = query<Spawn>(`select guid, id, position_x as x, position_y as y, position_z as z, orientation as o,
 		movement_type, wander_distance

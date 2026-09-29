@@ -69,6 +69,9 @@ const api: AsyncStorageApi = {
 	async loadAreas() {
 		return requireWorld().loadAreas();
 	},
+	async loadInstance(mapId) {
+		return requireWorld().loadInstance(mapId);
+	},
 	async loadMusic() {
 		return requireWorld().loadMusic();
 	},

@@ -9,6 +9,8 @@ import {
 	parseWmoGroup, parseWmoRoot, WMO_GROUP_INTERIOR, WMO_LIQUID_CELL, type WmoGroup, WMO_MATERIAL_TWO_SIDED, WMO_MATERIAL_UNFOGGED, WMO_MATERIAL_UNLIT,
 } from '../formats/wmo';
 import type { LiquidKind } from '../formats/mh2o';
+import { TILE_SIZE } from '../formats/adt';
+import type { WdtGlobalWmo } from '../formats/wdt';
 import type { LiquidMesh } from './liquidMesh';
 import type { SpawnInfo, SpawnMovement } from './spawns';
 import { compose, fromQuaternion, multiply, rotationX, rotationY, rotationZ, scaling, translation, type Mat4 } from './mat4';
@@ -117,6 +119,34 @@ export interface ModelAnimation {
 /** ADT placement rotation (degrees) to a matrix: models are z-up; the world here is y-up. */
 function placementMatrix(x: number, y: number, z: number, rx: number, ry: number, rz: number, scale: number): Mat4 {
 	return compose(translation(x, y, z), rotationY(ry - 90), rotationZ(-rx), rotationX(rz - 90), scaling(scale));
+}
+
+/** Placement space puts the map's centre at (32, 32) tiles. */
+const MAP_CENTRE = 32 * TILE_SIZE;
+
+/** The placement of a WMO-only map's building: an ADT-style placement, relative to the map's centre. */
+export function globalWmoPlacement(wmo: WdtGlobalWmo): Placement {
+	const [x, y, z] = wmo.position;
+	const [rx, ry, rz] = wmo.rotation;
+	return {
+		kind: 'wmo',
+		fdid: wmo.fdid,
+		uid: 0xffffffff,
+		matrix: placementMatrix(MAP_CENTRE + x, y, MAP_CENTRE + z, rx, ry, rz, wmo.scale),
+		doodadSet: wmo.doodadSet,
+		nameSet: wmo.nameSet,
+	};
+}
+
+/** Tiles a WMO-only map's building covers (x, y), from its bounds around the map's centre. */
+export function globalWmoTiles(wmo: WdtGlobalWmo): [number, number][] {
+	// The bounds' axes don't line up with the tiles' one for one; a square that holds them all will do.
+	const reach = Math.max(...[...wmo.min, ...wmo.max].filter((_, i) => i % 3 !== 1).map(Math.abs)) + 50;
+	const first = Math.floor((MAP_CENTRE - reach) / TILE_SIZE);
+	const last = Math.floor((MAP_CENTRE + reach) / TILE_SIZE);
+	const tiles: [number, number][] = [];
+	for (let y = first; y <= last; y++) for (let x = first; x <= last; x++) tiles.push([x, y]);
+	return tiles;
 }
 
 /** Reads M2 (MDDF) and WMO (MODF) placements from a tile's _obj0.adt. */

@@ -16,6 +16,8 @@ import { TerrainManager, type ContinentPlacement } from './terrain';
 import { liquidMaterials, liquidTime } from './terrainMaterials';
 import { supportsCompressedTextures } from './textures';
 
+/** A dungeon view in the URL hash: #d<map ID>/... */
+const HASH_INSTANCE = /^#d(\d+)\//;
 /** Tiles of open sea between Kalimdor and the Eastern Kingdoms in the shared world. */
 const CONTINENT_GAP = 6;
 /** WoW world coordinates are measured from the centre of the 64x64 tile grid. */
@@ -23,6 +25,13 @@ const MAP_ORIGIN = 32 * TILE_SIZE;
 const SKY = new THREE.Color(0x9ec4e4);
 /** Yards the camera keeps from building surfaces: well past its 0.5 yd near plane, so looking down never clips through a floor. */
 const CAMERA_RADIUS = 1.5;
+/** Where dungeons are laid out, in tiles: well south of the continents, side by side. */
+const INSTANCE_OFFSET_Y = 200;
+const INSTANCE_SPACING = 70;
+/** Yards above a teleport's destination (the ground there) to put the camera. */
+const EYE_HEIGHT = 2;
+/** Yards of slack around area triggers: the camera is a little ball, not a point. */
+const TRIGGER_MARGIN = 1;
 /** Half-minutes the T key moves the time of day (15 minutes). */
 const TIME_STEP = 30;
 /** Yards; NPC names show within this distance, like the game's name plates. */
@@ -65,6 +74,51 @@ export interface HudInfo {
 	music: string;
 }
 
+/**
+ * An area trigger that teleports (a dungeon entrance or exit): a sphere, or a box turned about
+ * the vertical, in WoW world coordinates on one map, and where it sends you.
+ */
+interface AreaTrigger {
+	name: string;
+	map: number;
+	x: number;
+	y: number;
+	z: number;
+	radius: number;
+	box: [number, number, number, number];
+	target: { map: number; x: number; y: number; z: number; o: number };
+}
+
+type TriggerRow = [number, string, number, number, number, number, number, number, number, number, number, number, number, number, number, number];
+
+/** Teleporting area triggers by map, from public/spawns/triggers.json (VMaNGOS data). */
+async function loadTriggers(): Promise<Map<number, AreaTrigger[]>> {
+	const byMap = new Map<number, AreaTrigger[]>();
+	try {
+		const response = await fetch('/spawns/triggers.json');
+		if (!response.ok) return byMap;
+		const file = (await response.json()) as { triggers: TriggerRow[] };
+		for (const [, name, map, x, y, z, radius, bx, by, bz, bo, tm, tx, ty, tz, to] of file.triggers) {
+			const list = byMap.get(map) ?? [];
+			list.push({ name, map, x, y, z, radius, box: [bx, by, bz, bo], target: { map: tm, x: tx, y: ty, z: tz, o: to } });
+			byMap.set(map, list);
+		}
+	} catch (e) {
+		console.warn('Area triggers unavailable:', e);
+	}
+	return byMap;
+}
+
+function insideTrigger(t: AreaTrigger, x: number, y: number, z: number): boolean {
+	if (t.radius > 0) return (x - t.x) ** 2 + (y - t.y) ** 2 + (z - t.z) ** 2 <= (t.radius + TRIGGER_MARGIN) ** 2;
+	const [length, width, height, o] = t.box;
+	const dx = x - t.x;
+	const dy = y - t.y;
+	const along = dx * Math.cos(o) + dy * Math.sin(o);
+	const across = -dx * Math.sin(o) + dy * Math.cos(o);
+	return Math.abs(along) <= length / 2 + TRIGGER_MARGIN && Math.abs(across) <= width / 2 + TRIGGER_MARGIN && Math.abs(z - t.z) <= height / 2 + TRIGGER_MARGIN;
+}
+
 export class Viewer {
 	readonly renderer: THREE.WebGLRenderer;
 	private readonly scene = new THREE.Scene();
@@ -100,6 +154,19 @@ export class Viewer {
 	private readonly rooms = new Map<string, WmoArea | null | 'pending'>();
 	/** The room the camera was last found in, if any. */
 	private room: WmoArea | null = null;
+	/** Dungeon entrances and exits by map. */
+	private triggers = new Map<number, AreaTrigger[]>();
+	/** Dungeon maps by ID, laid out in the world when first entered. */
+	private readonly instances = new Map<number, Promise<ContinentPlacement | null>>();
+	private readonly loadedInstances = new Map<number, ContinentPlacement>();
+	/**
+	 * Triggers fire only once the camera has been outside all of them, so arriving on (or
+	 * starting in) one doesn't send you straight back.
+	 */
+	private triggersArmed = false;
+	private teleporting = false;
+	private lastTriggerCheck = 0;
+	private ocean: THREE.Mesh | null = null;
 
 	constructor(
 		private readonly canvas: HTMLCanvasElement,
@@ -207,9 +274,13 @@ export class Viewer {
 		this.addOcean();
 
 		onStatus('Reading lighting and zone names');
+		this.triggers = await loadTriggers();
+		// Light for the continents and every dungeon their entrances lead to.
+		const mapIds = new Set(this.continents.map((c) => c.mapId));
+		for (const list of this.triggers.values()) for (const t of list) mapIds.add(t.target.map);
 		try {
 			const [lighting, areas] = await Promise.all([
-				this.storage.loadLighting(this.continents.map((c) => c.mapId)),
+				this.storage.loadLighting([...mapIds]),
 				this.storage.loadAreas(),
 			]);
 			this.lighting = new Lighting(lighting);
@@ -227,26 +298,40 @@ export class Viewer {
 		const time = /^(\d{1,2}):(\d{2})$/.exec(new URLSearchParams(location.search).get('time') ?? '');
 		if (time) this.timeOffset = (Number(time[1]) * 60 + Number(time[2])) * 2 - this.timeOfDay();
 
+		// A view inside a dungeon needs that dungeon laid out first.
+		const hashInstance = HASH_INSTANCE.exec(location.hash);
+		if (hashInstance) await this.placementFor(Number(hashInstance[1]));
 		const view = this.viewFromHash();
 		if (view) this.controls.set(view.position, view.yaw, view.pitch);
 		else this.goToStart();
 		window.addEventListener('pagehide', () => this.writeHash(performance.now(), true));
-		window.addEventListener('hashchange', () => {
+		window.addEventListener('hashchange', async () => {
+			if (location.hash === this.lastHash) return;
+			const instance = HASH_INSTANCE.exec(location.hash);
+			if (instance) await this.placementFor(Number(instance[1]));
 			const next = this.viewFromHash();
-			if (next && location.hash !== this.lastHash) this.controls.flyTo(next.position, next.yaw, next.pitch, 2);
+			if (!next) return;
+			// Across maps, jump: flying there would cross the whole world.
+			const here = this.terrain.locate(this.camera.position.x, this.camera.position.z)?.continent;
+			const there = this.terrain.locate(next.position.x, next.position.z)?.continent;
+			if (here === there) this.controls.flyTo(next.position, next.yaw, next.pitch, 2);
+			else this.controls.set(next.position, next.yaw, next.pitch);
 		});
 		void this.terrain.loadFarTextures(this.camera.position);
 	}
 
 	/**
 	 * The URL hash holds the camera as #continent/tileX/tileY/heightAboveGround/yaw/pitch
-	 * (tiles fractional, angles in degrees), so views can be bookmarked and shared.
+	 * (tiles fractional, angles in degrees), so views can be bookmarked and shared. Inside a
+	 * dungeon the first part is d<map ID> instead.
 	 */
 	private viewFromHash(): { position: THREE.Vector3; yaw: number; pitch: number } | null {
-		const parts = location.hash.slice(1).split('/').map(Number);
-		if (parts.length < 3 || parts.some((n) => !Number.isFinite(n))) return null;
-		const [c, tx, ty, alt = 150, yaw = 0, pitch = -17] = parts;
-		const continent = this.continents[c];
+		const [first = '', ...rest] = location.hash.slice(1).split('/');
+		const parts = rest.map(Number);
+		if (parts.length < 2 || parts.some((n) => !Number.isFinite(n))) return null;
+		const [tx, ty, alt = 150, yaw = 0, pitch = -17] = parts;
+		const instance = HASH_INSTANCE.exec(`#${first}/`);
+		const continent = instance ? this.loadedInstances.get(Number(instance[1])) : this.continents[Number(first)];
 		if (!continent) return null;
 		const x = (tx + continent.offsetX) * TILE_SIZE;
 		const z = (ty + continent.offsetY) * TILE_SIZE;
@@ -262,7 +347,7 @@ export class Viewer {
 		const pos = this.camera.position;
 		const at = this.terrain.locate(pos.x, pos.z);
 		if (!at) return null;
-		const c = this.continents.indexOf(at.continent);
+		const c = at.continent.instance ? `d${at.continent.mapId}` : this.continents.indexOf(at.continent);
 		const deg = (r: number) => THREE.MathUtils.radToDeg(r).toFixed(0);
 		const yaw = ((this.controls.yaw % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
 		return `#${c}/${(pos.x / TILE_SIZE - at.continent.offsetX).toFixed(3)}/${(pos.z / TILE_SIZE - at.continent.offsetY).toFixed(3)}/${this.controls.altitude.toFixed(0)}/${deg(yaw)}/${deg(this.controls.pitch)}`;
@@ -295,6 +380,70 @@ export class Viewer {
 		ocean.rotation.x = -Math.PI / 2;
 		ocean.position.set(center.x, 0, center.y);
 		this.scene.add(ocean);
+		this.ocean = ocean;
+	}
+
+	/**
+	 * Where a map sits in the world: a continent's placement, or a dungeon's, which is loaded and
+	 * laid out (south of the continents, side by side) the first time it's needed. Null when the
+	 * map isn't in the install.
+	 */
+	private placementFor(mapId: number): Promise<ContinentPlacement | null> {
+		const continent = this.continents.find((c) => c.mapId === mapId);
+		if (continent) return Promise.resolve(continent);
+		let placement = this.instances.get(mapId);
+		if (!placement) {
+			const slot = this.instances.size;
+			placement = this.storage.loadInstance(mapId).then((map) => {
+				if (!map) return null;
+				const p: ContinentPlacement = { name: map.name, mapId, wdt: map.wdt, offsetX: slot * INSTANCE_SPACING, offsetY: INSTANCE_OFFSET_Y, instance: true };
+				this.terrain.addContinent(p, map.farTiles);
+				this.terrain.addObjectTiles(p, map.wmoTiles);
+				this.loadedInstances.set(mapId, p);
+				void this.terrain.loadFarTextures(this.camera.position, p);
+				return p;
+			}, (e) => {
+				console.warn(`Map ${mapId}:`, e);
+				return null;
+			});
+			this.instances.set(mapId, placement);
+		}
+		return placement;
+	}
+
+	/** Walks through dungeon entrances and exits: sends the camera on when it enters a teleport trigger. */
+	private checkTriggers(): void {
+		const where = this.wowPosition();
+		if (!where || this.teleporting) return;
+		const z = this.camera.position.y;
+		const hit = this.triggers.get(where.mapId)?.find((t) => insideTrigger(t, where.x, where.y, z));
+		if (!this.triggersArmed) {
+			this.triggersArmed = !hit;
+			return;
+		}
+		if (hit) void this.teleport(hit);
+	}
+
+	private async teleport(t: AreaTrigger): Promise<void> {
+		this.teleporting = true;
+		try {
+			const placement = await this.placementFor(t.target.map);
+			if (!placement) {
+				console.warn(`${t.name}: map ${t.target.map} isn't in this install`);
+				return;
+			}
+			// WoW world (x north, y west, z up) -> this map's place in the world.
+			const position = new THREE.Vector3(
+				MAP_ORIGIN - t.target.y + placement.offsetX * TILE_SIZE,
+				t.target.z + EYE_HEIGHT,
+				MAP_ORIGIN - t.target.x + placement.offsetY * TILE_SIZE,
+			);
+			// WoW orientation turns from north toward west, as the camera's yaw does.
+			this.controls.set(position, t.target.o, 0);
+		} finally {
+			this.teleporting = false;
+			this.triggersArmed = false;
+		}
 	}
 
 	/** Above Northshire Abbey, looking north. */
@@ -405,6 +554,10 @@ export class Viewer {
 		liquidTime.value = now / 1000;
 		const pos = this.camera.position;
 
+		if (now - this.lastTriggerCheck > 100) {
+			this.lastTriggerCheck = now;
+			this.checkTriggers();
+		}
 		if (now - this.lastLightUpdate > 100) {
 			this.lastLightUpdate = now;
 			this.updateLighting();
@@ -462,6 +615,9 @@ export class Viewer {
 
 	/** Sun, ambient, sky and fog from the game's light zones for the current place and time. */
 	private updateLighting(): void {
+		// Dungeons lie within the sea plane's reach; it mustn't flood them.
+		const here = this.terrain.locate(this.camera.position.x, this.camera.position.z);
+		if (this.ocean) this.ocean.visible = !here?.continent.instance;
 		const t = this.timeOfDay();
 		const sunDir = sunDirection(t);
 		const where = this.wowPosition();

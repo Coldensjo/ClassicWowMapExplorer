@@ -4,7 +4,7 @@ import type { AreaInfo, LightingData } from '../explorer/lighting';
 import type { MapSummary, TileDetails } from '../explorer/maps';
 import type { MusicData, WmoArea } from '../explorer/music';
 import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
-import type { FarTile, LoadedTexture, NearTile, TileTexture } from '../explorer/world';
+import type { FarTile, InstanceMap, LoadedTexture, NearTile, TileTexture } from '../explorer/world';
 import type { Image } from '../formats/blp';
 
 export type SourceInit =
@@ -19,6 +19,7 @@ export interface StorageApi {
 	loadTile(wdtFdid: number, x: number, y: number): TileDetails;
 	minimapThumbnails(wdtFdid: number, coords: [number, number][], size: number): { x: number; y: number; image: Image | null }[];
 	loadFarTiles(wdtFdid: number, wdlFdid: number): FarTile[];
+	loadInstance(mapId: number): InstanceMap | null;
 	loadTileTextures(wdtFdid: number, coords: [number, number][], maxSize: number, compressed: boolean): TileTexture[];
 	loadNearTile(wdtFdid: number, x: number, y: number, compressed: boolean): NearTile;
 	loadTextures(fdids: number[], compressed: boolean): LoadedTexture[];

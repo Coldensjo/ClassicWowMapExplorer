@@ -3,13 +3,13 @@ import { parseAdtTex } from '../formats/adtTex';
 import { blpTexture, type TextureData } from '../formats/blp';
 import type { LiquidKind } from '../formats/mh2o';
 import { parseWdl, WDL_CELLS } from '../formats/wdl';
-import { liquidKinds } from './clientDb';
+import { DB2_FILES, liquidKinds, loadTable } from './clientDb';
 import { loadAreas, loadLighting, type AreaInfo, type LightingData } from './lighting';
 import { buildLiquidMeshes, type LiquidMesh } from './liquidMesh';
 import { MusicTables, type MusicData, type WmoArea } from './music';
 import type { MapExplorer } from './maps';
 import { KNOWN_MAPS } from './maps';
-import { loadM2, loadWmo, parsePlacements, type ModelData, type ObjectKind, type Placement } from './objects';
+import { globalWmoPlacement, globalWmoTiles, loadM2, loadWmo, parsePlacements, type ModelData, type ObjectKind, type Placement } from './objects';
 import { DisplayResolver, parseWeapons, SpawnSource } from './spawns';
 import { buildSplatTerrain, type SplatTerrain } from './splatMesh';
 import { buildTerrainMesh, type TerrainGeometry } from './terrainMesh';
@@ -18,6 +18,21 @@ import { buildTerrainMesh, type TerrainGeometry } from './terrainMesh';
 const MPHD_BIG_ALPHA = 0x4 | 0x80;
 /** MCNK flag: 4-bit alpha maps are already 64x64 and need no fix-up. */
 const MCNK_DO_NOT_FIX_ALPHA = 0x8000;
+
+/** A map entered through an area trigger (a dungeon, mostly): what to lay out in the world. */
+export interface InstanceMap {
+	mapId: number;
+	name: string;
+	wdt: number;
+	/** Terrain tiles (from the WDL), for maps built from ADTs. */
+	farTiles: FarTile[];
+	/** Tiles a WMO-only map's building covers, for streaming its objects and spawns. */
+	wmoTiles: [number, number][];
+}
+
+/** Map.db2 fields. */
+const MAP_NAME = 1;
+const MAP_WDT = 21;
 
 export interface FarTile {
 	x: number;
@@ -62,6 +77,35 @@ export class WorldLoader {
 
 	private get storage() {
 		return this.maps.storage;
+	}
+
+	private mapIds: Promise<Map<number, number>> | null = null;
+
+	/** The Map.db2 ID of a map's WDT, or null for a WDT no map uses. */
+	private async mapIdOf(wdtFdid: number): Promise<number | null> {
+		const known = KNOWN_MAPS.find((m) => m.wdt === wdtFdid);
+		if (known) return known.mapId;
+		this.mapIds ??= loadTable(this.storage, DB2_FILES.Map).then((table) => {
+			const byWdt = new Map<number, number>();
+			for (const id of table.ids()) byWdt.set(table.getInt(id, MAP_WDT) ?? 0, id);
+			return byWdt;
+		});
+		return (await this.mapIds).get(wdtFdid) ?? null;
+	}
+
+	/**
+	 * A map other than the continents (a dungeon), by Map.db2 ID: its name and layout. Maps built
+	 * from ADTs have a WDL next to their WDT; WMO-only maps are one building.
+	 */
+	async loadInstance(mapId: number): Promise<InstanceMap | null> {
+		const table = await loadTable(this.storage, DB2_FILES.Map);
+		const wdtFdid = table.getInt(mapId, MAP_WDT) ?? 0;
+		if (!wdtFdid || this.storage.status(wdtFdid) !== 'ok') return null;
+		const wdt = await this.maps.wdt(wdtFdid);
+		const name = table.getString(mapId, MAP_NAME) ?? `Map ${mapId}`;
+		const farTiles = wdt.tileCount ? await this.loadFarTiles(wdtFdid, wdtFdid - 1) : [];
+		const wmoTiles = wdt.globalWmo ? globalWmoTiles(wdt.globalWmo) : [];
+		return { mapId, name, wdt: wdtFdid, farTiles, wmoTiles };
 	}
 
 	async loadFarTiles(wdtFdid: number, wdlFdid: number): Promise<FarTile[]> {
@@ -123,11 +167,15 @@ export class WorldLoader {
 
 	/** M2 and WMO placements on a tile, from its _obj0 file. */
 	async loadTileObjects(wdtFdid: number, x: number, y: number): Promise<Placement[]> {
-		const tile = (await this.maps.wdt(wdtFdid)).tiles[y * 64 + x];
+		const wdt = await this.maps.wdt(wdtFdid);
+		const tile = wdt.tiles[y * 64 + x];
 		const [placements, spawns] = await Promise.all([
 			tile?.files.obj0 ? this.storage.readFile(tile.files.obj0).then(parsePlacements) : ([] as Placement[]),
 			this.tileSpawns(wdtFdid, x, y),
 		]);
+		// A WMO-only map's building is listed by every tile it covers (placed once, by its key).
+		const global = wdt.globalWmo;
+		if (global && globalWmoTiles(global).some(([tx, ty]) => tx === x && ty === y)) placements.push(globalWmoPlacement(global));
 		// Spawn placements are cached per tile; send copies of their matrices, since the
 		// transfer to the main thread empties the originals.
 		return placements.concat(spawns.map((p) => ({ ...p, matrix: p.matrix.slice() })));
@@ -144,8 +192,8 @@ export class WorldLoader {
 
 	/** Creatures and game objects on a tile, from public/spawns (empty if that data is absent). */
 	private async tileSpawns(wdtFdid: number, x: number, y: number): Promise<Placement[]> {
-		const mapId = KNOWN_MAPS.find((m) => m.wdt === wdtFdid)?.mapId;
-		if (mapId === undefined) return [];
+		const mapId = await this.mapIdOf(wdtFdid);
+		if (mapId === null) return [];
 		let source = this.spawnSources.get(mapId);
 		if (!source) {
 			source = SpawnSource.load(mapId);

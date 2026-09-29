@@ -28,6 +28,8 @@ export interface ContinentPlacement {
 	/** Where the continent's tile (0, 0) sits in the shared world grid, in tiles. */
 	offsetX: number;
 	offsetY: number;
+	/** Set for maps entered through area triggers (dungeons), laid out away from the continents. */
+	instance?: boolean;
 }
 
 interface TileState {
@@ -39,8 +41,9 @@ interface TileState {
 	originZ: number;
 	hasAdt: boolean;
 	maxHeight: number;
-	far: THREE.Mesh<THREE.BufferGeometry, THREE.MeshLambertMaterial>;
-	farHeights: Float32Array;
+	/** Low-detail mesh and heights; null on a WMO-only map's tiles, which only carry objects. */
+	far: THREE.Mesh<THREE.BufferGeometry, THREE.MeshLambertMaterial> | null;
+	farHeights: Float32Array | null;
 	near: NearState | null;
 	nearHeights: Float32Array | null;
 	/** 128x128 hole flags while the tile is detailed. */
@@ -176,10 +179,40 @@ export class TerrainManager {
 		}
 	}
 
-	/** World-space bounds of all tiles, in yards. */
+	/**
+	 * Tiles of a map without terrain (a WMO-only dungeon): nothing to draw, but they stream the
+	 * map's building, objects and spawns as the camera comes near.
+	 */
+	addObjectTiles(continent: ContinentPlacement, coords: [number, number][]): void {
+		for (const [x, y] of coords) {
+			const gx = x + continent.offsetX;
+			const gy = y + continent.offsetY;
+			this.tiles.set(TerrainManager.key(gx, gy), {
+				continent,
+				x,
+				y,
+				originX: gx * TILE_SIZE,
+				originZ: gy * TILE_SIZE,
+				hasAdt: false,
+				maxHeight: Infinity,
+				far: null,
+				farHeights: null,
+				near: null,
+				nearHeights: null,
+				nearHoles: null,
+				areaIds: null,
+				nearLoading: false,
+				distance: Infinity,
+				objectLevel: 'none',
+			});
+		}
+	}
+
+	/** World-space bounds of the continents' tiles, in yards (dungeons, laid out apart, don't count). */
 	bounds(): THREE.Box2 {
 		const box = new THREE.Box2();
 		for (const t of this.tiles.values()) {
+			if (t.continent.instance) continue;
 			box.expandByPoint(new THREE.Vector2(t.originX, t.originZ));
 			box.expandByPoint(new THREE.Vector2(t.originX + TILE_SIZE, t.originZ + TILE_SIZE));
 		}
@@ -200,10 +233,13 @@ export class TerrainManager {
 		return { center, extent };
 	}
 
-	/** Streams low-detail textures for every tile, nearest to the given point first. */
-	async loadFarTextures(near: THREE.Vector3): Promise<void> {
-		const pending = [...this.tiles.values()].filter((t) => t.hasAdt);
-		this.farTexturesTotal = pending.length;
+	/**
+	 * Streams low-detail textures for every tile (or just one map's, when given), nearest to the
+	 * given point first.
+	 */
+	async loadFarTextures(near: THREE.Vector3, only?: ContinentPlacement): Promise<void> {
+		const pending = [...this.tiles.values()].filter((t) => t.far && t.hasAdt && (!only || t.continent === only));
+		this.farTexturesTotal += pending.length;
 		pending.sort((a, b) => this.planarDistance(a, near) - this.planarDistance(b, near));
 		const byContinent = new Map<number, TileState[]>();
 		for (let i = 0; i < pending.length; i += FAR_TEXTURE_BATCH) {
@@ -217,7 +253,7 @@ export class TerrainManager {
 				const results = await this.storage.loadTileTextures(wdt, list.map((t) => [t.x, t.y]), FAR_TEXTURE_SIZE, this.compressed);
 				results.forEach((r, k) => {
 					if (!r.texture) return;
-					const material = list[k].far.material;
+					const material = list[k].far!.material;
 					material.map = createTexture(r.texture, this.anisotropy);
 					material.color.set(0xffffff);
 					material.needsUpdate = true;
@@ -237,13 +273,15 @@ export class TerrainManager {
 	update(camera: THREE.Vector3): void {
 		const wanted: TileState[] = [];
 		for (const t of this.tiles.values()) {
-			if (!t.hasAdt) continue;
+			const objectsOnly = !t.far;
+			if (!t.hasAdt && !objectsOnly) continue;
 			const dy = Math.max(0, camera.y - t.maxHeight);
 			t.distance = Math.hypot(this.planarDistance(t, camera), dy);
 			if (t.near && t.distance > NEAR_DROP_DISTANCE) this.dropNear(t);
-			else if (!t.near && !t.nearLoading && t.distance < NEAR_LOAD_DISTANCE) wanted.push(t);
+			else if (t.hasAdt && !t.near && !t.nearLoading && t.distance < NEAR_LOAD_DISTANCE) wanted.push(t);
 			// Doodads wait for the detailed terrain so they sit on the right ground.
-			const level: ObjectLevel = t.near ? 'all' : t.distance < WMO_DISTANCE ? 'wmo' : 'none';
+			const detailed = objectsOnly ? t.distance < NEAR_LOAD_DISTANCE : !!t.near;
+			const level: ObjectLevel = detailed ? 'all' : t.distance < WMO_DISTANCE ? 'wmo' : 'none';
 			if (level !== t.objectLevel) {
 				t.objectLevel = level;
 				const offset = new THREE.Vector3(t.continent.offsetX * TILE_SIZE, 0, t.continent.offsetY * TILE_SIZE);
@@ -278,7 +316,7 @@ export class TerrainManager {
 			t.nearHeights = tile.heights;
 			t.nearHoles = tile.holes;
 			t.areaIds = tile.areaIds;
-			t.far.visible = false;
+			if (t.far) t.far.visible = false;
 		} catch (e) {
 			console.warn(`Tile ${t.continent.name} ${t.x}_${t.y}:`, e);
 		} finally {
@@ -336,7 +374,7 @@ export class TerrainManager {
 		t.nearHeights = null;
 		t.nearHoles = null;
 		t.areaIds = null;
-		t.far.visible = true;
+		if (t.far) t.far.visible = true;
 	}
 	private tileAt(x: number, z: number): TileState | undefined {
 		return this.tiles.get(TerrainManager.key(Math.floor(x / TILE_SIZE), Math.floor(z / TILE_SIZE)));
@@ -360,7 +398,9 @@ export class TerrainManager {
 		if (!t) return -Infinity;
 		const lx = x - t.originX;
 		const lz = z - t.originZ;
-		return t.nearHeights ? sampleGrid(t.nearHeights, TILE_CELLS, lx, lz) : sampleGrid(t.farHeights, WDL_CELLS, lx, lz);
+		if (t.nearHeights) return sampleGrid(t.nearHeights, TILE_CELLS, lx, lz);
+		// A WMO-only map has no terrain at all.
+		return t.farHeights ? sampleGrid(t.farHeights, WDL_CELLS, lx, lz) : -Infinity;
 	}
 
 	/** AreaTable ID at a world position, if its tile is loaded in detail. */

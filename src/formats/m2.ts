@@ -41,6 +41,8 @@ export interface M2File {
 	transparency: number[];
 	/** Static colour alpha per colour slot, 0-1. */
 	colorAlpha: number[];
+	/** Per texture-transform combo: steady UV scroll in texture units per second (scrolling fire, water). */
+	uvScroll: ([number, number] | null)[];
 	skinFdids: number[];
 	bounds: { min: [number, number, number]; max: [number, number, number]; radius: number };
 }
@@ -54,6 +56,8 @@ export interface M2Batch {
 	textureComboIndex: number;
 	textureCount: number;
 	transparencyIndex: number;
+	/** Index into textureTransformCombos, or 0xffff for none. */
+	uvAnimationIndex: number;
 	colorIndex: number;
 	priorityPlane: number;
 	flags: number;
@@ -132,6 +136,29 @@ export function parseM2(bytes: Uint8Array): M2File {
 	const weightValues = Array.from({ length: weights.count }, (_, i) =>
 		firstTrackValue(view, b, weights.offset + i * 20, (at) => view.getInt16(at, true) / 32767) ?? 1);
 	const transparency = Array.from({ length: weightCombos.count }, (_, i) => weightValues[view.getUint16(b + weightCombos.offset + i * 2, true)] ?? 1);
+	// Texture transforms (60 bytes: translation, rotation, scale tracks), looked up through the combos.
+	// Only steady scrolling is kept: the translation's change from first to last key, per second.
+	const transforms = arr(view, b, 0x60);
+	const transformCombos = arr(view, b, 0x98);
+	const scrollOf = (i: number): [number, number] | null => {
+		if (i >= transforms.count) return null;
+		const track = b + transforms.offset + i * 60;
+		const times = arr(view, b, track - b + 4);
+		const values = arr(view, b, track - b + 12);
+		if (!times.count || !values.count) return null;
+		const t = arr(view, b, times.offset);
+		const v = arr(view, b, values.offset);
+		const n = Math.min(t.count, v.count);
+		if (n < 2) return null;
+		const t0 = view.getUint32(b + t.offset, true), t1 = view.getUint32(b + t.offset + (n - 1) * 4, true);
+		if (t1 <= t0) return null;
+		const x = (k: number) => view.getFloat32(b + v.offset + k * 12, true);
+		const y = (k: number) => view.getFloat32(b + v.offset + k * 12 + 4, true);
+		const perSecond = 1000 / (t1 - t0);
+		return [(x(n - 1) - x(0)) * perSecond, (y(n - 1) - y(0)) * perSecond];
+	};
+	const uvScroll = Array.from({ length: transformCombos.count }, (_, i) => scrollOf(view.getUint16(b + transformCombos.offset + i * 2, true)));
+
 	// Colours: M2Color = color track (vec3) + alpha track (fixed16), 40 bytes.
 	const colorAlpha = Array.from({ length: colors.count }, (_, i) =>
 		firstTrackValue(view, b, colors.offset + i * 40 + 20, (at) => view.getInt16(at, true) / 32767) ?? 1);
@@ -147,6 +174,7 @@ export function parseM2(bytes: Uint8Array): M2File {
 		textureCombos: combos,
 		transparency,
 		colorAlpha,
+		uvScroll,
 		skinFdids: skinFdids.slice(0, Math.max(1, skinCount)),
 		bounds: { min: [f(0xa0), f(0xa4), f(0xa8)], max: [f(0xac), f(0xb0), f(0xb4)], radius: f(0xb8) },
 	};
@@ -185,6 +213,7 @@ export function parseSkin(bytes: Uint8Array): M2Skin {
 			textureCount: view.getUint16(o + 14, true),
 			textureComboIndex: view.getUint16(o + 16, true),
 			transparencyIndex: view.getUint16(o + 20, true),
+			uvAnimationIndex: view.getUint16(o + 22, true),
 		});
 	}
 	return { vertexLookup: u16s(vertices), indices: u16s(indices), batches: batchList };

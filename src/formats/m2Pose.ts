@@ -8,81 +8,176 @@ const ANIM_STAND = 0;
 /** M2CompQuat: int16 components mapped to [-1, 1]. */
 const compQuat = (v: number) => (v < 0 ? v + 32768 : v - 32767) / 32767;
 
-/**
- * Bone matrices for the first frame of the model's Stand animation, so creatures can be drawn
- * standing instead of in their bind pose. Returns null if the model has no embedded Stand.
- * md20 is the offset of the MD20 header; track offsets are relative to it.
- */
-export function standPose(bytes: Uint8Array, md20: number): Mat4[] | null {
+/** A model's Stand sequence: where its bone tracks are, and how long it loops. */
+interface StandSequence {
+	view: DataView;
+	md20: number;
+	seq: number;
+	duration: number;
+	boneCount: number;
+	boneOffset: number;
+	/** Durations (ms) of the model's global sequences, for tracks that loop on their own. */
+	globalLoops: number[];
+}
+
+function findStand(bytes: Uint8Array, md20: number): StandSequence | null {
 	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	const u32 = (o: number) => view.getUint32(md20 + o, true);
+	const boneCount = u32(0x2c);
+	if (!boneCount) return null;
 	const seqCount = u32(0x1c);
 	const seqOffset = u32(0x20);
-	const boneCount = u32(0x2c);
-	const boneOffset = u32(0x30);
-	if (!boneCount) return null;
-
-	let seq = -1;
 	for (let i = 0; i < seqCount; i++) {
 		const o = md20 + seqOffset + i * SEQUENCE_SIZE;
 		// Flag 0x20: the sequence's keys are in this file rather than a separate .anim.
 		if (view.getUint16(o, true) === ANIM_STAND && view.getUint16(o + 2, true) === 0 && view.getUint32(o + 12, true) & 0x20) {
-			seq = i;
-			break;
+			const loops = Array.from({ length: u32(0x14) }, (_, k) => view.getUint32(md20 + u32(0x18) + k * 4, true));
+			return { view, md20, seq: i, duration: view.getUint32(o + 4, true), boneCount, boneOffset: u32(0x30), globalLoops: loops };
 		}
 	}
-	if (seq < 0) return null;
+	return null;
+}
 
-	/** First key of a track for the Stand sequence (or its global sequence), as a byte offset. */
-	const firstKey = (track: number): number | null => {
-		const globalSeq = view.getInt16(track + 2, true);
-		const arrays = view.getUint32(track + 12, true);
-		const arraysOffset = view.getUint32(track + 16, true);
-		const index = globalSeq >= 0 ? 0 : seq;
-		if (index >= arrays) return null;
-		const inner = md20 + arraysOffset + index * 8;
-		const count = view.getUint32(inner, true);
-		return count ? md20 + view.getUint32(inner + 4, true) : null;
-	};
+/**
+ * A track's value at time t (ms) in the Stand sequence (or its own global sequence), linearly
+ * interpolated between keys. read(offset) decodes one value; lerp mixes two.
+ */
+function sampleTrack<T>(s: StandSequence, track: number, t: number, size: number, read: (o: number) => T, lerp: (a: T, b: T, f: number) => T): T | null {
+	const { view, md20 } = s;
+	const globalSeq = view.getInt16(track + 2, true);
+	const index = globalSeq >= 0 ? 0 : s.seq;
+	const times = view.getUint32(track + 4, true);
+	const values = view.getUint32(track + 12, true);
+	if (index >= values || index >= times) return null;
+	const timeArr = md20 + view.getUint32(track + 8, true) + index * 8;
+	const valueArr = md20 + view.getUint32(track + 16, true) + index * 8;
+	const count = Math.min(view.getUint32(timeArr, true), view.getUint32(valueArr, true));
+	if (!count) return null;
+	const timeAt = (k: number) => view.getUint32(md20 + view.getUint32(timeArr + 4, true) + k * 4, true);
+	const valueAt = (k: number) => read(md20 + view.getUint32(valueArr + 4, true) + k * size);
+	if (count === 1) return valueAt(0);
+	if (globalSeq >= 0) {
+		const loop = s.globalLoops[globalSeq] || timeAt(count - 1) || 1;
+		t %= loop;
+	}
+	if (t <= timeAt(0)) return valueAt(0);
+	for (let k = 0; k < count - 1; k++) {
+		const t0 = timeAt(k);
+		const t1 = timeAt(k + 1);
+		if (t < t1) return lerp(valueAt(k), valueAt(k + 1), t1 > t0 ? (t - t0) / (t1 - t0) : 0);
+	}
+	return valueAt(count - 1);
+}
+
+type Vec3 = [number, number, number];
+type Quat = [number, number, number, number];
+const lerp3 = (a: Vec3, b: Vec3, f: number): Vec3 => [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+/** Normalised lerp, taking the short way round. */
+const nlerp = (a: Quat, b: Quat, f: number): Quat => {
+	const sign = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3] < 0 ? -1 : 1;
+	const q = a.map((v, i) => v + (b[i] * sign - v) * f) as Quat;
+	const len = Math.hypot(...q) || 1;
+	return q.map((v) => v / len) as Quat;
+};
+
+/** Bone matrices (bind space -> posed model space) at time t (ms) of the Stand sequence. */
+function poseAt(s: StandSequence, t: number): Mat4[] {
+	const { view } = s;
+	const f = (at: number) => view.getFloat32(at, true);
+	const readVec = (o: number): Vec3 => [f(o), f(o + 4), f(o + 8)];
+	const readQuat = (o: number): Quat => [0, 2, 4, 6].map((k) => compQuat(view.getInt16(o + k, true))) as Quat;
 
 	const local: Mat4[] = [];
 	const parents: number[] = [];
-	for (let b = 0; b < boneCount; b++) {
-		const o = md20 + boneOffset + b * BONE_SIZE;
+	for (let b = 0; b < s.boneCount; b++) {
+		const o = s.md20 + s.boneOffset + b * BONE_SIZE;
 		parents.push(view.getInt16(o + 8, true));
-		const f = (at: number) => view.getFloat32(at, true);
-		const pivot: [number, number, number] = [f(o + 76), f(o + 80), f(o + 84)];
-		const t = firstKey(o + 16);
-		const r = firstKey(o + 36);
-		const s = firstKey(o + 56);
+		const pivot = readVec(o + 76);
+		const tr = sampleTrack(s, o + 16, t, 12, readVec, lerp3);
+		const rot = sampleTrack(s, o + 36, t, 8, readQuat, nlerp);
+		const sc = sampleTrack(s, o + 56, t, 12, readVec, lerp3);
 		const parts: Mat4[] = [translation(...pivot)];
-		if (t !== null) parts.push(translation(f(t), f(t + 4), f(t + 8)));
-		if (r !== null) {
-			const q = [0, 2, 4, 6].map((k) => compQuat(view.getInt16(r + k, true)));
-			const len = Math.hypot(...q) || 1;
-			parts.push(fromQuaternion(q[0] / len, q[1] / len, q[2] / len, q[3] / len));
+		if (tr) parts.push(translation(...tr));
+		if (rot) {
+			const len = Math.hypot(...rot) || 1;
+			parts.push(fromQuaternion(rot[0] / len, rot[1] / len, rot[2] / len, rot[3] / len));
 		}
-		if (s !== null) {
+		if (sc) {
 			const m = scaling(1);
-			m[0] = f(s); m[5] = f(s + 4); m[10] = f(s + 8);
+			m[0] = sc[0]; m[5] = sc[1]; m[10] = sc[2];
 			parts.push(m);
 		}
 		parts.push(translation(-pivot[0], -pivot[1], -pivot[2]));
 		local.push(compose(...parts));
 	}
 
-	const global: (Mat4 | null)[] = new Array(boneCount).fill(null);
+	const global: (Mat4 | null)[] = new Array(s.boneCount).fill(null);
 	const resolve = (b: number, depth = 0): Mat4 => {
 		const cached = global[b];
 		if (cached) return cached;
 		const p = parents[b];
-		const m = p >= 0 && p < boneCount && p !== b && depth < 256 ? multiply(resolve(p, depth + 1), local[b]) : local[b];
+		const m = p >= 0 && p < s.boneCount && p !== b && depth < 256 ? multiply(resolve(p, depth + 1), local[b]) : local[b];
 		global[b] = m;
 		return m;
 	};
 	return local.map((_, b) => resolve(b));
 }
 
+/**
+ * Bone matrices for the first frame of the model's Stand animation, so models can be drawn
+ * standing instead of in their bind pose. Returns null if the model has no embedded Stand.
+ */
+export function standPose(bytes: Uint8Array, md20: number): Mat4[] | null {
+	const s = findStand(bytes, md20);
+	return s ? poseAt(s, 0) : null;
+}
+
+/** The Stand loop sampled for GPU skinning: per frame, per bone, a 3x4 matrix as three rows. */
+export interface BoneAnimation {
+	bones: number;
+	frames: number;
+	/** Loop length in seconds. */
+	duration: number;
+	/** frames x bones x 12 floats (rows of the 3x4 bone matrix). */
+	data: Float32Array;
+}
+
+const SAMPLES_PER_SECOND = 15;
+const MAX_FRAMES = 64;
+
+/**
+ * Samples the Stand loop for GPU skinning, or returns null when nothing moves in it (then the
+ * model is drawn in its static first-frame pose instead).
+ */
+export function standAnimation(bytes: Uint8Array, md20: number): BoneAnimation | null {
+	const s = findStand(bytes, md20);
+	if (!s || s.duration < 50) return null;
+	const frames = Math.max(2, Math.min(MAX_FRAMES, Math.round((s.duration / 1000) * SAMPLES_PER_SECOND)));
+	const data = new Float32Array(frames * s.boneCount * 12);
+	let moving = false;
+	for (let f = 0; f < frames; f++) {
+		const pose = poseAt(s, (f / frames) * s.duration);
+		pose.forEach((m, b) => {
+			const o = (f * s.boneCount + b) * 12;
+			for (let r = 0; r < 3; r++) {
+				data[o + r * 4] = m[r];
+				data[o + r * 4 + 1] = m[4 + r];
+				data[o + r * 4 + 2] = m[8 + r];
+				data[o + r * 4 + 3] = m[12 + r];
+			}
+		});
+		if (f > 0 && !moving) {
+			const frame = data.subarray(f * s.boneCount * 12, (f + 1) * s.boneCount * 12);
+			for (let k = 0; k < frame.length; k++) {
+				if (Math.abs(frame[k] - data[k]) > 1e-3) {
+					moving = true;
+					break;
+				}
+			}
+		}
+	}
+	return moving ? { bones: s.boneCount, frames, duration: s.duration / 1000, data } : null;
+}
 /** Applies bone matrices to one 48-byte M2 vertex, writing position and normal. */
 export function skinVertex(view: DataView, o: number, bones: Mat4[], pos: Float32Array, nrm: Float32Array, out: number): void {
 	const px = view.getFloat32(o, true), py = view.getFloat32(o + 4, true), pz = view.getFloat32(o + 8, true);

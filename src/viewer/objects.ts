@@ -3,7 +3,7 @@ import { acceleratedRaycast, MeshBVH } from 'three-mesh-bvh';
 import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
 import type { SpawnInfo } from '../explorer/spawns';
 import type { AsyncStorageApi } from '../worker/protocol';
-import { createModelMaterial } from './modelMaterials';
+import { createModelMaterial, type SkinUniforms } from './modelMaterials';
 import { liquidMaterials } from './terrainMaterials';
 import { TextureCache } from './textureCache';
 
@@ -41,6 +41,8 @@ class ModelEntry {
 	readonly instances = new Map<string, THREE.Matrix4>();
 	/** Keys of the instances currently in the instance buffer (those within view distance). */
 	visible = new Set<string>();
+	/** Set for models animated on the GPU: their shared bone texture and loop length. */
+	animation: { key: string; duration: number } | null = null;
 	/** Instance key for each slot in the instance buffer, for picking. */
 	drawnKeys: string[] = [];
 	radius = 0;
@@ -306,11 +308,23 @@ export class ObjectManager {
 		geometry.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3));
 		geometry.setAttribute('uv', new THREE.BufferAttribute(data.uvs, 2));
 		if (data.baked) geometry.setAttribute('baked', new THREE.BufferAttribute(data.baked, 4));
+		let skin: SkinUniforms | null = null;
+		if (data.animation) {
+			const a = data.animation;
+			geometry.setAttribute('boneIndex', new THREE.BufferAttribute(a.boneIndex, 4));
+			geometry.setAttribute('boneWeight', new THREE.BufferAttribute(a.boneWeight, 4, true));
+			skin = {
+				uBoneTex: { value: this.acquireBones(a.key, a.data, a.bones, a.frames) },
+				uBoneFrames: { value: a.frames },
+				uAnimDuration: { value: a.duration },
+			};
+			entry.animation = { key: a.key, duration: a.duration };
+		}
 		geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
 		const batches = [...data.batches].sort((a, b) => a.order - b.order);
 		entry.materials = batches.map((b, i) => {
 			geometry.addGroup(b.start, b.count, i);
-			return createModelMaterial(b.material, textures.get(b.material.texture) ?? null, !!data.baked);
+			return createModelMaterial(b.material, textures.get(b.material.texture) ?? null, !!data.baked, skin);
 		});
 		geometry.computeBoundingSphere();
 		if (data.bvh) {
@@ -321,7 +335,7 @@ export class ObjectManager {
 		entry.geometry = geometry;
 		entry.radius = data.radius;
 		entry.liquids = (data.liquids ?? []).map((l) => ({ geometry: liquidGeometry(l.positions, l.indices), material: liquidMaterials[l.kind], mesh: null }));
-		entry.data = { ...data, positions: new Float32Array(0), normals: new Float32Array(0), uvs: new Float32Array(0), baked: null, indices: new Uint32Array(0), liquids: [] };
+		entry.data = { ...data, positions: new Float32Array(0), normals: new Float32Array(0), uvs: new Float32Array(0), baked: null, indices: new Uint32Array(0), liquids: [], animation: undefined };
 		entry.state = 'ready';
 		entry.dirty = true;
 		for (const fn of entry.onReady.splice(0)) fn(entry);
@@ -354,6 +368,7 @@ export class ObjectManager {
 		entry.drawnKeys = [...entry.visible];
 		const matrices = entry.drawnKeys.map((key) => entry.instances.get(key)!);
 		entry.mesh = this.syncMesh(entry.mesh, entry.geometry, entry.materials, matrices, entry.kind === 'wmo' ? -1 : 0);
+		if (entry.animation) this.writePhases(entry.mesh, entry.geometry, entry.drawnKeys, entry.animation.duration);
 		for (const liquid of entry.liquids) {
 			// Liquids draw after the building so it shows through the surface.
 			liquid.mesh = this.syncMesh(liquid.mesh, liquid.geometry, liquid.material, matrices, 1);
@@ -387,6 +402,49 @@ export class ObjectManager {
 		if (count > 0) mesh.computeBoundingSphere();
 		return mesh;
 	}
+	/**
+	 * Each copy's point in its animation loop, stable per placement (hashed from its key), so
+	 * a crowd of the same NPC doesn't move in lockstep.
+	 */
+	private writePhases(mesh: THREE.InstancedMesh, geometry: THREE.BufferGeometry, keys: string[], duration: number): void {
+		const capacity = mesh.instanceMatrix.count;
+		let attribute = geometry.getAttribute('instancePhase') as THREE.InstancedBufferAttribute | undefined;
+		if (!attribute || attribute.count !== capacity) {
+			attribute = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
+			geometry.setAttribute('instancePhase', attribute);
+		}
+		keys.forEach((key, i) => {
+			let h = 2166136261;
+			for (let c = 0; c < key.length; c++) h = Math.imul(h ^ key.charCodeAt(c), 16777619);
+			attribute!.setX(i, ((h >>> 0) / 4294967296) * duration);
+		});
+		attribute.needsUpdate = true;
+	}
+
+	/** Bone textures by skeleton, shared by every look (display, gear) that uses the model. */
+	private readonly boneTextures = new Map<string, { texture: THREE.DataTexture; refs: number }>();
+
+	private acquireBones(key: string, data: Float32Array, bones: number, frames: number): THREE.DataTexture {
+		let entry = this.boneTextures.get(key);
+		if (!entry) {
+			// Three RGBA texels per bone (the rows of its 3x4 matrix), one texel row per frame.
+			const texture = new THREE.DataTexture(data, bones * 3, frames, THREE.RGBAFormat, THREE.FloatType);
+			texture.magFilter = texture.minFilter = THREE.NearestFilter;
+			texture.needsUpdate = true;
+			entry = { texture, refs: 0 };
+			this.boneTextures.set(key, entry);
+		}
+		entry.refs++;
+		return entry.texture;
+	}
+
+	private releaseBones(key: string): void {
+		const entry = this.boneTextures.get(key);
+		if (!entry || --entry.refs > 0) return;
+		entry.texture.dispose();
+		this.boneTextures.delete(key);
+	}
+
 	private dispose(entry: ModelEntry): void {
 		if (entry.mesh) {
 			this.group.remove(entry.mesh);
@@ -403,6 +461,7 @@ export class ObjectManager {
 			l.geometry.dispose();
 		}
 		this.textures.release(entry.textures);
+		if (entry.animation) this.releaseBones(entry.animation.key);
 	}
 
 	/** NPCs within range of the camera, with the world position just above their heads. */

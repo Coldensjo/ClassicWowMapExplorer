@@ -3,7 +3,7 @@ import { MeshBVH } from 'three-mesh-bvh';
 import type { CascStorage } from '../casc/storage';
 import { chunks } from '../formats/chunks';
 import { Blend, M2_MATERIAL_TWO_SIDED, M2_MATERIAL_UNFOGGED, M2_MATERIAL_UNLIT, parseM2, parseSkin, type M2File, type M2Skin } from '../formats/m2';
-import { attachmentPoints, skinVertex, standPose, type AttachmentPoint } from '../formats/m2Pose';
+import { attachmentPoints, skinVertex, standAnimation, standPose, type AttachmentPoint, type BoneAnimation } from '../formats/m2Pose';
 import {
 	parseWmoGroup, parseWmoRoot, WMO_GROUP_INTERIOR, WMO_LIQUID_CELL, type WmoGroup, WMO_MATERIAL_TWO_SIDED, WMO_MATERIAL_UNFOGGED, WMO_MATERIAL_UNLIT,
 } from '../formats/wmo';
@@ -40,6 +40,8 @@ export interface ModelMaterial {
 	unlit: boolean;
 	unfogged: boolean;
 	opacity: number;
+	/** Steady texture scroll in texture units per second (fire, lava, waterfalls). */
+	uvScroll?: [number, number];
 }
 
 export interface ModelBatch {
@@ -65,6 +67,8 @@ export interface ModelData {
 	height: number;
 	/** WMOs only: doodad sets, each a list of models placed in the WMO's local space. */
 	doodadSets?: { name: string; doodads: { fdid: number; matrix: Mat4 }[] }[];
+	/** Moving models: the Stand loop for GPU skinning, and each vertex's bones (4 indices, weights 0-255). */
+	animation?: ModelAnimation;
 	/** WMOs only: liquid surfaces in model space. */
 	liquids?: LiquidMesh[];
 	/** WMOs only: a serialised ray-cast acceleration structure (three-mesh-bvh, indirect), for line of sight. */
@@ -82,6 +86,19 @@ function buildBvh(positions: Float32Array, indices: Uint32Array): ModelData['bvh
 	const serialized = MeshBVH.serialize(new MeshBVH(geometry, { indirect: true }), { cloneBuffers: false });
 	// The version must travel with the data, or deserialize "upgrades" it from the old format.
 	return { version: (serialized as { version?: number }).version ?? 1, roots: serialized.roots, indirectBuffer: serialized.indirectBuffer ?? null };
+}
+
+export interface ModelAnimation {
+	/** Identifies the skeleton, so looks sharing a model share one bone texture. */
+	key: string;
+	bones: number;
+	frames: number;
+	/** Loop length in seconds. */
+	duration: number;
+	/** frames x bones x 12 floats (rows of each 3x4 bone matrix). */
+	data: Float32Array;
+	boneIndex: Uint16Array;
+	boneWeight: Uint8Array;
 }
 
 /** ADT placement rotation (degrees) to a matrix: models are z-up; the world here is y-up. */
@@ -156,6 +173,13 @@ interface PreparedM2 {
 	indices: Uint32Array;
 	/** Attachment points by id. */
 	attachments: Map<number, AttachmentPoint>;
+	/**
+	 * Set when the model's Stand loop moves: vertices then stay in bind space, with four bone
+	 * indices and weights (0-255) each, for skinning on the GPU.
+	 */
+	animation: BoneAnimation | null;
+	boneIndex: Uint16Array | null;
+	boneWeight: Uint8Array | null;
 }
 
 /**
@@ -185,10 +209,20 @@ function prepareM2(storage: CascStorage, fdid: number, stand: boolean): Promise<
 		const normals = new Float32Array(n * 3);
 		const uvs = new Float32Array(n * 2);
 		const v = new DataView(vertices.buffer, vertices.byteOffset, vertices.byteLength);
-		const bones = stand ? standPose(bytes, m2.md20) : null;
+		// Moving models are skinned on the GPU from bind space; still ones are posed here once.
+		const animation = standAnimation(bytes, m2.md20);
+		const bones = !animation && stand ? standPose(bytes, m2.md20) : null;
+		const boneIndex = animation ? new Uint16Array(n * 4) : null;
+		const boneWeight = animation ? new Uint8Array(n * 4) : null;
 		for (let i = 0; i < n; i++) {
 			const o = skin.vertexLookup[i] * 48;
 			if (o + 48 > vertices.length) continue;
+			if (boneIndex && boneWeight) {
+				for (let k = 0; k < 4; k++) {
+					boneWeight[i * 4 + k] = v.getUint8(o + 12 + k);
+					boneIndex[i * 4 + k] = v.getUint8(o + 16 + k);
+				}
+			}
 			if (bones) {
 				skinVertex(v, o, bones, positions, normals, i);
 			} else {
@@ -202,7 +236,7 @@ function prepareM2(storage: CascStorage, fdid: number, stand: boolean): Promise<
 		}
 		return {
 			m2, skin, positions, normals, uvs, indices: Uint32Array.from(skin.indices),
-			attachments: attachmentPoints(bytes, m2.md20, bones),
+			attachments: attachmentPoints(bytes, m2.md20, bones), animation, boneIndex, boneWeight,
 		};
 	})();
 	entry.catch(() => preparedM2.delete(key));
@@ -246,6 +280,7 @@ function dressM2(prepared: PreparedM2, options: M2Options) {
 				unlit: !!(material.flags & M2_MATERIAL_UNLIT),
 				unfogged: !!(material.flags & M2_MATERIAL_UNFOGGED),
 				opacity,
+				uvScroll: m2.uvScroll[b.uvAnimationIndex] ?? undefined,
 			},
 		});
 	});
@@ -256,8 +291,9 @@ const brokenGear = new Set<number>();
 
 export async function loadM2(storage: CascStorage, fdid: number, options: M2Options = {}): Promise<ModelData> {
 	const prepared = await prepareM2(storage, fdid, !!options.stand);
-	const parts: { prepared: PreparedM2; batches: ModelBatch[]; transform: Mat4 | null }[] = [
-		{ prepared, batches: dressM2(prepared, options), transform: null },
+	const animated = prepared.animation !== null;
+	const parts: { prepared: PreparedM2; batches: ModelBatch[]; transform: Mat4 | null; bone: number }[] = [
+		{ prepared, batches: dressM2(prepared, options), transform: null, bone: -1 },
 	];
 	// Gear (helmets, shoulders, weapons) drawn at the body's attachment points.
 	for (const gear of options.attachments ?? []) {
@@ -266,7 +302,8 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 		try {
 			const item = await prepareM2(storage, gear.fdid, false);
 			// Item textures are runtime type 2 ("object skin"); their own hard-coded ones still apply.
-			parts.push({ prepared: item, batches: dressM2(item, { textures: { 2: gear.texture } }), transform: point.posed });
+			// On an animated body the item rides its attachment bone from the bind-space frame.
+			parts.push({ prepared: item, batches: dressM2(item, { textures: { 2: gear.texture } }), transform: animated ? point.bind : point.posed, bone: point.bone });
 		} catch (e) {
 			// Once per item: many NPCs can share a broken one.
 			if (!brokenGear.has(gear.fdid)) console.warn(`Gear model ${gear.fdid}:`, e);
@@ -286,6 +323,8 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 	const normals = new Float32Array(vertexCount * 3);
 	const uvs = new Float32Array(vertexCount * 2);
 	const indices = new Uint32Array(indexCount);
+	const boneIndex = animated ? new Uint16Array(vertexCount * 4) : null;
+	const boneWeight = animated ? new Uint8Array(vertexCount * 4) : null;
 	const batches: ModelBatch[] = [];
 	let vbase = 0;
 	let ibase = 0;
@@ -310,15 +349,32 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 			}
 		}
 		uvs.set(src.uvs, vbase * 2);
+		if (boneIndex && boneWeight) {
+			if (p.bone < 0 && src.boneIndex && src.boneWeight) {
+				boneIndex.set(src.boneIndex, vbase * 4);
+				boneWeight.set(src.boneWeight, vbase * 4);
+			} else {
+				// Gear follows its attachment bone fully.
+				for (let i = 0; i < count; i++) {
+					boneIndex[(vbase + i) * 4] = Math.max(0, p.bone);
+					boneWeight[(vbase + i) * 4] = 255;
+				}
+			}
+		}
 		for (let i = 0; i < src.indices.length; i++) indices[ibase + i] = src.indices[i] + vbase;
 		// Gear draws after the body's own batches.
 		for (const batch of p.batches) batches.push({ ...batch, start: batch.start + ibase, order: batch.order + n * 1_000_000 });
 		vbase += count;
 		ibase += src.indices.length;
 	});
+	const anim = prepared.animation;
 	return {
 		fdid, positions, normals, uvs, baked: null, indices, batches: mergeBatches(batches),
 		radius: prepared.m2.bounds.radius || boundingRadius(positions), height: topOf(positions, indices, batches),
+		// The bone data is shared by every look of this model, so it's keyed for reuse on the GPU.
+		animation: anim && boneIndex && boneWeight
+			? { key: `m2:${fdid}`, bones: anim.bones, frames: anim.frames, duration: anim.duration, data: anim.data.slice(), boneIndex, boneWeight }
+			: undefined,
 	};
 }
 export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type: number) => LiquidKind): Promise<ModelData> {

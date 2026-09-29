@@ -31,6 +31,8 @@ interface Row {
 	offset: number;
 	/** Global record index across sections, used for string offsets. */
 	index: number;
+	/** Foreign key from the relationship map, for tables that have one. */
+	parent?: number;
 }
 
 const decoder = new TextDecoder();
@@ -151,6 +153,17 @@ export class Db2 {
 			q += section.idListSize;
 			const copies: [number, number][] = [];
 			for (let i = 0; i < section.copyCount; i++) copies.push([v.getUint32(q + i * 8, true), v.getUint32(q + i * 8 + 4, true)]);
+			q += section.copyCount * 8;
+			// Relationship map: each record's parent (foreign key), kept outside the record data.
+			// Layout: count, min id, max id, then (foreign id, record index) pairs.
+			const parents = new Map<number, number>();
+			if (section.relationshipSize > 0) {
+				const count = v.getUint32(q, true);
+				for (let i = 0; i < count; i++) {
+					const e = q + 12 + i * 8;
+					parents.set(v.getUint32(e + 4, true), v.getUint32(e, true));
+				}
+			}
 
 			// An encrypted section whose key we don't have decodes to zeros.
 			const encrypted = section.keyHash !== 0n && section.records > 0 && isZero(bytes, recordsStart, Math.min(64, section.records * this.recordSize));
@@ -161,6 +174,7 @@ export class Db2 {
 					const offset = recordsStart + i * this.recordSize;
 					const row: Row = { id: 0, offset, index: globalIndex + i };
 					row.id = ids.length ? ids[i] : this.fieldValue(row, idIndex);
+					row.parent = parents.get(i);
 					this.rows.set(row.id, row);
 				}
 				for (const [newId, sourceId] of copies) {
@@ -181,6 +195,11 @@ export class Db2 {
 	/** Number of array elements in a field (1 for scalars). */
 	arrayLength(field: number): number {
 		return this.fields[field].arrayCount;
+	}
+
+	/** The record's parent ID from the relationship map (e.g. CreatureDisplayInfoOption -> Extra). */
+	getParent(id: number): number | null {
+		return this.rows.get(id)?.parent ?? null;
 	}
 
 	get size(): number {

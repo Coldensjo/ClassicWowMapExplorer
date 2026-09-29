@@ -110,3 +110,39 @@ export function skinVertex(view: DataView, o: number, bones: Mat4[], pos: Float3
 	pos[out * 3] = x; pos[out * 3 + 1] = y; pos[out * 3 + 2] = z;
 	nrm[out * 3] = a / len; nrm[out * 3 + 1] = b / len; nrm[out * 3 + 2] = c / len;
 }
+
+/** M2 attachment point IDs used for gear. */
+export const ATTACH_SHIELD = 0;
+export const ATTACH_HAND_RIGHT = 1;
+export const ATTACH_HAND_LEFT = 2;
+export const ATTACH_SHOULDER_RIGHT = 5;
+export const ATTACH_SHOULDER_LEFT = 6;
+export const ATTACH_HELM = 11;
+
+const ATTACHMENT_SIZE = 40;
+
+/** An attachment point: its bone, and its frame in model space (carried by the bone's pose). */
+export interface AttachmentPoint {
+	bone: number;
+	/** Frame in bind space (for animated models, whose vertices stay in bind space). */
+	bind: Mat4;
+	/** Frame in the static pose (the bind frame moved by the bone's pose when bones is given). */
+	posed: Mat4;
+}
+
+/** Attachment points by id. Gear models are drawn in these frames. */
+export function attachmentPoints(bytes: Uint8Array, md20: number, bones: Mat4[] | null): Map<number, AttachmentPoint> {
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const count = view.getUint32(md20 + 0xf0, true);
+	const offset = view.getUint32(md20 + 0xf4, true);
+	const points = new Map<number, AttachmentPoint>();
+	for (let i = 0; i < count; i++) {
+		const o = md20 + offset + i * ATTACHMENT_SIZE;
+		const id = view.getUint32(o, true);
+		const bone = view.getUint16(o + 4, true);
+		const at = translation(view.getFloat32(o + 8, true), view.getFloat32(o + 12, true), view.getFloat32(o + 16, true));
+		const pose = bones?.[bone];
+		if (!points.has(id)) points.set(id, { bone, bind: at, posed: pose ? multiply(pose, at) : at });
+	}
+	return points;
+}

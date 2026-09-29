@@ -22,7 +22,7 @@ export interface StorageApi {
 	loadNearTile(wdtFdid: number, x: number, y: number, compressed: boolean): NearTile;
 	loadTextures(fdids: number[], compressed: boolean): LoadedTexture[];
 	loadTileObjects(wdtFdid: number, x: number, y: number): Placement[];
-	loadModels(models: { fdid: number; kind: ObjectKind }[]): (ModelData | null)[];
+	loadModels(models: { fdid: number; kind: ObjectKind; variant?: string }[]): (ModelData | null)[];
 	loadLighting(mapIds: number[]): LightingData;
 	loadAreas(): AreaInfo[];
 }

@@ -1,8 +1,10 @@
 import type { CascStorage } from '../casc/storage';
 import { TILE_SIZE } from '../formats/adt';
+import type { Db2 } from '../formats/db2';
 import { loadTable } from './clientDb';
 import { compose, fromQuaternion, identity, rotationZ, scaling, translation, type Mat4 } from './mat4';
-import type { M2Options, Placement } from './objects';
+import type { GearAttachment, M2Options, Placement } from './objects';
+import { ATTACH_HAND_LEFT, ATTACH_HAND_RIGHT, ATTACH_HELM, ATTACH_SHIELD, ATTACH_SHOULDER_LEFT, ATTACH_SHOULDER_RIGHT } from '../formats/m2Pose';
 
 const MAP_ORIGIN = 32 * TILE_SIZE;
 
@@ -30,8 +32,8 @@ export type Reaction = 'hostile' | 'neutral' | 'friendly';
 interface SpawnFile {
 	pages: Record<number, string[]>;
 	creatures: {
-		/** entry -> [name, subname, levelMin, levelMax, type, rank, npcFlags, displayIds, scales, factionTemplate] */
-		templates: Record<number, [string, string, number, number, number, number, number, number[], number[], number]>;
+		/** entry -> [name, subname, levelMin, levelMax, type, rank, npcFlags, displayIds, scales, factionTemplate, weapons] */
+		templates: Record<number, [string, string, number, number, number, number, number, number[], number[], number, Weapons | 0]>;
 		/** [guid, entry, x, y, z, orientation] in world coordinates */
 		spawns: [number, number, number, number, number, number][];
 	};
@@ -109,7 +111,7 @@ export class SpawnSource {
 		for (const [guid, entry, x, y, z, o] of creatures.spawns) {
 			const t = creatures.templates[entry];
 			if (!t) continue;
-			const [name, subname, levelMin, levelMax, type, rank, , displays, scales, faction] = t;
+			const [name, subname, levelMin, levelMax, type, rank, , displays, scales, faction, weapons] = t;
 			if (!displays.length) continue;
 			// Templates with several looks pick one per spawn; keep it stable per guid.
 			const pick = guid % displays.length;
@@ -121,6 +123,7 @@ export class SpawnSource {
 				fdid: displayId,
 				matrix: spawnMatrix(x, y, z, rotationZ((o * 180) / Math.PI), scale),
 				doodadSet: 0,
+				variant: weapons ? weapons.join('_') : undefined,
 				spawn: {
 					type: 'npc', guid, entry, name,
 					subname: subname || undefined,
@@ -209,12 +212,17 @@ export class DisplayResolver {
 		};
 	}
 
-	async creature(displayId: number): Promise<{ fdid: number; options: M2Options } | null> {
+	/**
+	 * Model, textures, geosets and gear for a creature look. weapons is [main hand, off hand,
+	 * off hand is a shield] as item display IDs, from the spawn data.
+	 */
+	async creature(displayId: number, weapons: Weapons | null = null): Promise<{ fdid: number; options: M2Options } | null> {
 		const { creatureDisplay, creatureModel, displayExtra, materials } = await this.load();
 		const modelId = creatureDisplay.getInt(displayId, 1);
 		const fdid = modelId ? creatureModel.getInt(modelId, 2) : null;
 		if (!fdid) return null;
 		const extra = creatureDisplay.getInt(displayId, 7) ?? 0;
+		const held = weapons ? await this.weaponAttachments(weapons) : [];
 		if (extra && displayExtra.has(extra)) {
 			// Humanoid NPCs: a character model with the outfit baked into one texture. Prefer the
 			// original (SD) race model with its SD bake; fall back to the HD model the table names.
@@ -222,14 +230,248 @@ export class DisplayResolver {
 			const sex = displayExtra.getInt(extra, 2) ?? 0;
 			const sd = SD_CHARACTER_MODELS[race]?.[sex];
 			const sdBake = materials.get(displayExtra.getInt(extra, 5) ?? 0);
+			const [looks, gear] = await Promise.all([this.customization(extra), this.armor(extra, race, sex)]);
+			// Gear geosets (gloves, boots, ...) win over appearance ones in the same group.
+			const gearGroups = new Set(gear.geosets.map((g) => Math.floor(g / 100)));
+			const geosets = [...gear.geosets, ...looks.geosets.filter((g) => !gearGroups.has(Math.floor(g / 100)))];
+			const attachments = [...gear.attachments, ...held];
+			const cape: Record<number, number> = gear.cape ? { 2: gear.cape } : {};
 			if (sd && sdBake && this.storage.status(sd) === 'ok') {
-				return { fdid: sd, options: { textures: { 1: sdBake }, defaultGeosets: true, stand: true } };
+				// SD hair textures are per race and colour (the HD ones don't fit SD geometry). Colours
+				// beyond the old set fall back to the first.
+				const hairSet = (await this.hairTextures())[race];
+				const hair = hairSet?.[looks.hairColor] ?? hairSet?.[0] ?? 0;
+				return { fdid: sd, options: { textures: { 1: sdBake, 6: hair, ...cape }, geosets, attachments, defaultGeosets: true, stand: true } };
 			}
 			const bake = materials.get(displayExtra.getInt(extra, 6) ?? 0) ?? sdBake ?? 0;
-			return { fdid, options: { textures: { 1: bake }, defaultGeosets: true, stand: true } };
+			return { fdid, options: { textures: { 1: bake, 6: looks.hdHair, ...cape }, geosets, attachments, defaultGeosets: true, stand: true } };
 		}
 		const skins = [0, 1, 2].map((k) => creatureDisplay.getInt(displayId, 27, k) ?? 0);
-		return { fdid, options: { textures: { 11: skins[0], 12: skins[1], 13: skins[2] }, defaultGeosets: true, stand: true } };
+		return { fdid, options: { textures: { 11: skins[0], 12: skins[1], 13: skins[2] }, attachments: held, defaultGeosets: true, stand: true } };
+	}
+
+	private itemTables: Promise<{ items: Db2; byResource: Map<number, number[]>; components: Db2; materials: Map<number, number> }> | null = null;
+
+	private loadItems() {
+		this.itemTables ??= (async () => {
+			const [items, modelFiles, components, base] = await Promise.all([
+				loadTable(this.storage, DISPLAY_FILES.ItemDisplayInfo),
+				loadTable(this.storage, DISPLAY_FILES.ModelFileData),
+				loadTable(this.storage, DISPLAY_FILES.ComponentModelFileData),
+				this.load(),
+			]);
+			// ModelFileData: model resources ID (field 4) -> the files that implement it.
+			const byResource = new Map<number, number[]>();
+			for (const file of modelFiles.ids()) {
+				const resource = modelFiles.getInt(file, 4) ?? 0;
+				const list = byResource.get(resource) ?? [];
+				list.push(file);
+				byResource.set(resource, list);
+			}
+			return { items, byResource, components, materials: base.materials };
+		})();
+		return this.itemTables;
+	}
+
+	/**
+	 * The file for an item model resource: the one made for this race and sex (and shoulder side)
+	 * according to ComponentModelFileData (0 sex, 2 race, 3 side), else any.
+	 */
+	private async itemModel(resource: number, race = 0, sex = 0, side = -1): Promise<number> {
+		const { byResource, components } = await this.loadItems();
+		const files = (byResource.get(resource) ?? []).filter((f) => this.storage.status(f) === 'ok');
+		const score = (f: number) => {
+			if (!components.has(f)) return 1;
+			const fSex = components.getInt(f, 0) ?? 0, fRace = components.getInt(f, 2) ?? 0, fSide = components.getInt(f, 3) ?? -1;
+			if (side >= 0 && fSide !== -1 && fSide !== side) return -1;
+			return (fRace === race ? 4 : fRace === 0 ? 1 : 0) + (fSex === sex ? 2 : fSex > 1 ? 1 : 0);
+		};
+		let best = 0;
+		let bestScore = -1;
+		for (const f of files) {
+			const sc = score(f);
+			if (sc > bestScore) {
+				best = f;
+				bestScore = sc;
+			}
+		}
+		return best;
+	}
+
+	/** Weapons held in the hands (or a shield on the arm). */
+	private async weaponAttachments([mainHand, offHand, offHandIsShield]: Weapons): Promise<GearAttachment[]> {
+		const { items, materials } = await this.loadItems();
+		const out: GearAttachment[] = [];
+		const add = async (display: number, point: number) => {
+			if (!display || !items.has(display)) return;
+			const fdid = await this.itemModel(items.getInt(display, 10, 0) ?? 0);
+			if (fdid) out.push({ point, fdid, texture: materials.get(items.getInt(display, 11, 0) ?? 0) ?? 0 });
+		};
+		await add(mainHand, ATTACH_HAND_RIGHT);
+		await add(offHand, offHandIsShield ? ATTACH_SHIELD : ATTACH_HAND_LEFT);
+		return out;
+	}
+
+	/**
+	 * A humanoid NPC's armour (NPCModelItemSlotDisplayInfo, parent = display extra): helmet and
+	 * shoulder models at their attachment points, and the geosets other gear switches on
+	 * (ItemDisplayInfo.GeosetGroup, field 13). A helmet hides the hair beneath it.
+	 */
+	private async armor(extra: number, race: number, sex: number): Promise<{ attachments: GearAttachment[]; geosets: number[]; cape: number }> {
+		const { items, materials } = await this.loadItems();
+		const slots = await this.itemSlots();
+		const attachments: GearAttachment[] = [];
+		const geosets: number[] = [];
+		let cape = 0;
+		for (const [display, slot] of slots.get(extra) ?? []) {
+			if (!items.has(display)) continue;
+			const group = (k: number) => items.getInt(display, 13, k) ?? 0;
+			const texture = (k: number) => materials.get(items.getInt(display, 11, k) ?? 0) ?? 0;
+			const setGeoset = (base: number, value: number) => {
+				if (value > 0) geosets.push(base + 1 + value);
+			};
+			switch (slot) {
+				case SLOT_HEAD: {
+					const fdid = await this.itemModel(items.getInt(display, 10, 0) ?? 0, race, sex);
+					if (fdid) {
+						attachments.push({ point: ATTACH_HELM, fdid, texture: texture(0) });
+						geosets.push(HIDE_HAIR);
+					}
+					break;
+				}
+				case SLOT_SHOULDER: {
+					// Two models (or one resource with a left and a right file); side 0 left, 1 right.
+					const left = await this.itemModel(items.getInt(display, 10, 0) ?? 0, race, sex, 0);
+					const right = await this.itemModel(items.getInt(display, 10, 1) || (items.getInt(display, 10, 0) ?? 0), race, sex, 1);
+					if (left) attachments.push({ point: ATTACH_SHOULDER_LEFT, fdid: left, texture: texture(0) });
+					if (right) attachments.push({ point: ATTACH_SHOULDER_RIGHT, fdid: right, texture: texture(1) || texture(0) });
+					break;
+				}
+				case SLOT_SHIRT:
+				case SLOT_CHEST:
+					setGeoset(800, group(0)); // sleeves
+					setGeoset(1000, group(1)); // chest
+					setGeoset(1300, group(2)); // robe skirt
+					break;
+				case SLOT_BELT:
+					setGeoset(1800, group(0));
+					break;
+				case SLOT_LEGS:
+					setGeoset(900, group(0)); // knee pads
+					setGeoset(1300, group(2));
+					break;
+				case SLOT_FEET:
+					setGeoset(500, group(0));
+					break;
+				case SLOT_HANDS:
+					setGeoset(400, group(0));
+					break;
+				case SLOT_TABARD:
+					setGeoset(1200, group(0));
+					break;
+				case SLOT_BACK:
+					geosets.push(1500 + 1 + Math.max(1, group(0)));
+					cape = texture(0);
+					break;
+			}
+		}
+		return { attachments, geosets, cape };
+	}
+
+	private slotIndex: Promise<Map<number, [number, number][]>> | null = null;
+
+	/** NPCModelItemSlotDisplayInfo by display extra: [item display, slot]. */
+	private itemSlots(): Promise<Map<number, [number, number][]>> {
+		this.slotIndex ??= loadTable(this.storage, DISPLAY_FILES.NPCModelItemSlotDisplayInfo).then((table) => {
+			const byExtra = new Map<number, [number, number][]>();
+			for (const id of table.ids()) {
+				const extra = table.getParent(id);
+				if (extra === null) continue;
+				const list = byExtra.get(extra) ?? [];
+				list.push([table.getInt(id, 0) ?? 0, table.getInt(id, 1) ?? 0]);
+				byExtra.set(extra, list);
+			}
+			return byExtra;
+		});
+		return this.slotIndex;
+	}
+	private customizationTables: Promise<{
+		optionsByExtra: Map<number, [number, number][]>;
+		elementsByChoice: Map<number, number[]>;
+		element: Db2;
+		geoset: Db2;
+		choice: Db2;
+		option: Db2;
+		material: Db2;
+	}> | null = null;
+
+	private loadCustomization() {
+		this.customizationTables ??= (async () => {
+			const [displayOption, option, choice, element, geoset, material] = await Promise.all([
+				DISPLAY_FILES.CreatureDisplayInfoOption, DISPLAY_FILES.ChrCustomizationOption, DISPLAY_FILES.ChrCustomizationChoice,
+				DISPLAY_FILES.ChrCustomizationElement, DISPLAY_FILES.ChrCustomizationGeoset, DISPLAY_FILES.ChrCustomizationMaterial,
+			].map((f) => loadTable(this.storage, f)));
+			// CreatureDisplayInfoOption: (option, choice) rows whose parent is the display extra.
+			const optionsByExtra = new Map<number, [number, number][]>();
+			for (const id of displayOption.ids()) {
+				const extra = displayOption.getParent(id);
+				if (extra === null) continue;
+				const list = optionsByExtra.get(extra) ?? [];
+				list.push([displayOption.getInt(id, 0) ?? 0, displayOption.getInt(id, 1) ?? 0]);
+				optionsByExtra.set(extra, list);
+			}
+			// ChrCustomizationElement field 0 is the choice it belongs to.
+			const elementsByChoice = new Map<number, number[]>();
+			for (const id of element.ids()) {
+				const c = element.getInt(id, 0) ?? 0;
+				const list = elementsByChoice.get(c) ?? [];
+				list.push(id);
+				elementsByChoice.set(c, list);
+			}
+			return { optionsByExtra, elementsByChoice, element, geoset, choice, option, material };
+		})();
+		return this.customizationTables;
+	}
+
+	/**
+	 * An NPC's appearance choices (CreatureDisplayInfoOption -> ChrCustomizationChoice ->
+	 * ChrCustomizationElement): the geosets they turn on (group * 100 + variant: hairstyle,
+	 * facial hair, ears, ...) and the hair colour's index in its option.
+	 */
+	private async customization(extra: number): Promise<{ geosets: number[]; hairColor: number; hdHair: number }> {
+		const [{ optionsByExtra, elementsByChoice, element, geoset, choice, option, material }, { materials }] = await Promise.all([this.loadCustomization(), this.load()]);
+		const picks = optionsByExtra.get(extra) ?? [];
+		const chosen = new Set(picks.map(([, c]) => c));
+		const geosets: number[] = [];
+		let hairColor = 0;
+		let hdHair = 0;
+		for (const [optionId, choiceId] of picks) {
+			// Choice field 5 is its order within the option, which matches the old colour index.
+			const optionName = option.getString(optionId, 0);
+			if (optionName === 'Hair Color') hairColor = choice.getInt(choiceId, 5) ?? 0;
+			for (const e of elementsByChoice.get(choiceId) ?? []) {
+				// Some elements only apply together with another choice (field 1).
+				const related = element.getInt(e, 1) ?? 0;
+				if (related && !chosen.has(related)) continue;
+				// HD models: the hairstyle's material for the chosen colour is the hair texture.
+				const materialId = element.getInt(e, 4) ?? 0;
+				if (optionName === 'Hair Style' && related && material.has(materialId)) {
+					hdHair = materials.get(material.getInt(materialId, 1) ?? 0) ?? hdHair;
+				}
+				const geosetId = element.getInt(e, 2) ?? 0;
+				if (!geosetId || !geoset.has(geosetId)) continue;
+				geosets.push((geoset.getInt(geosetId, 0) ?? 0) * 100 + (geoset.getInt(geosetId, 1) ?? 0));
+			}
+		}
+		return { geosets, hairColor, hdHair };
+	}
+
+	private hair: Promise<Record<number, number[]>> | null = null;
+
+	/** SD hair textures by race and colour, from public/spawns/hair.json (built from the listfile). */
+	private hairTextures(): Promise<Record<number, number[]>> {
+		this.hair ??= fetch('/spawns/hair.json').then((r) => (r.ok ? r.json() : {}), () => ({}));
+		return this.hair;
 	}
 
 	async object(displayId: number): Promise<number | null> {
@@ -268,7 +510,40 @@ export const DISPLAY_FILES = {
 	GameObjectDisplayInfo: 1266277,
 	TextureFileData: 982459,
 	FactionTemplate: 1361579,
+	CreatureDisplayInfoOption: 3692043,
+	ChrCustomizationOption: 3384247,
+	ChrCustomizationChoice: 3450554,
+	ChrCustomizationElement: 3512765,
+	ChrCustomizationGeoset: 3456171,
+	ChrCustomizationMaterial: 3459652,
+	NPCModelItemSlotDisplayInfo: 1340661,
+	ItemDisplayInfo: 1266429,
+	ModelFileData: 1337833,
+	ComponentModelFileData: 1349053,
 } as const;
+
+/** NPCModelItemSlotDisplayInfo slots. */
+const SLOT_HEAD = 0;
+const SLOT_SHOULDER = 1;
+const SLOT_SHIRT = 2;
+const SLOT_CHEST = 3;
+const SLOT_BELT = 4;
+const SLOT_LEGS = 5;
+const SLOT_FEET = 6;
+const SLOT_HANDS = 8;
+const SLOT_TABARD = 9;
+const SLOT_BACK = 10;
+/** A group-0 geoset no model has: choosing it hides every hairstyle (under a helmet). */
+const HIDE_HAIR = 99;
+
+/** [main hand, off hand, off hand is a shield] as item display IDs. */
+export type Weapons = [number, number, number];
+
+/** The weapons encoded in a placement variant (see SpawnSource). */
+export function parseWeapons(variant: string | undefined): Weapons | null {
+	const parts = variant?.split('_').map(Number);
+	return parts?.length === 3 && parts.every(Number.isFinite) ? (parts as Weapons) : null;
+}
 
 const FACTION_PLAYER = 1;
 const FACTION_ALLIANCE = 2;

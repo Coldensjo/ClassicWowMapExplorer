@@ -9,7 +9,7 @@ import { buildLiquidMeshes, type LiquidMesh } from './liquidMesh';
 import type { MapExplorer } from './maps';
 import { KNOWN_MAPS } from './maps';
 import { loadM2, loadWmo, parsePlacements, type ModelData, type ObjectKind, type Placement } from './objects';
-import { DisplayResolver, SpawnSource } from './spawns';
+import { DisplayResolver, parseWeapons, SpawnSource } from './spawns';
 import { buildSplatTerrain, type SplatTerrain } from './splatMesh';
 import { buildTerrainMesh, type TerrainGeometry } from './terrainMesh';
 
@@ -160,12 +160,12 @@ export class WorldLoader {
 	}
 
 	/** Renderable geometry for models; null where a model can't be read. */
-	async loadModels(models: { fdid: number; kind: ObjectKind }[]): Promise<(ModelData | null)[]> {
-		return Promise.all(models.map(async ({ fdid, kind }) => {
+	async loadModels(models: { fdid: number; kind: ObjectKind; variant?: string }[]): Promise<(ModelData | null)[]> {
+		return Promise.all(models.map(async ({ fdid, kind, variant }) => {
 			try {
 				if (kind === 'wmo') return await loadWmo(this.storage, fdid, await this.liquidKind());
 				if (kind === 'creature') {
-					const creature = await this.displays.creature(fdid);
+					const creature = await this.displays.creature(fdid, parseWeapons(variant));
 					return creature ? { ...(await loadM2(this.storage, creature.fdid, creature.options)), fdid } : null;
 				}
 				if (kind === 'object') {

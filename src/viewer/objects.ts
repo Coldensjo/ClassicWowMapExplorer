@@ -47,7 +47,7 @@ class ModelEntry {
 	unusedSince = 0;
 	readonly onReady: ((entry: ModelEntry) => void)[] = [];
 
-	constructor(readonly kind: Kind, readonly fdid: number) {}
+	constructor(readonly kind: Kind, readonly fdid: number, readonly variant?: string) {}
 }
 
 /** A placed object; objects crossing tile borders are listed by several tiles. */
@@ -171,7 +171,7 @@ export class ObjectManager {
 			doodadParts: [],
 		};
 		this.objects.set(key, object);
-		object.parts.push(this.addInstance(p.kind, p.fdid, key, object.matrix));
+		object.parts.push(this.addInstance(p.kind, p.fdid, key, object.matrix, p.variant));
 	}
 
 	private release(key: string): void {
@@ -209,8 +209,8 @@ export class ObjectManager {
 		}
 	}
 
-	private addInstance(kind: Kind, fdid: number, key: string, matrix: THREE.Matrix4): { entry: ModelEntry; key: string } {
-		const entry = this.entry(kind, fdid);
+	private addInstance(kind: Kind, fdid: number, key: string, matrix: THREE.Matrix4, variant?: string): { entry: ModelEntry; key: string } {
+		const entry = this.entry(kind, fdid, variant);
 		entry.instances.set(key, matrix);
 		entry.dirty = true;
 		return { entry, key };
@@ -220,11 +220,11 @@ export class ObjectManager {
 		part.entry.instances.delete(part.key);
 		part.entry.dirty = true;
 	}
-	private entry(kind: Kind, fdid: number): ModelEntry {
-		const id = `${kind}:${fdid}`;
+	private entry(kind: Kind, fdid: number, variant?: string): ModelEntry {
+		const id = `${kind}:${fdid}:${variant ?? ''}`;
 		let entry = this.models.get(id);
 		if (!entry) {
-			entry = new ModelEntry(kind, fdid);
+			entry = new ModelEntry(kind, fdid, variant);
 			this.models.set(id, entry);
 			this.queue.push(entry);
 		}
@@ -267,7 +267,7 @@ export class ObjectManager {
 		this.requests++;
 		for (const e of batch) e.state = 'loading';
 		try {
-			const results = await this.storage.loadModels(batch.map((e) => ({ fdid: e.fdid, kind: e.kind })));
+			const results = await this.storage.loadModels(batch.map((e) => ({ fdid: e.fdid, kind: e.kind, variant: e.variant })));
 			await Promise.all(batch.map((entry, i) => this.build(entry, results[i])));
 		} catch (e) {
 			console.warn('Model batch failed:', e);

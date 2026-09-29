@@ -2,8 +2,8 @@ import { BufferAttribute, BufferGeometry } from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import type { CascStorage } from '../casc/storage';
 import { chunks } from '../formats/chunks';
-import { Blend, M2_MATERIAL_TWO_SIDED, M2_MATERIAL_UNFOGGED, M2_MATERIAL_UNLIT, parseM2, parseSkin } from '../formats/m2';
-import { skinVertex, standPose } from '../formats/m2Pose';
+import { Blend, M2_MATERIAL_TWO_SIDED, M2_MATERIAL_UNFOGGED, M2_MATERIAL_UNLIT, parseM2, parseSkin, type M2File, type M2Skin } from '../formats/m2';
+import { attachmentPoints, skinVertex, standPose, type AttachmentPoint } from '../formats/m2Pose';
 import {
 	parseWmoGroup, parseWmoRoot, WMO_GROUP_INTERIOR, WMO_LIQUID_CELL, type WmoGroup, WMO_MATERIAL_TWO_SIDED, WMO_MATERIAL_UNFOGGED, WMO_MATERIAL_UNLIT,
 } from '../formats/wmo';
@@ -29,6 +29,8 @@ export interface Placement {
 	doodadSet: number;
 	/** Set for creature and game object spawns (VMaNGOS data), for the info panel. */
 	spawn?: SpawnInfo;
+	/** Distinguishes looks that share a display ID, e.g. held weapons (main_off_shield). */
+	variant?: string;
 }
 
 export interface ModelMaterial {
@@ -129,36 +131,89 @@ export interface M2Options {
 	textures?: Record<number, number>;
 	/** Show only geoset 0 and each group's default variant (x01), as for character models. */
 	defaultGeosets?: boolean;
+	/** Explicit geosets (group * 100 + variant) that replace the default for their group. */
+	geosets?: number[];
 	/** Pose the mesh with the first frame of its Stand animation instead of the bind pose. */
 	stand?: boolean;
+	/** Gear models to draw at the model's attachment points. */
+	attachments?: GearAttachment[];
 }
 
-export async function loadM2(storage: CascStorage, fdid: number, options: M2Options = {}): Promise<ModelData> {
-	const m2 = parseM2(await storage.readFile(fdid));
-	if (!m2.skinFdids[0]) throw new Error(`M2 ${fdid} has no skin`);
-	const skin = parseSkin(await storage.readFile(m2.skinFdids[0]));
+/** A gear model (helmet, shoulder, weapon) and its texture, at an M2 attachment point. */
+export interface GearAttachment {
+	point: number;
+	fdid: number;
+	texture: number;
+}
 
-	const n = skin.vertexLookup.length;
-	const positions = new Float32Array(n * 3);
-	const normals = new Float32Array(n * 3);
-	const uvs = new Float32Array(n * 2);
-	const v = new DataView(m2.vertices.buffer, m2.vertices.byteOffset, m2.vertices.byteLength);
-	const bones = options.stand ? standPose(m2.bytes, m2.md20) : null;
-	for (let i = 0; i < n; i++) {
-		const o = skin.vertexLookup[i] * 48;
-		if (o + 48 > m2.vertices.length) continue;
-		if (bones) {
-			skinVertex(v, o, bones, positions, normals, i);
-		} else {
-			for (let k = 0; k < 3; k++) {
-				positions[i * 3 + k] = v.getFloat32(o + k * 4, true);
-				normals[i * 3 + k] = v.getFloat32(o + 20 + k * 4, true);
-			}
-		}
-		uvs[i * 2] = v.getFloat32(o + 32, true);
-		uvs[i * 2 + 1] = v.getFloat32(o + 36, true);
+/** A model file read, parsed and (optionally) posed once; the raw file isn't kept. */
+interface PreparedM2 {
+	m2: Omit<M2File, 'bytes' | 'vertices'>;
+	skin: M2Skin;
+	positions: Float32Array;
+	normals: Float32Array;
+	uvs: Float32Array;
+	indices: Uint32Array;
+	/** Attachment points by id. */
+	attachments: Map<number, AttachmentPoint>;
+}
+
+/**
+ * Prepared models by file and pose. Many NPC looks share one race model (the human model alone
+ * is a 19 MB file), so each is decompressed and posed once, then dressed per look.
+ */
+const preparedM2 = new Map<string, Promise<PreparedM2>>();
+const PREPARED_M2_LIMIT = 600;
+
+function prepareM2(storage: CascStorage, fdid: number, stand: boolean): Promise<PreparedM2> {
+	const key = `${fdid}:${stand ? 1 : 0}`;
+	let entry = preparedM2.get(key);
+	if (entry) {
+		// Refresh its place in the least-recently-used order.
+		preparedM2.delete(key);
+		preparedM2.set(key, entry);
+		return entry;
 	}
+	entry = (async () => {
+		// The whole file is only needed here, for the vertices and the pose; it isn't cached.
+		const { bytes, vertices, ...m2 } = parseM2(await storage.readFile(fdid));
+		if (!m2.skinFdids[0]) throw new Error(`M2 ${fdid} has no skin`);
+		const skin = parseSkin(await storage.readFile(m2.skinFdids[0]));
 
+		const n = skin.vertexLookup.length;
+		const positions = new Float32Array(n * 3);
+		const normals = new Float32Array(n * 3);
+		const uvs = new Float32Array(n * 2);
+		const v = new DataView(vertices.buffer, vertices.byteOffset, vertices.byteLength);
+		const bones = stand ? standPose(bytes, m2.md20) : null;
+		for (let i = 0; i < n; i++) {
+			const o = skin.vertexLookup[i] * 48;
+			if (o + 48 > vertices.length) continue;
+			if (bones) {
+				skinVertex(v, o, bones, positions, normals, i);
+			} else {
+				for (let k = 0; k < 3; k++) {
+					positions[i * 3 + k] = v.getFloat32(o + k * 4, true);
+					normals[i * 3 + k] = v.getFloat32(o + 20 + k * 4, true);
+				}
+			}
+			uvs[i * 2] = v.getFloat32(o + 32, true);
+			uvs[i * 2 + 1] = v.getFloat32(o + 36, true);
+		}
+		return {
+			m2, skin, positions, normals, uvs, indices: Uint32Array.from(skin.indices),
+			attachments: attachmentPoints(bytes, m2.md20, bones),
+		};
+	})();
+	entry.catch(() => preparedM2.delete(key));
+	preparedM2.set(key, entry);
+	if (preparedM2.size > PREPARED_M2_LIMIT) preparedM2.delete(preparedM2.keys().next().value!);
+	return entry;
+}
+
+/** Picks the batches a look shows (geosets, resolved runtime textures), as a standalone mesh. */
+function dressM2(prepared: PreparedM2, options: M2Options) {
+	const { m2, skin } = prepared;
 	const batches: ModelBatch[] = [];
 	skin.batches.forEach((b, i) => {
 		const material = m2.materials[b.materialIndex] ?? { flags: 0, blend: 0 };
@@ -169,7 +224,14 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 		// the head (group 32), whose variant 1 is an empty stub.
 		if (options.defaultGeosets && b.geoset !== 0) {
 			const group = Math.floor(b.geoset / 100);
-			if (group === 0 || b.geoset % 100 !== (group === 32 ? 2 : 1)) return;
+			// A chosen geoset (hairstyle, facial hair, gear, ...) replaces its group's default; group 0
+			// only matches non-zero choices, since geoset 0 is the body itself.
+			const chosen = options.geosets?.find((g) => Math.floor(g / 100) === group && (group !== 0 || g !== 0));
+			if (chosen !== undefined) {
+				if (b.geoset !== chosen) return;
+			} else if (group === 0 || b.geoset % 100 !== (group === 32 ? 2 : 1)) {
+				return;
+			}
 		}
 		// Runtime textures we can't resolve (hair, capes, ...): hide the part rather than draw it grey.
 		if (options.textures && texture && texture.type !== 0 && !options.textures[texture.type]) return;
@@ -187,10 +249,78 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 			},
 		});
 	});
-	const indices = Uint32Array.from(skin.indices);
-	return { fdid, positions, normals, uvs, baked: null, indices, batches: mergeBatches(batches), radius: m2.bounds.radius || boundingRadius(positions), height: topOf(positions, indices, batches) };
+	return batches;
 }
 
+const brokenGear = new Set<number>();
+
+export async function loadM2(storage: CascStorage, fdid: number, options: M2Options = {}): Promise<ModelData> {
+	const prepared = await prepareM2(storage, fdid, !!options.stand);
+	const parts: { prepared: PreparedM2; batches: ModelBatch[]; transform: Mat4 | null }[] = [
+		{ prepared, batches: dressM2(prepared, options), transform: null },
+	];
+	// Gear (helmets, shoulders, weapons) drawn at the body's attachment points.
+	for (const gear of options.attachments ?? []) {
+		const point = prepared.attachments.get(gear.point);
+		if (!point) continue;
+		try {
+			const item = await prepareM2(storage, gear.fdid, false);
+			// Item textures are runtime type 2 ("object skin"); their own hard-coded ones still apply.
+			parts.push({ prepared: item, batches: dressM2(item, { textures: { 2: gear.texture } }), transform: point.posed });
+		} catch (e) {
+			// Once per item: many NPCs can share a broken one.
+			if (!brokenGear.has(gear.fdid)) console.warn(`Gear model ${gear.fdid}:`, e);
+			brokenGear.add(gear.fdid);
+		}
+	}
+
+	// Merge into one mesh. Copies throughout: the arrays are transferred to the main thread,
+	// which would empty the cached ones.
+	let vertexCount = 0;
+	let indexCount = 0;
+	for (const p of parts) {
+		vertexCount += p.prepared.positions.length / 3;
+		indexCount += p.prepared.indices.length;
+	}
+	const positions = new Float32Array(vertexCount * 3);
+	const normals = new Float32Array(vertexCount * 3);
+	const uvs = new Float32Array(vertexCount * 2);
+	const indices = new Uint32Array(indexCount);
+	const batches: ModelBatch[] = [];
+	let vbase = 0;
+	let ibase = 0;
+	parts.forEach((p, n) => {
+		const src = p.prepared;
+		const count = src.positions.length / 3;
+		const m = p.transform;
+		for (let i = 0; i < count; i++) {
+			const x = src.positions[i * 3], y = src.positions[i * 3 + 1], z = src.positions[i * 3 + 2];
+			const a = src.normals[i * 3], b = src.normals[i * 3 + 1], c = src.normals[i * 3 + 2];
+			const o = (vbase + i) * 3;
+			if (m) {
+				positions[o] = m[0] * x + m[4] * y + m[8] * z + m[12];
+				positions[o + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
+				positions[o + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+				normals[o] = m[0] * a + m[4] * b + m[8] * c;
+				normals[o + 1] = m[1] * a + m[5] * b + m[9] * c;
+				normals[o + 2] = m[2] * a + m[6] * b + m[10] * c;
+			} else {
+				positions[o] = x; positions[o + 1] = y; positions[o + 2] = z;
+				normals[o] = a; normals[o + 1] = b; normals[o + 2] = c;
+			}
+		}
+		uvs.set(src.uvs, vbase * 2);
+		for (let i = 0; i < src.indices.length; i++) indices[ibase + i] = src.indices[i] + vbase;
+		// Gear draws after the body's own batches.
+		for (const batch of p.batches) batches.push({ ...batch, start: batch.start + ibase, order: batch.order + n * 1_000_000 });
+		vbase += count;
+		ibase += src.indices.length;
+	});
+	return {
+		fdid, positions, normals, uvs, baked: null, indices, batches: mergeBatches(batches),
+		radius: prepared.m2.bounds.radius || boundingRadius(positions), height: topOf(positions, indices, batches),
+	};
+}
 export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type: number) => LiquidKind): Promise<ModelData> {
 	const root = parseWmoRoot(await storage.readFile(fdid));
 	const groups = await Promise.all(root.groupFdids.map(async (g) => {

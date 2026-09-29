@@ -4,6 +4,8 @@ import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
 import type { SpawnInfo } from '../explorer/spawns';
 import type { AsyncStorageApi } from '../worker/protocol';
 import { createModelMaterial, type SkinUniforms } from './modelMaterials';
+import { perf } from './perf';
+import { PARTICLE_RANGE, ParticleSystem, type EmitterSource, type LoadedEmitter } from './particles';
 import { liquidMaterials } from './terrainMaterials';
 import { TextureCache } from './textureCache';
 
@@ -43,6 +45,8 @@ class ModelEntry {
 	visible = new Set<string>();
 	/** Set for models animated on the GPU: their shared bone texture and loop length. */
 	animation: { key: string; duration: number } | null = null;
+	/** Particle emitters (fire, smoke), with their textures. */
+	emitters: LoadedEmitter[] = [];
 	/** Instance key for each slot in the instance buffer, for picking. */
 	drawnKeys: string[] = [];
 	radius = 0;
@@ -97,6 +101,7 @@ export class ObjectManager {
 	private readonly queue: ModelEntry[] = [];
 	private requests = 0;
 	private readonly textures: TextureCache;
+	readonly particles = new ParticleSystem();
 
 	/**
 	 * prepare compiles an object's shaders off the critical path (renderer.compileAsync), so a
@@ -109,6 +114,8 @@ export class ObjectManager {
 		private readonly prepare: (object: THREE.Object3D) => Promise<void>,
 	) {
 		this.textures = new TextureCache(storage, compressed, anisotropy);
+		this.group.add(this.particles.group);
+		this.particles.warmUp(prepare);
 	}
 
 	/**
@@ -243,9 +250,14 @@ export class ObjectManager {
 	private lastCull = 0;
 	private readonly camera = new THREE.Vector3();
 
+	private lastUpdate = 0;
+	private readonly emitterSources: EmitterSource[] = [];
+
 	/** Call once per frame: starts model loads, culls by view distance and applies instance changes. */
 	update(now: number, camera: THREE.Vector3): void {
 		this.camera.copy(camera);
+		const dt = this.lastUpdate ? (now - this.lastUpdate) / 1000 : 0;
+		this.lastUpdate = now;
 		const cull = now - this.lastCull > CULL_INTERVAL;
 		if (cull) this.lastCull = now;
 		if (this.requests < MAX_MODEL_REQUESTS && this.queue.length) this.prioritize();
@@ -265,6 +277,26 @@ export class ObjectManager {
 				entry.unusedSince = 0;
 			}
 		}
+		perf.time('particles', () => this.particles.update(dt, this.nearbyEmitters()));
+		// Not a time: the live particle count, averaged the same way.
+		perf.record('particles.alive', this.particles.count);
+	}
+
+	/** Placed copies of models with particle emitters, near enough for their particles to show. */
+	private nearbyEmitters(): EmitterSource[] {
+		const out = this.emitterSources;
+		out.length = 0;
+		for (const [id, entry] of this.models) {
+			if (!entry.emitters.length || entry.state !== 'ready') continue;
+			for (const key of entry.visible) {
+				const m = entry.instances.get(key);
+				if (!m) continue;
+				const e = m.elements;
+				if ((e[12] - this.camera.x) ** 2 + (e[13] - this.camera.y) ** 2 + (e[14] - this.camera.z) ** 2 > PARTICLE_RANGE ** 2) continue;
+				out.push({ key: `${id}|${key}`, matrix: m, emitters: entry.emitters });
+			}
+		}
+		return out;
 	}
 
 	/** Orders the load queue by each model's nearest placed copy, so the area around you fills in first. */
@@ -300,8 +332,12 @@ export class ObjectManager {
 			entry.state = 'failed';
 			return;
 		}
-		entry.textures = [...new Set(data.batches.map((b) => b.material.texture).filter((t) => t))];
+		entry.textures = [...new Set([...data.batches.map((b) => b.material.texture), ...(data.emitters ?? []).map((e) => e.texture)].filter((t) => t))];
 		const textures = await this.textures.acquire(entry.textures);
+		entry.emitters = (data.emitters ?? []).flatMap((def) => {
+			const texture = textures.get(def.texture);
+			return texture ? [{ def, texture }] : [];
+		});
 
 		const geometry = new THREE.BufferGeometry();
 		geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));

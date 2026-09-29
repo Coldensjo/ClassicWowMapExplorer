@@ -4,13 +4,14 @@ import type { CascStorage } from '../casc/storage';
 import { chunks } from '../formats/chunks';
 import { Blend, M2_MATERIAL_TWO_SIDED, M2_MATERIAL_UNFOGGED, M2_MATERIAL_UNLIT, parseM2, parseSkin, type M2File, type M2Skin } from '../formats/m2';
 import { attachmentPoints, skinVertex, standAnimation, standPose, type AttachmentPoint, type BoneAnimation } from '../formats/m2Pose';
+import { parseParticleEmitters, type ParticleEmitter } from '../formats/m2Particles';
 import {
 	parseWmoGroup, parseWmoRoot, WMO_GROUP_INTERIOR, WMO_LIQUID_CELL, type WmoGroup, WMO_MATERIAL_TWO_SIDED, WMO_MATERIAL_UNFOGGED, WMO_MATERIAL_UNLIT,
 } from '../formats/wmo';
 import type { LiquidKind } from '../formats/mh2o';
 import type { LiquidMesh } from './liquidMesh';
 import type { SpawnInfo } from './spawns';
-import { compose, fromQuaternion, rotationX, rotationY, rotationZ, scaling, translation, type Mat4 } from './mat4';
+import { compose, fromQuaternion, multiply, rotationX, rotationY, rotationZ, scaling, translation, type Mat4 } from './mat4';
 
 const MDDF_FILE_ID = 0x40;
 const MODF_FILE_ID = 0x8;
@@ -71,6 +72,8 @@ export interface ModelData {
 	animation?: ModelAnimation;
 	/** WMOs only: liquid surfaces in model space. */
 	liquids?: LiquidMesh[];
+	/** M2 particle emitters (fire, smoke, sparks), including those of worn gear. */
+	emitters?: ParticleEmitter[];
 	/** WMOs only: a serialised ray-cast acceleration structure (three-mesh-bvh, indirect), for line of sight. */
 	bvh?: { version: number; roots: ArrayBuffer[]; indirectBuffer: Uint32Array | Uint16Array | null };
 }
@@ -180,6 +183,7 @@ interface PreparedM2 {
 	animation: BoneAnimation | null;
 	boneIndex: Uint16Array | null;
 	boneWeight: Uint8Array | null;
+	emitters: ParticleEmitter[];
 }
 
 /**
@@ -236,7 +240,9 @@ function prepareM2(storage: CascStorage, fdid: number, stand: boolean): Promise<
 		}
 		return {
 			m2, skin, positions, normals, uvs, indices: Uint32Array.from(skin.indices),
-			attachments: attachmentPoints(bytes, m2.md20, bones), animation, boneIndex, boneWeight,
+			// Animated bodies still need the resting frames, for held items' particles.
+			attachments: attachmentPoints(bytes, m2.md20, bones ?? (animation ? standPose(bytes, m2.md20) : null)), animation, boneIndex, boneWeight,
+			emitters: parseParticleEmitters(bytes, m2.md20, m2.textures.map((t) => t.fdid)),
 		};
 	})();
 	entry.catch(() => preparedM2.delete(key));
@@ -292,8 +298,9 @@ const brokenGear = new Set<number>();
 export async function loadM2(storage: CascStorage, fdid: number, options: M2Options = {}): Promise<ModelData> {
 	const prepared = await prepareM2(storage, fdid, !!options.stand);
 	const animated = prepared.animation !== null;
-	const parts: { prepared: PreparedM2; batches: ModelBatch[]; transform: Mat4 | null; bone: number }[] = [
-		{ prepared, batches: dressM2(prepared, options), transform: null, bone: -1 },
+	// rest: where the part sits in the resting pose, for its particle emitters.
+	const parts: { prepared: PreparedM2; batches: ModelBatch[]; transform: Mat4 | null; rest: Mat4 | null; bone: number }[] = [
+		{ prepared, batches: dressM2(prepared, options), transform: null, rest: null, bone: -1 },
 	];
 	// Gear (helmets, shoulders, weapons) drawn at the body's attachment points.
 	for (const gear of options.attachments ?? []) {
@@ -303,7 +310,7 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 			const item = await prepareM2(storage, gear.fdid, false);
 			// Item textures are runtime type 2 ("object skin"); their own hard-coded ones still apply.
 			// On an animated body the item rides its attachment bone from the bind-space frame.
-			parts.push({ prepared: item, batches: dressM2(item, { textures: { 2: gear.texture } }), transform: animated ? point.bind : point.posed, bone: point.bone });
+			parts.push({ prepared: item, batches: dressM2(item, { textures: { 2: gear.texture } }), transform: animated ? point.bind : point.posed, rest: point.posed, bone: point.bone });
 		} catch (e) {
 			// Once per item: many NPCs can share a broken one.
 			if (!brokenGear.has(gear.fdid)) console.warn(`Gear model ${gear.fdid}:`, e);
@@ -368,6 +375,8 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 		ibase += src.indices.length;
 	});
 	const anim = prepared.animation;
+	// Fresh frames: the arrays are transferred to the main thread, which would empty the cached ones.
+	const emitters = parts.flatMap((p) => p.prepared.emitters.map((e) => ({ ...e, frame: p.rest ? multiply(p.rest, e.frame) : e.frame.slice() })));
 	return {
 		fdid, positions, normals, uvs, baked: null, indices, batches: mergeBatches(batches),
 		radius: prepared.m2.bounds.radius || boundingRadius(positions), height: topOf(positions, indices, batches),
@@ -375,6 +384,7 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 		animation: anim && boneIndex && boneWeight
 			? { key: `m2:${fdid}`, bones: anim.bones, frames: anim.frames, duration: anim.duration, data: anim.data.slice(), boneIndex, boneWeight }
 			: undefined,
+		emitters: emitters.length ? emitters : undefined,
 	};
 }
 export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type: number) => LiquidKind): Promise<ModelData> {

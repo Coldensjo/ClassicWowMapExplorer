@@ -26,13 +26,29 @@ export interface InstanceMap {
 	wdt: number;
 	/** Terrain tiles (from the WDL), for maps built from ADTs. */
 	farTiles: FarTile[];
+	/** Terrain tiles of maps without a WDL (newer ones): no distant view, only full detail up close. */
+	terrainTiles: [number, number][];
 	/** Tiles a WMO-only map's building covers, for streaming its objects and spawns. */
 	wmoTiles: [number, number][];
+	/** A WMO-only map's building bounds, relative to the map's centre in placement space (x, height, z). */
+	wmoBounds: { min: [number, number, number]; max: [number, number, number] } | null;
+}
+
+/** Map.db2 instance types. */
+export type MapCategory = 'continent' | 'dungeon' | 'raid' | 'battleground' | 'other';
+
+/** A map the install has files for. */
+export interface MapListing {
+	id: number;
+	name: string;
+	category: MapCategory;
 }
 
 /** Map.db2 fields. */
 const MAP_NAME = 1;
+const MAP_INSTANCE_TYPE = 8;
 const MAP_WDT = 21;
+const CATEGORIES: MapCategory[] = ['other', 'dungeon', 'raid', 'battleground'];
 
 export interface FarTile {
 	x: number;
@@ -103,9 +119,41 @@ export class WorldLoader {
 		if (!wdtFdid || this.storage.status(wdtFdid) !== 'ok') return null;
 		const wdt = await this.maps.wdt(wdtFdid);
 		const name = table.getString(mapId, MAP_NAME) ?? `Map ${mapId}`;
-		const farTiles = wdt.tileCount ? await this.loadFarTiles(wdtFdid, wdtFdid - 1) : [];
-		const wmoTiles = wdt.globalWmo ? globalWmoTiles(wdt.globalWmo) : [];
-		return { mapId, name, wdt: wdtFdid, farTiles, wmoTiles };
+		const tiles = wdt.tiles.filter((t) => t !== null);
+		// Older maps keep their WDL right before the WDT; newer ones' can't be found (unnamed).
+		let farTiles: FarTile[] = [];
+		if (tiles.length && this.storage.status(wdtFdid - 1) === 'ok') {
+			try {
+				const far = await this.loadFarTiles(wdtFdid, wdtFdid - 1);
+				if (tiles.every((t) => far.some((f) => f.x === t.x && f.y === t.y))) farTiles = far;
+			} catch {
+				// Not a WDL after all.
+			}
+		}
+		const terrainTiles: [number, number][] = farTiles.length ? [] : tiles.map((t) => [t.x, t.y]);
+		const g = wdt.globalWmo;
+		return {
+			mapId, name, wdt: wdtFdid, farTiles, terrainTiles,
+			wmoTiles: g ? globalWmoTiles(g) : [],
+			wmoBounds: g ? { min: [g.position[0] + g.min[0], g.min[1], g.position[2] + g.min[2]], max: [g.position[0] + g.max[0], g.max[1], g.position[2] + g.max[2]] } : null,
+		};
+	}
+
+	/** Every map the install has files for, by Map.db2 instance type. */
+	async listMaps(): Promise<MapListing[]> {
+		const table = await loadTable(this.storage, DB2_FILES.Map);
+		const out: MapListing[] = [];
+		for (const id of table.ids()) {
+			const wdt = table.getInt(id, MAP_WDT) ?? 0;
+			if (!wdt || this.storage.status(wdt) !== 'ok') continue;
+			const known = KNOWN_MAPS.find((m) => m.mapId === id);
+			out.push({
+				id,
+				name: known?.name ?? table.getString(id, MAP_NAME) ?? `Map ${id}`,
+				category: known ? 'continent' : CATEGORIES[table.getInt(id, MAP_INSTANCE_TYPE) ?? 0] ?? 'other',
+			});
+		}
+		return out.sort((a, b) => a.name.localeCompare(b.name));
 	}
 
 	async loadFarTiles(wdtFdid: number, wdlFdid: number): Promise<FarTile[]> {

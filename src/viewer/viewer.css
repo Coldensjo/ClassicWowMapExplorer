@@ -214,9 +214,17 @@ kbd {
 }
 
 /* Info for a clicked creature or object. */
-#info {
+#map-picker {
 	position: fixed;
 	top: 12px;
+	right: 12px;
+	max-width: 280px;
+	background: var(--panel);
+}
+
+#info {
+	position: fixed;
+	top: 52px;
 	right: 12px;
 	width: min(340px, calc(100vw - 24px));
 	max-height: calc(100vh - 24px);

@@ -182,10 +182,11 @@ export class TerrainManager {
 	}
 
 	/**
-	 * Tiles of a map without terrain (a WMO-only dungeon): nothing to draw, but they stream the
-	 * map's building, objects and spawns as the camera comes near.
+	 * Tiles without a low-detail mesh. For a map without terrain (a WMO-only dungeon) they only
+	 * stream its building, objects and spawns as the camera comes near; with terrain (maps that
+	 * have no WDL), they also load their full-detail terrain then, and show nothing from afar.
 	 */
-	addObjectTiles(continent: ContinentPlacement, coords: [number, number][]): void {
+	addObjectTiles(continent: ContinentPlacement, coords: [number, number][], terrain = false): void {
 		for (const [x, y] of coords) {
 			const gx = x + continent.offsetX;
 			const gy = y + continent.offsetY;
@@ -195,7 +196,7 @@ export class TerrainManager {
 				y,
 				originX: gx * TILE_SIZE,
 				originZ: gy * TILE_SIZE,
-				hasAdt: false,
+				hasAdt: terrain,
 				maxHeight: Infinity,
 				far: null,
 				farHeights: null,
@@ -359,7 +360,7 @@ export class TerrainManager {
 			if (t.near && t.distance > NEAR_DROP_DISTANCE) this.dropNear(t);
 			else if (t.hasAdt && !t.near && !t.nearLoading && t.distance < NEAR_LOAD_DISTANCE) wanted.push(t);
 			// Doodads wait for the detailed terrain so they sit on the right ground.
-			const detailed = objectsOnly ? t.distance < NEAR_LOAD_DISTANCE : !!t.near;
+			const detailed = t.hasAdt ? !!t.near : t.distance < NEAR_LOAD_DISTANCE;
 			const level: ObjectLevel = detailed ? 'all' : t.distance < WMO_DISTANCE ? 'wmo' : 'none';
 			if (level !== t.objectLevel) {
 				t.objectLevel = level;

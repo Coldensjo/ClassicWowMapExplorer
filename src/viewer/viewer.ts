@@ -124,6 +124,11 @@ async function loadTriggers(): Promise<Map<number, AreaTrigger[]>> {
 	return byMap;
 }
 
+/** WoW world coordinates (x north, y west, z up) on a map -> where that map sits in the world. */
+function worldFromWow(placement: ContinentPlacement, x: number, y: number, z: number): THREE.Vector3 {
+	return new THREE.Vector3(MAP_ORIGIN - y + placement.offsetX * TILE_SIZE, z, MAP_ORIGIN - x + placement.offsetY * TILE_SIZE);
+}
+
 function insideTrigger(t: AreaTrigger, x: number, y: number, z: number): boolean {
 	if (t.radius > 0) return (x - t.x) ** 2 + (y - t.y) ** 2 + (z - t.z) ** 2 <= (t.radius + TRIGGER_MARGIN) ** 2;
 	const [length, width, height, o] = t.box;
@@ -174,6 +179,8 @@ export class Viewer {
 	/** Dungeon maps by ID, laid out in the world when first entered. */
 	private readonly instances = new Map<number, Promise<ContinentPlacement | null>>();
 	private readonly loadedInstances = new Map<number, ContinentPlacement>();
+	/** WMO-only maps' building bounds in world space, for landing above them. */
+	private readonly instanceBounds = new Map<number, THREE.Box3>();
 	/**
 	 * Triggers fire only once the camera has been outside all of them, so arriving on (or
 	 * starting in) one doesn't send you straight back.
@@ -297,9 +304,9 @@ export class Viewer {
 
 		onStatus('Reading lighting and zone names');
 		this.triggers = await loadTriggers();
-		// Light for the continents and every dungeon their entrances lead to.
+		// Light for every map in the install (any of them can be gone to).
 		const mapIds = new Set(this.continents.map((c) => c.mapId));
-		for (const list of this.triggers.values()) for (const t of list) mapIds.add(t.target.map);
+		for (const m of await this.storage.listMaps().catch(() => [])) mapIds.add(m.id);
 		try {
 			const [lighting, areas] = await Promise.all([
 				this.storage.loadLighting([...mapIds]),
@@ -425,6 +432,12 @@ export class Viewer {
 				const p: ContinentPlacement = { name: map.name, mapId, wdt: map.wdt, offsetX: slot * INSTANCE_SPACING, offsetY: INSTANCE_OFFSET_Y, instance: true };
 				this.terrain.addContinent(p, map.farTiles);
 				this.terrain.addObjectTiles(p, map.wmoTiles);
+				this.terrain.addObjectTiles(p, map.terrainTiles, true);
+				if (map.wmoBounds) {
+					// Placement space around the map's centre -> this map's place in the world.
+					const at = (v: [number, number, number]) => new THREE.Vector3(MAP_ORIGIN + v[0] + p.offsetX * TILE_SIZE, v[1], MAP_ORIGIN + v[2] + p.offsetY * TILE_SIZE);
+					this.instanceBounds.set(mapId, new THREE.Box3().setFromPoints([at(map.wmoBounds.min), at(map.wmoBounds.max)]));
+				}
 				this.loadedInstances.set(mapId, p);
 				void this.terrain.loadFarTextures(this.camera.position, p);
 				return p;
@@ -435,6 +448,44 @@ export class Viewer {
 			this.instances.set(mapId, placement);
 		}
 		return placement;
+	}
+
+	/**
+	 * Jumps to any map, including ones nothing leads to (battlegrounds, test and unused maps):
+	 * a continent's overview, a dungeon's entrance, above a one-building map's building, or over
+	 * the middle of a map's terrain. False when the map can't be loaded.
+	 */
+	async goToMap(mapId: number): Promise<boolean> {
+		const continent = this.continents.findIndex((c) => c.mapId === mapId);
+		if (continent >= 0) {
+			this.goToContinent(continent);
+			return true;
+		}
+		const placement = await this.placementFor(mapId);
+		if (!placement) return false;
+		this.triggersArmed = false;
+		// Where the game puts you: the entrance, if one leads here.
+		const entrance = [...this.triggers.values()].flat().find((t) => t.target.map === mapId);
+		if (entrance) {
+			this.controls.set(worldFromWow(placement, entrance.target.x, entrance.target.y, entrance.target.z + EYE_HEIGHT), entrance.target.o, 0);
+			return true;
+		}
+		const bounds = this.instanceBounds.get(mapId);
+		if (bounds) {
+			// Above the building, a little to the south, looking down into it.
+			const center = bounds.getCenter(new THREE.Vector3());
+			const size = bounds.getSize(new THREE.Vector3());
+			this.controls.set(new THREE.Vector3(center.x, bounds.max.y + 40, center.z + Math.max(size.x, size.z) * 0.35), 0, -1);
+			return true;
+		}
+		// Over the middle of the terrain, backed off to the south, looking north and down.
+		const { center, extent } = this.terrain.focus(placement);
+		const ground = Math.max(0, this.terrain.heightAt(center.x, center.y));
+		const pitch = -0.6;
+		// Low enough that the terrain around loads in full detail straight away.
+		const distance = THREE.MathUtils.clamp(extent * 0.3, 250, 700);
+		this.controls.set(new THREE.Vector3(center.x, ground - Math.sin(pitch) * distance, center.y + Math.cos(pitch) * distance), 0, pitch);
+		return true;
 	}
 
 	/** Walks through dungeon entrances and exits: sends the camera on when it enters a teleport trigger. */
@@ -458,14 +509,8 @@ export class Viewer {
 				console.warn(`${t.name}: map ${t.target.map} isn't in this install`);
 				return;
 			}
-			// WoW world (x north, y west, z up) -> this map's place in the world.
-			const position = new THREE.Vector3(
-				MAP_ORIGIN - t.target.y + placement.offsetX * TILE_SIZE,
-				t.target.z + EYE_HEIGHT,
-				MAP_ORIGIN - t.target.x + placement.offsetY * TILE_SIZE,
-			);
 			// WoW orientation turns from north toward west, as the camera's yaw does.
-			this.controls.set(position, t.target.o, 0);
+			this.controls.set(worldFromWow(placement, t.target.x, t.target.y, t.target.z + EYE_HEIGHT), t.target.o, 0);
 		} finally {
 			this.teleporting = false;
 			this.triggersArmed = false;
@@ -502,7 +547,7 @@ export class Viewer {
 	}
 
 	private onKey(e: KeyboardEvent): void {
-		if (e.target instanceof HTMLInputElement || !this.terrain) return;
+		if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || !this.terrain) return;
 		if (e.code === 'KeyO') this.overview();
 		else if (e.code === 'KeyR') this.controls.flyTo(this.startPosition(), 0, -0.3, 2.5);
 		else if (e.code.startsWith('Digit')) this.goToContinent(Number(e.code.slice(5)) - 1);

@@ -114,6 +114,11 @@ const MAPS = [...CONTINENTS];
 for (let i = 0; i < MAPS.length; i++) {
 	for (const t of teleports) if (t.map === MAPS[i] && !MAPS.includes(t.target_map)) MAPS.push(t.target_map);
 }
+// Maps nothing leads to (battlegrounds) still get their spawns, for going there directly.
+for (const { map } of query<{ map: number }>(`select distinct map from creature where patch_min <= ${PATCH}
+	union select distinct map from gameobject where patch_min <= ${PATCH}`)) {
+	if (!MAPS.includes(map)) MAPS.push(map);
+}
 const triggers = teleports
 	.filter((t) => MAPS.includes(t.map) && MAPS.includes(t.target_map))
 	.map((t) => [t.id, t.name, t.map, round(t.x), round(t.y), round(t.z), round(t.radius), round(t.box_x), round(t.box_y), round(t.box_z),

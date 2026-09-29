@@ -2,6 +2,7 @@ import { filesToSource, hasDirectoryPicker, pickDirectory } from '../app/folderP
 import { createStorageClient } from '../worker/client';
 import type { SourceInit } from '../worker/protocol';
 import type { SpawnInfo } from '../explorer/spawns';
+import type { MapCategory, MapListing } from '../explorer/world';
 import { Viewer, type HudInfo } from './viewer';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -59,11 +60,53 @@ $('explore').addEventListener('click', async () => {
 		$('start').hidden = true;
 		$('hud').hidden = $('help').hidden = false;
 		viewer.start();
+		void setUpMapPicker(viewer);
 	} catch (e) {
 		setStatus(`Could not start: ${(e as Error).message}`, true);
 		button.disabled = false;
 	}
 });
+
+// --- Going to any map ---
+
+const MAP_GROUPS: [MapCategory, string][] = [
+	['continent', 'Continents'],
+	['dungeon', 'Dungeons'],
+	['raid', 'Raids'],
+	['battleground', 'Battlegrounds'],
+	['other', 'Other maps'],
+];
+
+/** Every map in the install, grouped, to jump straight to (many have no way in from the world). */
+async function setUpMapPicker(viewer: Viewer): Promise<void> {
+	const picker = $<HTMLSelectElement>('map-picker');
+	let maps: MapListing[];
+	try {
+		maps = await storage.listMaps();
+	} catch (e) {
+		console.warn('Map list unavailable:', e);
+		return;
+	}
+	const placeholder = new Option(`Go to map… (${maps.length})`, '');
+	placeholder.disabled = true;
+	const groups = MAP_GROUPS.map(([category, label]) => {
+		const group = document.createElement('optgroup');
+		group.label = label;
+		group.append(...maps.filter((m) => m.category === category).map((m) => new Option(m.name, String(m.id))));
+		return group;
+	}).filter((g) => g.children.length);
+	picker.replaceChildren(placeholder, ...groups);
+	picker.value = '';
+	picker.hidden = false;
+	picker.addEventListener('change', async () => {
+		const id = Number(picker.value);
+		const name = picker.selectedOptions[0]?.textContent ?? `Map ${id}`;
+		// Back to the placeholder, and out of the way of the flying keys.
+		picker.value = '';
+		picker.blur();
+		if (!(await viewer.goToMap(id))) console.warn(`${name} couldn't be loaded`);
+	});
+}
 
 // --- Clicked creature or object ---
 

@@ -72,6 +72,9 @@ const api: AsyncStorageApi = {
 	async loadInstance(mapId) {
 		return requireWorld().loadInstance(mapId);
 	},
+	async listMaps() {
+		return requireWorld().listMaps();
+	},
 	async loadLiquidLooks() {
 		return requireWorld().loadLiquidLooks();
 	},

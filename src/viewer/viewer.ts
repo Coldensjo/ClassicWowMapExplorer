@@ -21,6 +21,8 @@ const MAP_ORIGIN = 32 * TILE_SIZE;
 const SKY = new THREE.Color(0x9ec4e4);
 /** Yards the camera keeps from building surfaces: well past its 0.5 yd near plane, so looking down never clips through a floor. */
 const CAMERA_RADIUS = 1.5;
+/** Half-minutes the T key moves the time of day (15 minutes). */
+const TIME_STEP = 30;
 /** Yards; NPC names show within this distance, like the game's name plates. */
 const NAMEPLATE_RANGE = 45;
 /** Yards; clicks further than this don't select anything. */
@@ -78,7 +80,7 @@ export class Viewer {
 	private readonly sky = new Sky();
 	private lighting: Lighting | null = null;
 	private readonly areas = new Map<number, AreaInfo>();
-	/** Half-minutes added to the local clock ([ and ] keys). */
+	/** Half-minutes added to the local clock (T / Shift+T, N resets). */
 	private timeOffset = 0;
 	private lastLightUpdate = 0;
 	/** Warm light carried with the camera, like holding a torch (L toggles it). */
@@ -311,9 +313,9 @@ export class Viewer {
 		if (e.code === 'KeyO') this.overview();
 		else if (e.code === 'KeyR') this.controls.flyTo(this.startPosition(), 0, -0.3, 2.5);
 		else if (e.code.startsWith('Digit')) this.goToContinent(Number(e.code.slice(5)) - 1);
-		else if (e.code === 'BracketLeft') this.timeOffset -= 60;
-		else if (e.code === 'BracketRight') this.timeOffset += 60;
-		else if (e.code === 'Backslash') this.timeOffset = 0;
+		// Letters rather than [ ] \, which need AltGr on many layouts. Holding T keeps going.
+		else if (e.code === 'KeyT') this.timeOffset += e.shiftKey ? -TIME_STEP : TIME_STEP;
+		else if (e.code === 'KeyN') this.timeOffset = 0;
 		else if (e.code === 'KeyL') this.setTorch(!this.torchOn);
 		else if (e.code === 'KeyF') this.side = this.side === 'alliance' ? 'horde' : 'alliance';
 	}

@@ -430,6 +430,92 @@ export class ObjectManager {
 		return false;
 	}
 
+	private readonly sweepRay = new THREE.Raycaster();
+	private readonly hitNormal = new THREE.Vector3();
+
+	/** Nearest building surface along a ray (within far), with its world-space normal. */
+	private castBuildings(from: THREE.Vector3, direction: THREE.Vector3, far: number): { distance: number; normal: THREE.Vector3 } | null {
+		this.sweepRay.set(from, direction);
+		this.sweepRay.far = far;
+		this.sweepRay.firstHitOnly = true;
+		let best: { distance: number; normal: THREE.Vector3 } | null = null;
+		for (const entry of this.models.values()) {
+			if (!entry.mesh?.visible || !entry.geometry?.boundsTree) continue;
+			const hit = this.sweepRay.intersectObject(entry.mesh, false)[0];
+			if (!hit?.face || (best && hit.distance >= best.distance)) continue;
+			// The face normal is in model space; carry it through the instance's placement.
+			const instance = new THREE.Matrix4();
+			if (hit.instanceId !== undefined) entry.mesh.getMatrixAt(hit.instanceId, instance);
+			this.hitNormal.copy(hit.face.normal).transformDirection(instance);
+			best = { distance: hit.distance, normal: this.hitNormal.clone() };
+		}
+		return best;
+	}
+
+	/**
+	 * Limits a camera move so it can't pass through buildings (caves, mines, walls): slides along
+	 * a surface it would cross, keeping `radius` away from it. Returns the allowed move.
+	 */
+	sweep(from: THREE.Vector3, move: THREE.Vector3, radius: number): THREE.Vector3 {
+		let allowed = move.clone();
+		for (let pass = 0; pass < 3; pass++) {
+			const length = allowed.length();
+			if (length < 1e-5) break;
+			const direction = allowed.clone().divideScalar(length);
+			const hit = this.castBuildings(from, direction, length + radius);
+			if (!hit) break;
+			// Facing away from the move (we're behind it): not a wall for this move.
+			const into = allowed.dot(hit.normal);
+			if (into >= 0) break;
+			if (pass < 2) {
+				// Slide: drop the part of the move that goes into the surface, then check again.
+				allowed.addScaledVector(hit.normal, -into);
+			} else {
+				// Still blocked (a corner): stop short of the surface.
+				allowed = direction.multiplyScalar(Math.min(Math.max(0, hit.distance - radius), length));
+			}
+		}
+		return allowed;
+	}
+
+	/** Whether any building's bounds come within `margin` of a point: collision is only needed then. */
+	nearBuilding(at: THREE.Vector3, margin: number): boolean {
+		for (const entry of this.models.values()) {
+			const sphere = entry.geometry?.boundingSphere;
+			if (!entry.mesh?.visible || !entry.geometry?.boundsTree || !sphere) continue;
+			for (const key of entry.visible) {
+				const m = entry.instances.get(key)!;
+				const e = m.elements;
+				const scale = Math.hypot(e[0], e[1], e[2]);
+				const cx = e[0] * sphere.center.x + e[4] * sphere.center.y + e[8] * sphere.center.z + e[12];
+				const cy = e[1] * sphere.center.x + e[5] * sphere.center.y + e[9] * sphere.center.z + e[13];
+				const cz = e[2] * sphere.center.x + e[6] * sphere.center.y + e[10] * sphere.center.z + e[14];
+				const reach = sphere.radius * scale + margin;
+				if ((cx - at.x) ** 2 + (cy - at.y) ** 2 + (cz - at.z) ** 2 < reach * reach) return true;
+			}
+		}
+		return false;
+	}
+
+	private static readonly AXES = [
+		new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 1, 0),
+		new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
+		new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
+	];
+
+	/**
+	 * How far to move a point so no building surface is within `radius` of it along the six axes
+	 * (floors, ceilings, walls). Keeps the camera's view from clipping into a surface it slid along.
+	 */
+	pushOut(at: THREE.Vector3, radius: number): THREE.Vector3 {
+		const offset = new THREE.Vector3();
+		for (const axis of ObjectManager.AXES) {
+			const hit = this.castBuildings(at, axis, radius);
+			if (hit && axis.dot(hit.normal) < 0) offset.addScaledVector(axis, -(radius - hit.distance));
+		}
+		return offset;
+	}
+
 	/** The creature or game object spawn nearest along a ray, if any. */
 	pick(raycaster: THREE.Raycaster): { info: SpawnInfo; distance: number } | null {
 		let best: { info: SpawnInfo; distance: number } | null = null;

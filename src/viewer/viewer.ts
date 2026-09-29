@@ -19,6 +19,8 @@ const CONTINENT_GAP = 6;
 /** WoW world coordinates are measured from the centre of the 64x64 tile grid. */
 const MAP_ORIGIN = 32 * TILE_SIZE;
 const SKY = new THREE.Color(0x9ec4e4);
+/** Yards the camera keeps from building surfaces: well past its 0.5 yd near plane, so looking down never clips through a floor. */
+const CAMERA_RADIUS = 1.5;
 /** Yards; NPC names show within this distance, like the game's name plates. */
 const NAMEPLATE_RANGE = 45;
 /** Yards; clicks further than this don't select anything. */
@@ -170,6 +172,13 @@ export class Viewer {
 		// Compiles shaders in the background (KHR_parallel_shader_compile) before objects are shown.
 		const prepare = (object: THREE.Object3D) => this.renderer.compileAsync(object, this.camera, this.scene).then(() => undefined);
 		this.objects = new ObjectManager(this.storage, this.usesCompressedTextures, anisotropy, prepare);
+		// Buildings (and the caves and mines built as buildings) are solid.
+		this.controls.collide = (from, move) => {
+			// Most of the time there's no building anywhere near; skip the ray casts then.
+			if (!this.objects.nearBuilding(from, move.length() + CAMERA_RADIUS)) return move;
+			const allowed = this.objects.sweep(from, move, CAMERA_RADIUS);
+			return allowed.add(this.objects.pushOut(from.clone().add(allowed), CAMERA_RADIUS));
+		};
 		this.terrain = new TerrainManager(this.storage, this.usesCompressedTextures, anisotropy, this.objects, prepare);
 		this.scene.add(this.terrain.group, this.objects.group);
 
@@ -325,9 +334,12 @@ export class Viewer {
 		if (now - this.lastPlateScan > 150) {
 			this.lastPlateScan = now;
 			this.objects.nameplates(this.camera.position, NAMEPLATE_RANGE, this.plates);
-			// Like the game, only name NPCs you could actually see.
+			// Like the game, only name NPCs you could actually see. Underground (caves, mines) the
+			// terrain surface is overhead, so only buildings count.
+			const cam = this.camera.position;
+			const underground = cam.y < this.terrain.surfaceAt(cam.x, cam.z) - 0.5;
 			for (const p of this.plates) {
-				p.visible = !this.terrainBlocks(this.camera.position, p.position) && !this.objects.blocksSight(this.camera.position, p.position);
+				p.visible = (underground || !this.terrainBlocks(this.camera.position, p.position)) && !this.objects.blocksSight(this.camera.position, p.position);
 			}
 		}
 		// Distances change as the camera moves, even when the list doesn't.
@@ -368,7 +380,7 @@ export class Viewer {
 	}
 
 	private tick(dt: number, now: number): void {
-		this.controls.update(dt, (x, z) => this.terrain.heightAt(x, z));
+		this.controls.update(dt, (x, z) => this.terrain.heightAt(x, z), (x, z) => this.terrain.surfaceAt(x, z));
 		liquidTime.value = now / 1000;
 		const pos = this.camera.position;
 

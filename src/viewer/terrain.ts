@@ -43,6 +43,8 @@ interface TileState {
 	farHeights: Float32Array;
 	near: NearState | null;
 	nearHeights: Float32Array | null;
+	/** 128x128 hole flags while the tile is detailed. */
+	nearHoles: Uint8Array | null;
 	/** AreaTable ID per chunk while the tile is detailed. */
 	areaIds: Uint32Array | null;
 	nearLoading: boolean;
@@ -165,6 +167,7 @@ export class TerrainManager {
 				farHeights: t.heights,
 				near: null,
 				nearHeights: null,
+				nearHoles: null,
 				areaIds: null,
 				nearLoading: false,
 				distance: Infinity,
@@ -273,6 +276,7 @@ export class TerrainManager {
 			t.near.object.updateMatrixWorld(true);
 			this.group.add(t.near.object);
 			t.nearHeights = tile.heights;
+			t.nearHoles = tile.holes;
 			t.areaIds = tile.areaIds;
 			t.far.visible = false;
 		} catch (e) {
@@ -330,6 +334,7 @@ export class TerrainManager {
 		perf.record('near.drop', 0);
 		t.near = null;
 		t.nearHeights = null;
+		t.nearHoles = null;
 		t.areaIds = null;
 		t.far.visible = true;
 	}
@@ -339,6 +344,18 @@ export class TerrainManager {
 
 	/** Terrain height at a world position, from the most detailed data loaded; -Infinity off the map. */
 	heightAt(x: number, z: number): number {
+		const t = this.tileAt(x, z);
+		// A hole (cave or mine entrance) has no ground to stand on.
+		if (t?.nearHoles) {
+			const cx = Math.floor(((x - t.originX) / TILE_SIZE) * TILE_CELLS);
+			const cz = Math.floor(((z - t.originZ) / TILE_SIZE) * TILE_CELLS);
+			if (cx >= 0 && cz >= 0 && cx < TILE_CELLS && cz < TILE_CELLS && t.nearHoles[cz * TILE_CELLS + cx]) return -Infinity;
+		}
+		return this.surfaceAt(x, z);
+	}
+
+	/** Height of the terrain surface, ignoring holes: what counts as above or below ground. */
+	surfaceAt(x: number, z: number): number {
 		const t = this.tileAt(x, z);
 		if (!t) return -Infinity;
 		const lx = x - t.originX;

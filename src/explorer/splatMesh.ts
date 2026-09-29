@@ -38,6 +38,8 @@ export interface SplatTerrain {
 	textures: number[];
 	/** 129x129 outer heights. */
 	heights: Float32Array;
+	/** 128x128 cells, 1 where the terrain has a hole (cave and mine entrances). */
+	holes: Uint8Array;
 }
 
 const OUTER = 9;
@@ -179,5 +181,6 @@ export function buildSplatTerrain(root: AdtRoot, tex: AdtTex, skirtDepth = 30): 
 		alpha,
 		textures: [...textures],
 		heights: grids.outer,
+		holes: grids.holes,
 	};
 }

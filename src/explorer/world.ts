@@ -37,6 +37,8 @@ export interface NearTile {
 	fallback: { geometry: TerrainGeometry; texture: TextureData | null } | null;
 	/** 129x129 outer heights, for height queries. */
 	heights: Float32Array;
+	/** 128x128 cells, 1 where the terrain has a hole (cave and mine entrances). */
+	holes: Uint8Array;
 	liquids: LiquidMesh[];
 	/** AreaTable ID per chunk (y * 16 + x). */
 	areaIds: Uint32Array;
@@ -100,7 +102,7 @@ export class WorldLoader {
 		if (texBytes) {
 			const tex = parseAdtTex(texBytes, (wdt.flags & MPHD_BIG_ALPHA) !== 0, (i) => !(root.chunks[i]?.flags & MCNK_DO_NOT_FIX_ALPHA));
 			const terrain = buildSplatTerrain(root, tex);
-			return { x, y, terrain, fallback: null, heights: terrain.heights, liquids, areaIds };
+			return { x, y, terrain, fallback: null, heights: terrain.heights, holes: terrain.holes, liquids, areaIds };
 		}
 		const grids = tileGrids(root);
 		return {
@@ -112,6 +114,7 @@ export class WorldLoader {
 				texture: await this.readTexture(tile.files.mapTexture, Infinity, compressed),
 			},
 			heights: grids.outer,
+			holes: grids.holes,
 			liquids,
 			areaIds,
 		};

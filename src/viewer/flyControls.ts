@@ -56,6 +56,9 @@ export class FlyControls {
 		window.addEventListener('blur', () => this.keys.clear());
 	}
 
+	/** Adjusts a move so it doesn't pass through solid things; set by the viewer. */
+	collide: ((from: THREE.Vector3, move: THREE.Vector3) => THREE.Vector3) | null = null;
+
 	lock(): void {
 		if (!this.locked) this.element.requestPointerLock();
 	}
@@ -85,10 +88,17 @@ export class FlyControls {
 		this.apply();
 	}
 
-	update(dt: number, groundHeight: (x: number, z: number) => number): void {
+	/**
+	 * groundHeight is where the camera can't go below (-Infinity over holes such as cave and mine
+	 * entrances); surfaceHeight is the terrain surface ignoring holes.
+	 */
+	update(dt: number, groundHeight: (x: number, z: number) => number, surfaceHeight: (x: number, z: number) => number = groundHeight): void {
 		const pos = this.camera.position;
-		const ground = groundHeight(pos.x, pos.z);
-		this.altitude = Math.max(0, pos.y - Math.max(ground, 0));
+		const surface = surfaceHeight(pos.x, pos.z);
+		this.altitude = Math.max(0, pos.y - Math.max(surface, 0));
+		// Underground (entered through a hole): caves and mines lie below the surface, so the
+		// ground only stops the camera when it comes from above.
+		const aboveGround = pos.y >= surface - 0.5;
 
 		if (this.flight) {
 			const f = this.flight;
@@ -112,18 +122,21 @@ export class FlyControls {
 			if (k.has('KeyA') || k.has('ArrowLeft')) move.sub(right);
 			if (k.has('Space') || k.has('KeyE')) move.y += 1;
 			if (k.has('KeyC') || k.has('KeyQ')) move.y -= 1;
-			if (move.lengthSq() > 0) pos.addScaledVector(move.normalize(), this.speed * dt);
+			const delta = new THREE.Vector3();
+			if (move.lengthSq() > 0) delta.addScaledVector(move.normalize(), this.speed * dt);
 
 			// Wheel zoom: move along the view by a fraction of the current height, decaying smoothly.
 			if (Math.abs(this.zoomVelocity) > 0.01) {
 				const step = this.zoomVelocity * Math.max(this.altitude, 20) * 0.12 * Math.min(1, dt * 8);
-				pos.addScaledVector(forward, step);
+				delta.addScaledVector(forward, step);
 				this.zoomVelocity *= Math.pow(0.004, dt);
 			}
+			// Walls, floors and ceilings of buildings and caves are solid (flights between views aren't).
+			pos.add(this.collide ? this.collide(pos, delta) : delta);
 		}
 
 		const floor = groundHeight(pos.x, pos.z) + MIN_CLEARANCE;
-		if (pos.y < floor) pos.y = floor;
+		if (aboveGround && pos.y < floor) pos.y = floor;
 		this.apply();
 	}
 

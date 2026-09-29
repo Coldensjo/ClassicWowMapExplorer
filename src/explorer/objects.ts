@@ -1,0 +1,338 @@
+import { BufferAttribute, BufferGeometry } from 'three';
+import { MeshBVH } from 'three-mesh-bvh';
+import type { CascStorage } from '../casc/storage';
+import { chunks } from '../formats/chunks';
+import { Blend, M2_MATERIAL_TWO_SIDED, M2_MATERIAL_UNFOGGED, M2_MATERIAL_UNLIT, parseM2, parseSkin } from '../formats/m2';
+import { skinVertex, standPose } from '../formats/m2Pose';
+import {
+	parseWmoGroup, parseWmoRoot, WMO_GROUP_INTERIOR, WMO_LIQUID_CELL, type WmoGroup, WMO_MATERIAL_TWO_SIDED, WMO_MATERIAL_UNFOGGED, WMO_MATERIAL_UNLIT,
+} from '../formats/wmo';
+import type { LiquidKind } from '../formats/mh2o';
+import type { LiquidMesh } from './liquidMesh';
+import type { SpawnInfo } from './spawns';
+import { compose, fromQuaternion, rotationX, rotationY, rotationZ, scaling, translation, type Mat4 } from './mat4';
+
+const MDDF_FILE_ID = 0x40;
+const MODF_FILE_ID = 0x8;
+const MODF_HAS_SCALE = 0x4;
+
+export type ObjectKind = 'm2' | 'wmo' | 'creature' | 'object';
+
+export interface Placement {
+	/** creature and object placements carry a display ID in fdid rather than a file ID. */
+	kind: ObjectKind;
+	/** Unique across the continent; objects spanning tiles are listed by each tile. */
+	uid: number;
+	fdid: number;
+	/** Model space -> continent space (x east, y up, z south). */
+	matrix: Mat4;
+	doodadSet: number;
+	/** Set for creature and game object spawns (VMaNGOS data), for the info panel. */
+	spawn?: SpawnInfo;
+}
+
+export interface ModelMaterial {
+	texture: number;
+	blend: number;
+	twoSided: boolean;
+	unlit: boolean;
+	unfogged: boolean;
+	opacity: number;
+}
+
+export interface ModelBatch {
+	start: number;
+	count: number;
+	material: ModelMaterial;
+	/** Draw order within the model (M2 priority planes and material layers). */
+	order: number;
+}
+
+export interface ModelData {
+	fdid: number;
+	positions: Float32Array;
+	normals: Float32Array;
+	uvs: Float32Array;
+	/** WMOs: per-vertex baked interior light (linear RGB) and how much to use it (A), or null. */
+	baked: Float32Array | null;
+	indices: Uint32Array;
+	batches: ModelBatch[];
+	/** Bounding radius in model units, for view-distance culling. */
+	radius: number;
+	/** Top of the model above its origin (model z), for placing name plates. */
+	height: number;
+	/** WMOs only: doodad sets, each a list of models placed in the WMO's local space. */
+	doodadSets?: { name: string; doodads: { fdid: number; matrix: Mat4 }[] }[];
+	/** WMOs only: liquid surfaces in model space. */
+	liquids?: LiquidMesh[];
+	/** WMOs only: a serialised ray-cast acceleration structure (three-mesh-bvh, indirect), for line of sight. */
+	bvh?: { version: number; roots: ArrayBuffer[]; indirectBuffer: Uint32Array | Uint16Array | null };
+}
+
+/**
+ * Builds the ray-cast structure for a model in the worker, so the main thread never stalls on it.
+ * Indirect mode leaves the index buffer (and so the material ranges) untouched.
+ */
+function buildBvh(positions: Float32Array, indices: Uint32Array): ModelData['bvh'] {
+	const geometry = new BufferGeometry();
+	geometry.setAttribute('position', new BufferAttribute(positions, 3));
+	geometry.setIndex(new BufferAttribute(indices, 1));
+	const serialized = MeshBVH.serialize(new MeshBVH(geometry, { indirect: true }), { cloneBuffers: false });
+	// The version must travel with the data, or deserialize "upgrades" it from the old format.
+	return { version: (serialized as { version?: number }).version ?? 1, roots: serialized.roots, indirectBuffer: serialized.indirectBuffer ?? null };
+}
+
+/** ADT placement rotation (degrees) to a matrix: models are z-up; the world here is y-up. */
+function placementMatrix(x: number, y: number, z: number, rx: number, ry: number, rz: number, scale: number): Mat4 {
+	return compose(translation(x, y, z), rotationY(ry - 90), rotationZ(-rx), rotationX(rz - 90), scaling(scale));
+}
+
+/** Reads M2 (MDDF) and WMO (MODF) placements from a tile's _obj0.adt. */
+export function parsePlacements(bytes: Uint8Array): Placement[] {
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const out: Placement[] = [];
+	const f = (o: number) => view.getFloat32(o, true);
+	for (const c of chunks(bytes)) {
+		if (c.id === 'MDDF') {
+			for (let o = c.offset; o + 36 <= c.offset + c.size; o += 36) {
+				const flags = view.getUint16(o + 34, true);
+				if (!(flags & MDDF_FILE_ID)) continue;
+				out.push({
+					kind: 'm2',
+					fdid: view.getUint32(o, true),
+					uid: view.getUint32(o + 4, true),
+					matrix: placementMatrix(f(o + 8), f(o + 12), f(o + 16), f(o + 20), f(o + 24), f(o + 28), view.getUint16(o + 32, true) / 1024),
+					doodadSet: 0,
+				});
+			}
+		} else if (c.id === 'MODF') {
+			for (let o = c.offset; o + 64 <= c.offset + c.size; o += 64) {
+				const flags = view.getUint16(o + 56, true);
+				if (!(flags & MODF_FILE_ID)) continue;
+				const scale = flags & MODF_HAS_SCALE ? view.getUint16(o + 62, true) / 1024 : 1;
+				out.push({
+					kind: 'wmo',
+					fdid: view.getUint32(o, true),
+					uid: view.getUint32(o + 4, true),
+					matrix: placementMatrix(f(o + 8), f(o + 12), f(o + 16), f(o + 20), f(o + 24), f(o + 28), scale),
+					doodadSet: view.getUint16(o + 58, true),
+				});
+			}
+		}
+	}
+	return out;
+}
+
+/** How a creature model is dressed: textures for runtime texture types, and which geosets to show. */
+export interface M2Options {
+	/** Texture type (1 = skin, 11-13 = creature skins, ...) -> file ID. */
+	textures?: Record<number, number>;
+	/** Show only geoset 0 and each group's default variant (x01), as for character models. */
+	defaultGeosets?: boolean;
+	/** Pose the mesh with the first frame of its Stand animation instead of the bind pose. */
+	stand?: boolean;
+}
+
+export async function loadM2(storage: CascStorage, fdid: number, options: M2Options = {}): Promise<ModelData> {
+	const m2 = parseM2(await storage.readFile(fdid));
+	if (!m2.skinFdids[0]) throw new Error(`M2 ${fdid} has no skin`);
+	const skin = parseSkin(await storage.readFile(m2.skinFdids[0]));
+
+	const n = skin.vertexLookup.length;
+	const positions = new Float32Array(n * 3);
+	const normals = new Float32Array(n * 3);
+	const uvs = new Float32Array(n * 2);
+	const v = new DataView(m2.vertices.buffer, m2.vertices.byteOffset, m2.vertices.byteLength);
+	const bones = options.stand ? standPose(m2.bytes, m2.md20) : null;
+	for (let i = 0; i < n; i++) {
+		const o = skin.vertexLookup[i] * 48;
+		if (o + 48 > m2.vertices.length) continue;
+		if (bones) {
+			skinVertex(v, o, bones, positions, normals, i);
+		} else {
+			for (let k = 0; k < 3; k++) {
+				positions[i * 3 + k] = v.getFloat32(o + k * 4, true);
+				normals[i * 3 + k] = v.getFloat32(o + 20 + k * 4, true);
+			}
+		}
+		uvs[i * 2] = v.getFloat32(o + 32, true);
+		uvs[i * 2 + 1] = v.getFloat32(o + 36, true);
+	}
+
+	const batches: ModelBatch[] = [];
+	skin.batches.forEach((b, i) => {
+		const material = m2.materials[b.materialIndex] ?? { flags: 0, blend: 0 };
+		const texture = m2.textures[m2.textureCombos[b.textureComboIndex] ?? -1];
+		const opacity = (m2.transparency[b.transparencyIndex] ?? 1) * (b.colorIndex >= 0 ? m2.colorAlpha[b.colorIndex] ?? 1 : 1);
+		if (opacity <= 0.01 || b.indexCount === 0) return;
+		// Group 0 holds the body (0) and hairstyles (1+); the others default to variant 1, except
+		// the head (group 32), whose variant 1 is an empty stub.
+		if (options.defaultGeosets && b.geoset !== 0) {
+			const group = Math.floor(b.geoset / 100);
+			if (group === 0 || b.geoset % 100 !== (group === 32 ? 2 : 1)) return;
+		}
+		// Runtime textures we can't resolve (hair, capes, ...): hide the part rather than draw it grey.
+		if (options.textures && texture && texture.type !== 0 && !options.textures[texture.type]) return;
+		batches.push({
+			start: b.indexStart,
+			count: b.indexCount,
+			order: b.priorityPlane * 256 + i,
+			material: {
+				texture: !texture ? 0 : texture.type === 0 ? texture.fdid : options.textures?.[texture.type] ?? 0,
+				blend: material.blend,
+				twoSided: !!(material.flags & M2_MATERIAL_TWO_SIDED),
+				unlit: !!(material.flags & M2_MATERIAL_UNLIT),
+				unfogged: !!(material.flags & M2_MATERIAL_UNFOGGED),
+				opacity,
+			},
+		});
+	});
+	const indices = Uint32Array.from(skin.indices);
+	return { fdid, positions, normals, uvs, baked: null, indices, batches: mergeBatches(batches), radius: m2.bounds.radius || boundingRadius(positions), height: topOf(positions, indices, batches) };
+}
+
+export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type: number) => LiquidKind): Promise<ModelData> {
+	const root = parseWmoRoot(await storage.readFile(fdid));
+	const groups = await Promise.all(root.groupFdids.map(async (g) => {
+		try {
+			return parseWmoGroup(await storage.readFile(g));
+		} catch {
+			return null;
+		}
+	}));
+
+	let vertexCount = 0;
+	for (const g of groups) if (g) vertexCount += g.positions.length / 3;
+	const positions = new Float32Array(vertexCount * 3);
+	const normals = new Float32Array(vertexCount * 3);
+	const uvs = new Float32Array(vertexCount * 2);
+	const baked = new Float32Array(vertexCount * 4);
+	// Interior light = baked vertex colour (x2) + the WMO's ambient, in gamma space like the client;
+	// converted to linear to match the rest of the lighting.
+	const ambient = root.ambient.map((c) => c / 255);
+	const toLinear = (g: number) => Math.pow(Math.max(0, g), 2.2);
+	// Triangles per material, so each material becomes one batch.
+	const byMaterial = new Map<number, number[]>();
+	let base = 0;
+	for (const g of groups) {
+		if (!g) continue;
+		const count = g.positions.length / 3;
+		positions.set(g.positions, base * 3);
+		if (g.normals.length === count * 3) normals.set(g.normals, base * 3);
+		if (g.uvs.length === count * 2) uvs.set(g.uvs, base * 2);
+		// Alpha picks per vertex between baked interior light (1) and normal outdoor lighting (0).
+		if (g.colors && g.flags & WMO_GROUP_INTERIOR) {
+			for (let i = 0; i < count; i++) {
+				const o = (base + i) * 4;
+				// Capped at full brightness: brighter would overexpose the texture.
+				for (let k = 0; k < 3; k++) baked[o + k] = toLinear(Math.min(1, (g.colors[i * 4 + k] / 255) * 2 + ambient[k]));
+				baked[o + 3] = g.colors[i * 4 + 3] / 255;
+			}
+		}
+		for (const batch of g.batches) {
+			const list = byMaterial.get(batch.material) ?? [];
+			for (let i = batch.indexStart; i < batch.indexStart + batch.indexCount; i++) list.push(g.indices[i] + base);
+			byMaterial.set(batch.material, list);
+		}
+		base += count;
+	}
+	const indices: number[] = [];
+	const batches: ModelBatch[] = [];
+	for (const [materialIndex, list] of byMaterial) {
+		const m = root.materials[materialIndex];
+		const start = indices.length;
+		for (const i of list) indices.push(i);
+		batches.push({
+			start,
+			count: list.length,
+			order: m && m.blend !== Blend.Opaque && m.blend !== Blend.AlphaKey ? 1 : 0,
+			material: {
+				texture: m && !root.namedTextures ? m.texture : 0,
+				blend: m?.blend ?? 0,
+				twoSided: !!(m && m.flags & WMO_MATERIAL_TWO_SIDED),
+				unlit: !!(m && m.flags & WMO_MATERIAL_UNLIT),
+				unfogged: !!(m && m.flags & WMO_MATERIAL_UNFOGGED),
+				opacity: 1,
+			},
+		});
+	}
+
+	const doodadSets = root.doodadSets.map((set) => ({
+		name: set.name,
+		doodads: root.doodads.slice(set.start, set.start + set.count).filter((d) => d.fdid).map((d) => ({
+			fdid: d.fdid,
+			matrix: compose(translation(...d.position), fromQuaternion(...d.rotation), scaling(d.scale)),
+		})),
+	}));
+	const indexArray = new Uint32Array(indices);
+	return {
+		fdid, positions, normals, uvs, baked, indices: indexArray, bvh: indexArray.length ? buildBvh(positions, indexArray) : undefined, batches, radius: boundingRadius(positions), height: topOf(positions), doodadSets,
+		liquids: buildWmoLiquids(groups, kindOf),
+	};
+}
+
+/** Highest point (model z) of the drawn parts; hidden geosets (capes, other hairstyles) don't count. */
+function topOf(positions: Float32Array, indices?: Uint32Array, batches?: ModelBatch[]): number {
+	let top = 0;
+	if (!indices || !batches) {
+		for (let i = 2; i < positions.length; i += 3) top = Math.max(top, positions[i]);
+		return top;
+	}
+	for (const b of batches) {
+		for (let i = b.start; i < b.start + b.count; i++) top = Math.max(top, positions[indices[i] * 3 + 2]);
+	}
+	return top;
+}
+
+function boundingRadius(positions: Float32Array): number {
+	let r = 0;
+	for (let i = 0; i < positions.length; i += 3) r = Math.max(r, Math.hypot(positions[i], positions[i + 1], positions[i + 2]));
+	return r;
+}
+
+/**
+ * Joins batches that draw with identical materials and follow each other in the index
+ * buffer, so they cost one draw call instead of several.
+ */
+function mergeBatches(batches: ModelBatch[]): ModelBatch[] {
+	const sorted = [...batches].sort((a, b) => a.order - b.order || a.start - b.start);
+	const out: ModelBatch[] = [];
+	for (const b of sorted) {
+		const last = out[out.length - 1];
+		if (last && last.start + last.count === b.start && JSON.stringify(last.material) === JSON.stringify(b.material)) last.count += b.count;
+		else out.push({ ...b, material: { ...b.material } });
+	}
+	return out;
+}
+
+const LEGACY_LIQUIDS: LiquidKind[] = ['water', 'ocean', 'magma', 'slime'];
+
+/** Liquid surfaces (MLIQ) of a WMO's groups, merged per kind, in WMO space. */
+function buildWmoLiquids(groups: (WmoGroup | null)[], kindOf: (type: number) => LiquidKind): LiquidMesh[] {
+	const byKind = new Map<LiquidKind, { positions: number[]; indices: number[] }>();
+	for (const g of groups) {
+		const l = g?.liquid;
+		if (!g || !l || l.xVerts < 2 || l.yVerts < 2) continue;
+		for (let ty = 0; ty < l.yTiles; ty++) {
+			for (let tx = 0; tx < l.xTiles; tx++) {
+				const flags = l.tiles[ty * l.xTiles + tx];
+				if ((flags & 0x0f) === 0x0f) continue;
+				// The group names a LiquidType (legacy types 1-20 share those IDs); without one,
+				// older files keep a legacy type in the tile flags.
+				let kind = g.liquidType ? kindOf(g.liquidType) : LEGACY_LIQUIDS[flags & 3];
+				// WMO "ocean" isn't at sea level; draw it as water.
+				if (kind === 'ocean') kind = 'water';
+				const mesh = byKind.get(kind) ?? { positions: [], indices: [] };
+				byKind.set(kind, mesh);
+				const base = mesh.positions.length / 3;
+				for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+					const h = l.heights[(ty + dy) * l.xVerts + tx + dx];
+					mesh.positions.push(l.position[0] + (tx + dx) * WMO_LIQUID_CELL, l.position[1] + (ty + dy) * WMO_LIQUID_CELL, h);
+				}
+				// Counter-clockwise seen from above (+z).
+				mesh.indices.push(base, base + 1, base + 3, base, base + 3, base + 2);
+			}
+		}
+	}
+	return [...byKind].map(([kind, m]) => ({ kind, positions: new Float32Array(m.positions), indices: new Uint32Array(m.indices) }));
+}

@@ -1,0 +1,25 @@
+{
+	"name": "map-explorer",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "tsc --noEmit && vite build",
+		"typecheck": "tsc --noEmit",
+		"probe": "tsx tools/probe.ts",
+		"spawns": "tsx tools/buildSpawns.ts"
+	},
+	"dependencies": {
+		"fflate": "^0.8.3",
+		"three": "^0.186.1",
+		"three-mesh-bvh": "^0.9.15"
+	},
+	"devDependencies": {
+		"@types/node": "^26.6.3",
+		"@types/three": "^0.186.0",
+		"tsx": "^4.23.15",
+		"typescript": "^7.0.2",
+		"vite": "^8.3.1"
+	}
+}

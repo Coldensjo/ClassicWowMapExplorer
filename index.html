@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Map Explorer</title>
+	<link rel="icon" href="data:,">
+	<link rel="stylesheet" href="/src/viewer/viewer.css">
+	<!-- Wowhead's official tooltip embed: hovering a Wowhead link in the info panel shows its tooltip. -->
+	<script>const whTooltips = { colorLinks: true, iconizeLinks: false, renameLinks: false };</script>
+	<script src="https://wow.zamimg.com/js/tooltips.js" async></script>
+</head>
+<body>
+	<canvas id="view"></canvas>
+
+	<div id="start">
+		<div class="card">
+			<h1>Map Explorer</h1>
+			<p>Fly over Azeroth, rendered from the game files on your own computer. Nothing is uploaded.</p>
+			<ol>
+				<li>
+					<button id="pick" class="primary">Open World of Warcraft folder</button>
+					<button id="pick-direct" title="Faster, but Chrome/Edge refuse folders under Program Files">Direct access</button>
+					<input id="pick-input" type="file" webkitdirectory hidden>
+					<div class="muted small">Usually <code>C:\Program Files (x86)\World of Warcraft</code>. The browser asks to "upload" the files; they stay on your computer.</div>
+				</li>
+				<li id="product-step" hidden>
+					<select id="product"></select>
+					<button id="explore" class="primary">Explore</button>
+				</li>
+			</ol>
+			<p id="status" class="muted"></p>
+			<p class="small"><a href="/inspector.html">Storage inspector</a></p>
+		</div>
+	</div>
+
+	<div id="hud" hidden>
+		<div id="hud-location"></div>
+		<div id="hud-coords" class="muted"></div>
+		<dl id="hud-stats"></dl>
+	</div>
+
+	<div id="nameplates" aria-hidden="true"></div>
+	<div id="crosshair" hidden></div>
+
+	<aside id="info" hidden aria-live="polite">
+		<button id="info-close" title="Close" aria-label="Close">×</button>
+		<div id="info-kind" class="muted small"></div>
+		<h2 id="info-name"></h2>
+		<div id="info-sub"></div>
+		<dl id="info-facts"></dl>
+		<div id="info-pages"></div>
+		<div id="info-links"></div>
+		<p class="small muted">Spawns: VMaNGOS world database (patch 1.12)</p>
+	</aside>
+
+	<div id="zone-banner" aria-live="polite"><div id="zone-name"></div><div id="subzone-name"></div></div>
+
+	<div id="help" hidden>
+		<div><kbd>Click</kbd> look around (<kbd>Esc</kbd> to release) · click creatures and objects for info</div>
+		<div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly · <kbd>Space</kbd>/<kbd>C</kbd> up/down · <kbd>Shift</kbd> fast</div>
+		<div><kbd>Wheel</kbd> zoom · <kbd>O</kbd> whole world · <kbd>1</kbd>/<kbd>2</kbd> continents · <kbd>R</kbd> back to start</div>
+		<div><kbd>[</kbd>/<kbd>]</kbd> time of day · <kbd>\</kbd> back to local time · <kbd>L</kbd> torch · <kbd>F</kbd> Alliance/Horde names</div>
+	</div>
+
+	<script type="module" src="/src/viewer/main.ts"></script>
+</body>
+</html>

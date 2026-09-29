@@ -1,0 +1,329 @@
+:root {
+	color-scheme: dark;
+	--panel: rgba(14, 16, 20, 0.78);
+	--line: #2c3139;
+	--text: #e8e9ec;
+	--muted: #9aa1ac;
+	--accent: #d9a441;
+	--bad: #e58080;
+	font: 14px/1.45 system-ui, sans-serif;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+[hidden] {
+	display: none !important;
+}
+
+html, body {
+	margin: 0;
+	height: 100%;
+	overflow: hidden;
+	background: #0d0f12;
+	color: var(--text);
+}
+
+#view {
+	position: fixed;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	display: block;
+}
+
+.muted {
+	color: var(--muted);
+}
+
+.small {
+	font-size: 12px;
+}
+
+.bad {
+	color: var(--bad);
+}
+
+a {
+	color: var(--accent);
+}
+
+code {
+	font-size: 12px;
+}
+
+button, select {
+	font: inherit;
+	color: var(--text);
+	background: #262a31;
+	border: 1px solid var(--line);
+	border-radius: 4px;
+	padding: 6px 12px;
+	cursor: pointer;
+}
+
+button.primary {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: #1a1406;
+	font-weight: 600;
+}
+
+button:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+#start {
+	position: fixed;
+	inset: 0;
+	display: grid;
+	place-items: center;
+	padding: 16px;
+	background: radial-gradient(ellipse at center, #1c2530 0%, #0d0f12 70%);
+}
+
+.card {
+	width: min(520px, 100%);
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	padding: 24px 28px;
+}
+
+.card h1 {
+	margin: 0 0 6px;
+	font-size: 22px;
+}
+
+.card ol {
+	padding-left: 20px;
+	display: grid;
+	gap: 14px;
+}
+
+.card li > button, .card li > select {
+	margin: 0 6px 6px 0;
+}
+
+#hud {
+	position: fixed;
+	top: 12px;
+	left: 12px;
+	background: var(--panel);
+	border-radius: 6px;
+	padding: 8px 12px;
+	font-size: 13px;
+	pointer-events: none;
+	min-width: 230px;
+}
+
+#hud-location {
+	font-weight: 600;
+}
+
+#hud dl {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: 0 12px;
+	margin: 6px 0 0;
+	font-variant-numeric: tabular-nums;
+}
+
+#hud dt {
+	color: var(--muted);
+}
+
+#hud dd {
+	margin: 0;
+}
+
+#help {
+	position: fixed;
+	bottom: 12px;
+	left: 12px;
+	background: var(--panel);
+	border-radius: 6px;
+	padding: 8px 12px;
+	font-size: 12px;
+	color: var(--muted);
+	pointer-events: none;
+	display: grid;
+	gap: 3px;
+}
+
+kbd {
+	display: inline-block;
+	font: 11px/1.5 ui-monospace, monospace;
+	color: var(--text);
+	background: #2a2f37;
+	border: 1px solid #3a404a;
+	border-radius: 3px;
+	padding: 0 4px;
+	margin-right: 2px;
+}
+
+/* Zone text, like the game's: large gold zone name, smaller subzone below. */
+#zone-banner {
+	position: fixed;
+	top: 14%;
+	left: 0;
+	right: 0;
+	text-align: center;
+	pointer-events: none;
+	opacity: 0;
+	font-family: Georgia, 'Times New Roman', serif;
+	text-shadow: 0 0 3px #000, 0 2px 6px rgba(0, 0, 0, 0.8);
+}
+
+#zone-banner.show {
+	animation: zone-fade 5s ease-in-out forwards;
+}
+
+#zone-name {
+	font-size: clamp(26px, 4vw, 46px);
+	color: #ffd35a;
+	letter-spacing: 0.02em;
+}
+
+#subzone-name {
+	font-size: clamp(17px, 2.2vw, 26px);
+	color: #f4f0e6;
+	margin-top: 4px;
+}
+
+@keyframes zone-fade {
+	0% { opacity: 0; }
+	12% { opacity: 1; }
+	70% { opacity: 1; }
+	100% { opacity: 0; }
+}
+
+#crosshair {
+	position: fixed;
+	left: 50%;
+	top: 50%;
+	width: 6px;
+	height: 6px;
+	margin: -3px 0 0 -3px;
+	border-radius: 50%;
+	background: rgba(255, 255, 255, 0.85);
+	box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+	pointer-events: none;
+}
+
+/* Info for a clicked creature or object. */
+#info {
+	position: fixed;
+	top: 12px;
+	right: 12px;
+	width: min(340px, calc(100vw - 24px));
+	max-height: calc(100vh - 24px);
+	overflow: auto;
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	padding: 12px 14px;
+	font-size: 13px;
+}
+
+#info h2 {
+	margin: 2px 24px 2px 0;
+	font-size: 18px;
+	color: var(--accent);
+}
+
+#info-close {
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	padding: 0 8px;
+	font-size: 18px;
+	line-height: 1.4;
+	background: none;
+	border: none;
+	color: var(--muted);
+}
+
+#info dl {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: 0 12px;
+	margin: 8px 0;
+}
+
+#info dt {
+	color: var(--muted);
+}
+
+#info dd {
+	margin: 0;
+}
+
+#info-pages {
+	white-space: pre-wrap;
+	font-family: Georgia, 'Times New Roman', serif;
+	line-height: 1.5;
+	background: #e9dcc0;
+	color: #2b2115;
+	border-radius: 4px;
+	padding: 10px 12px;
+	margin: 8px 0;
+	max-height: 40vh;
+	overflow: auto;
+}
+
+#info-pages:empty {
+	display: none;
+}
+
+#info-pages hr {
+	border: none;
+	border-top: 1px solid #b9a67f;
+	margin: 12px 0;
+}
+
+#info-links {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	margin: 8px 0;
+}
+
+/* NPC names above their heads. Positioned by transform each frame; never catch the mouse. */
+#nameplates {
+	position: fixed;
+	inset: 0;
+	pointer-events: none;
+	overflow: hidden;
+}
+
+.plate {
+	position: absolute;
+	left: 0;
+	top: 0;
+	text-align: center;
+	white-space: nowrap;
+	font: 700 13px/1.2 'Trebuchet MS', system-ui, sans-serif;
+	color: #ffd100;
+	text-shadow: 1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000;
+	will-change: transform;
+}
+
+.plate[data-reaction='hostile'] {
+	color: #ff3b2f;
+}
+
+.plate[data-reaction='friendly'] {
+	color: #3ee33e;
+}
+
+.plate-sub {
+	font-size: 11px;
+	font-weight: 400;
+}
+
+.plate-sub:empty {
+	display: none;
+}

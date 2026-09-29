@@ -4,9 +4,11 @@ import { KNOWN_MAPS } from '../explorer/maps';
 import type { FarTile } from '../explorer/world';
 import type { AsyncStorageApi } from '../worker/protocol';
 import type { AreaInfo } from '../explorer/lighting';
+import type { WmoArea } from '../explorer/music';
 import type { SpawnInfo } from '../explorer/spawns';
 import { FlyControls } from './flyControls';
 import { DAY, Lighting, Sky, sunDirection } from './lighting';
+import { MusicPlayer, type MusicTarget } from './music';
 import { Nameplates, type Plate, type Side } from './nameplates';
 import { ObjectManager } from './objects';
 import { perf } from './perf';
@@ -60,6 +62,7 @@ export interface HudInfo {
 	/** Top-level zone and the subzone under the camera, when known. */
 	zone: string | null;
 	subzone: string | null;
+	music: string;
 }
 
 export class Viewer {
@@ -89,6 +92,14 @@ export class Viewer {
 	/** Whose eyes name colours are seen through (F toggles). */
 	private side: Side = 'alliance';
 	private readonly nameplates: Nameplates | null;
+	/** Zone music (M toggles). */
+	private music: MusicPlayer | null = null;
+	private musicTarget: MusicTarget = { set: 0, intro: 0 };
+	private lastMusicCheck = 0;
+	/** WMOAreaTable rows by room, looked up in the worker as rooms are entered. */
+	private readonly rooms = new Map<string, WmoArea | null | 'pending'>();
+	/** The room the camera was last found in, if any. */
+	private room: WmoArea | null = null;
 
 	constructor(
 		private readonly canvas: HTMLCanvasElement,
@@ -204,6 +215,11 @@ export class Viewer {
 		} catch (e) {
 			console.warn('Lighting unavailable, using defaults:', e);
 		}
+		// Music starts once its tables are read; the world needn't wait for it.
+		this.storage.loadMusic().then(
+			(data) => (this.music = new MusicPlayer(this.storage, data)),
+			(e) => console.warn('Music unavailable:', e),
+		);
 
 		// ?time=HH:MM starts at that time of day.
 		const time = /^(\d{1,2}):(\d{2})$/.exec(new URLSearchParams(location.search).get('time') ?? '');
@@ -318,6 +334,7 @@ export class Viewer {
 		else if (e.code === 'KeyN') this.timeOffset = 0;
 		else if (e.code === 'KeyL') this.setTorch(!this.torchOn);
 		else if (e.code === 'KeyF') this.side = this.side === 'alliance' ? 'horde' : 'alliance';
+		else if (e.code === 'KeyM' && this.music) this.music.enabled = !this.music.enabled;
 	}
 
 	private startPosition(): THREE.Vector3 {
@@ -402,6 +419,13 @@ export class Viewer {
 		perf.time('objects.update', () => this.objects.update(now, pos));
 		perf.time('render', () => this.renderer.render(this.scene, this.camera));
 		perf.time('nameplates', () => this.updateNameplates(now));
+		if (this.music) {
+			if (now - this.lastMusicCheck > 250) {
+				this.lastMusicCheck = now;
+				this.musicTarget = this.musicHere();
+			}
+			this.music.update(dt, now, this.musicTarget, sunDirection(this.timeOfDay()).y < 0);
+		}
 		perf.record('drawCalls', this.renderer.info.render.calls);
 		perf.record('triangles', this.renderer.info.render.triangles);
 
@@ -464,13 +488,56 @@ export class Viewer {
 		this.fog.far = Math.max(fogFar, 9000 + alt * 14);
 	}
 
-	/** Zone and subzone names for the AreaTable ID under the camera. */
-	private zoneNames(): { zone: string | null; subzone: string | null } {
+	/**
+	 * The indoor room around the camera (inns, Ironforge, Undercity), from WMOAreaTable. Rows are
+	 * fetched from the worker on first entry; until then the previous answer stands.
+	 */
+	private updateRoom(): void {
+		const at = this.objects.roomAt(this.camera.position);
+		if (!at) {
+			this.room = null;
+			return;
+		}
+		const key = `${at.wmoId}:${at.nameSet}:${at.groupId}`;
+		const known = this.rooms.get(key);
+		if (known === 'pending') return;
+		if (known !== undefined) {
+			this.room = known;
+			return;
+		}
+		this.rooms.set(key, 'pending');
+		this.storage.wmoArea(at.wmoId, at.nameSet, at.groupId).then(
+			(row) => this.rooms.set(key, row),
+			() => this.rooms.set(key, null),
+		);
+	}
+
+	/** The AreaTable ID for the camera: the room's area indoors, else the terrain's. */
+	private areaHere(): number | null {
 		const pos = this.camera.position;
-		const id = this.terrain.areaAt(pos.x, pos.z);
+		return this.room?.area || this.terrain.areaAt(pos.x, pos.z);
+	}
+
+	/** The music for where the camera is: the room's, else the area's or its parent zone's. */
+	private musicHere(): MusicTarget {
+		this.updateRoom();
+		const music = this.music!.data;
+		let id = this.areaHere();
+		const intro = this.room?.intro || (id ? music.areas[id]?.intro ?? 0 : 0);
+		let set = this.room?.music ?? 0;
+		for (let i = 0; i < 8 && !set && id; i++) {
+			set = music.areas[id]?.music ?? 0;
+			id = this.areas.get(id)?.parent ?? 0;
+		}
+		return { set, intro };
+	}
+
+	/** Zone and subzone names for the AreaTable ID under the camera; indoors, the room's name. */
+	private zoneNames(): { zone: string | null; subzone: string | null } {
+		const id = this.areaHere();
 		let area = id ? this.areas.get(id) : undefined;
 		if (!area) return { zone: null, subzone: null };
-		const subzone = area.name;
+		const subzone = this.room?.name ?? area.name;
 		for (let i = 0; i < 8 && area.parent && this.areas.has(area.parent); i++) area = this.areas.get(area.parent)!;
 		return { zone: area.name, subzone: subzone !== area.name ? subzone : null };
 	}
@@ -505,6 +572,7 @@ export class Viewer {
 			time: (() => { const t = this.timeOfDay(); return `${String(Math.floor(t / 120)).padStart(2, '0')}:${String(Math.floor(t / 2) % 60).padStart(2, '0')}`; })(),
 			...this.zoneNames(),
 			side: this.side === 'alliance' ? 'Alliance' : 'Horde',
+			music: this.music?.status ?? 'unavailable',
 		};
 	}
 }

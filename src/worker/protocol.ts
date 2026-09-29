@@ -2,6 +2,7 @@ import type { ProductInfo } from '../casc/config';
 import type { StorageStats } from '../casc/storage';
 import type { AreaInfo, LightingData } from '../explorer/lighting';
 import type { MapSummary, TileDetails } from '../explorer/maps';
+import type { MusicData, WmoArea } from '../explorer/music';
 import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
 import type { FarTile, LoadedTexture, NearTile, TileTexture } from '../explorer/world';
 import type { Image } from '../formats/blp';
@@ -25,6 +26,9 @@ export interface StorageApi {
 	loadModels(models: { fdid: number; kind: ObjectKind; variant?: string }[]): (ModelData | null)[];
 	loadLighting(mapIds: number[]): LightingData;
 	loadAreas(): AreaInfo[];
+	loadMusic(): MusicData;
+	wmoArea(wmoId: number, nameSet: number, groupId: number): WmoArea | null;
+	loadSound(fdid: number): Uint8Array;
 }
 
 export type AsyncStorageApi = {

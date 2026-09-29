@@ -10,6 +10,10 @@ export const DB2_FILES = {
 	LightParams: 1334669,
 	LiquidType: 1371380,
 	Map: 1349477,
+	SoundKitEntry: 1237435,
+	WMOAreaTable: 1355528,
+	ZoneIntroMusicTable: 1310251,
+	ZoneMusic: 1310254,
 } as const;
 
 const tables = new WeakMap<CascStorage, Map<number, Promise<Db2>>>();

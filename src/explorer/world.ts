@@ -6,6 +6,7 @@ import { parseWdl, WDL_CELLS } from '../formats/wdl';
 import { liquidKinds } from './clientDb';
 import { loadAreas, loadLighting, type AreaInfo, type LightingData } from './lighting';
 import { buildLiquidMeshes, type LiquidMesh } from './liquidMesh';
+import { MusicTables, type MusicData, type WmoArea } from './music';
 import type { MapExplorer } from './maps';
 import { KNOWN_MAPS } from './maps';
 import { loadM2, loadWmo, parsePlacements, type ModelData, type ObjectKind, type Placement } from './objects';
@@ -193,6 +194,27 @@ export class WorldLoader {
 
 	loadAreas(): Promise<AreaInfo[]> {
 		return loadAreas(this.storage);
+	}
+
+	private musicTables: MusicTables | null = null;
+
+	private get music(): MusicTables {
+		this.musicTables ??= new MusicTables(this.storage);
+		return this.musicTables;
+	}
+
+	loadMusic(): Promise<MusicData> {
+		return this.music.load();
+	}
+
+	wmoArea(wmoId: number, nameSet: number, groupId: number): Promise<WmoArea | null> {
+		return this.music.wmoArea(wmoId, nameSet, groupId);
+	}
+
+	/** A sound file's bytes (the music tracks are MP3s). */
+	async loadSound(fdid: number): Promise<Uint8Array> {
+		// A copy: the result is transferred to the main thread, and the storage may cache what it read.
+		return (await this.storage.readFile(fdid)).slice();
 	}
 
 	/** Terrain layer textures at full resolution. */

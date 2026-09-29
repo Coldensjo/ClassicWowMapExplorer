@@ -608,6 +608,45 @@ export class ObjectManager {
 		return false;
 	}
 
+	private readonly inverses = new WeakMap<THREE.Matrix4, THREE.Matrix4>();
+
+	/**
+	 * The indoor room (WMO interior group) around a point, for its WMOAreaTable name and music.
+	 * Rooms are matched by bounding box; where several hold the point, the smallest wins.
+	 */
+	roomAt(at: THREE.Vector3): { wmoId: number; nameSet: number; groupId: number } | null {
+		let best: { wmoId: number; nameSet: number; groupId: number } | null = null;
+		let bestVolume = Infinity;
+		const local = new THREE.Vector3();
+		for (const entry of this.models.values()) {
+			const areas = entry.data?.areas;
+			const sphere = entry.geometry?.boundingSphere;
+			if (entry.kind !== 'wmo' || !areas || !sphere) continue;
+			for (const key of entry.visible) {
+				const m = entry.instances.get(key)!;
+				const e = m.elements;
+				const scale = Math.hypot(e[0], e[1], e[2]);
+				local.copy(sphere.center).applyMatrix4(m);
+				if (local.distanceToSquared(at) > (sphere.radius * scale) ** 2) continue;
+				let inverse = this.inverses.get(m);
+				if (!inverse) {
+					inverse = m.clone().invert();
+					this.inverses.set(m, inverse);
+				}
+				local.copy(at).applyMatrix4(inverse);
+				for (const g of areas.groups) {
+					if (!g.interior) continue;
+					if (local.x < g.min[0] || local.y < g.min[1] || local.z < g.min[2] || local.x > g.max[0] || local.y > g.max[1] || local.z > g.max[2]) continue;
+					const volume = (g.max[0] - g.min[0]) * (g.max[1] - g.min[1]) * (g.max[2] - g.min[2]);
+					if (volume >= bestVolume) continue;
+					bestVolume = volume;
+					best = { wmoId: areas.wmoId, nameSet: this.objects.get(key)?.placement.nameSet ?? 0, groupId: g.id };
+				}
+			}
+		}
+		return best;
+	}
+
 	private static readonly AXES = [
 		new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 1, 0),
 		new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),

@@ -28,6 +28,8 @@ export interface Placement {
 	/** Model space -> continent space (x east, y up, z south). */
 	matrix: Mat4;
 	doodadSet: number;
+	/** WMOs: the name set, which picks this placement's rows in WMOAreaTable. */
+	nameSet?: number;
 	/** Set for creature and game object spawns (VMaNGOS data), for the info panel. */
 	spawn?: SpawnInfo;
 	/** Distinguishes looks that share a display ID, e.g. held weapons (main_off_shield). */
@@ -72,6 +74,8 @@ export interface ModelData {
 	animation?: ModelAnimation;
 	/** WMOs only: liquid surfaces in model space. */
 	liquids?: LiquidMesh[];
+	/** WMOs: the building's WMOAreaTable ID and its groups' bounds, for finding the room you're in. */
+	areas?: WmoAreas;
 	/** M2 particle emitters (fire, smoke, sparks), including those of worn gear. */
 	emitters?: ParticleEmitter[];
 	/** WMOs only: a serialised ray-cast acceleration structure (three-mesh-bvh, indirect), for line of sight. */
@@ -89,6 +93,11 @@ function buildBvh(positions: Float32Array, indices: Uint32Array): ModelData['bvh
 	const serialized = MeshBVH.serialize(new MeshBVH(geometry, { indirect: true }), { cloneBuffers: false });
 	// The version must travel with the data, or deserialize "upgrades" it from the old format.
 	return { version: (serialized as { version?: number }).version ?? 1, roots: serialized.roots, indirectBuffer: serialized.indirectBuffer ?? null };
+}
+
+export interface WmoAreas {
+	wmoId: number;
+	groups: { id: number; interior: boolean; min: [number, number, number]; max: [number, number, number] }[];
 }
 
 export interface ModelAnimation {
@@ -138,6 +147,7 @@ export function parsePlacements(bytes: Uint8Array): Placement[] {
 					uid: view.getUint32(o + 4, true),
 					matrix: placementMatrix(f(o + 8), f(o + 12), f(o + 16), f(o + 20), f(o + 24), f(o + 28), scale),
 					doodadSet: view.getUint16(o + 58, true),
+					nameSet: view.getUint16(o + 60, true),
 				});
 			}
 		}
@@ -464,6 +474,10 @@ export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type:
 	return {
 		fdid, positions, normals, uvs, baked, indices: indexArray, bvh: indexArray.length ? buildBvh(positions, indexArray) : undefined, batches, radius: boundingRadius(positions), height: topOf(positions), doodadSets,
 		liquids: buildWmoLiquids(groups, kindOf),
+		areas: {
+			wmoId: root.wmoId,
+			groups: groups.flatMap((g) => (g ? [{ id: g.groupId, interior: !!(g.flags & WMO_GROUP_INTERIOR), min: g.min, max: g.max }] : [])),
+		},
 	};
 }
 

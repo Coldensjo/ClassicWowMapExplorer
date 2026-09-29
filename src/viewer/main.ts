@@ -144,6 +144,7 @@ function showHud(info: HudInfo): void {
 	const rows: [string, string][] = [
 		['Time', info.time],
 		['Names for', info.side],
+		['Music', info.music],
 		['Altitude', `${info.altitude.toFixed(0)} yd above ground`],
 		['Speed', `${info.speed.toFixed(0)} yd/s`],
 		['Detail', info.near],

@@ -69,6 +69,15 @@ const api: AsyncStorageApi = {
 	async loadAreas() {
 		return requireWorld().loadAreas();
 	},
+	async loadMusic() {
+		return requireWorld().loadMusic();
+	},
+	async wmoArea(wmoId, nameSet, groupId) {
+		return requireWorld().wmoArea(wmoId, nameSet, groupId);
+	},
+	async loadSound(fdid) {
+		return requireWorld().loadSound(fdid);
+	},
 };
 
 /** Collects typed-array buffers in a result so they move to the main thread instead of being copied. */

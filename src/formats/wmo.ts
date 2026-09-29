@@ -37,6 +37,8 @@ export interface WmoRoot {
 	ambient: [number, number, number];
 	/** MOHD flags; 0x4 means group liquid values are LiquidType IDs. */
 	flags: number;
+	/** WMOAreaTable's WMOID for this building. */
+	wmoId: number;
 }
 
 export interface WmoBatch {
@@ -47,6 +49,11 @@ export interface WmoBatch {
 
 export interface WmoGroup {
 	flags: number;
+	/** WMOAreaTable's WMOGroupID for this group. */
+	groupId: number;
+	/** Bounding box in WMO space (z up). */
+	min: [number, number, number];
+	max: [number, number, number];
 	positions: Float32Array;
 	normals: Float32Array;
 	uvs: Float32Array;
@@ -129,7 +136,8 @@ export function parseWmoRoot(bytes: Uint8Array): WmoRoot {
 			});
 		}
 	}
-	return { materials, groupFdids, doodadSets, doodads, namedTextures: hasMotx, ambient, flags: rootFlags };
+	const wmoId = mohd ? view.getUint32(mohd.offset + 32, true) : 0;
+	return { materials, groupFdids, doodadSets, doodads, namedTextures: hasMotx, ambient, flags: rootFlags, wmoId };
 }
 
 export function parseWmoGroup(bytes: Uint8Array): WmoGroup {
@@ -139,8 +147,12 @@ export function parseWmoGroup(bytes: Uint8Array): WmoGroup {
 	if (!mogp) throw new Error('WMO group has no MOGP chunk');
 	const flags = view.getUint32(mogp.offset + 8, true);
 
+	const f = (at: number) => view.getFloat32(mogp!.offset + at, true);
 	const group: WmoGroup = {
 		flags,
+		groupId: view.getUint32(mogp.offset + 56, true),
+		min: [f(12), f(16), f(20)],
+		max: [f(24), f(28), f(32)],
 		positions: new Float32Array(0),
 		normals: new Float32Array(0),
 		uvs: new Float32Array(0),

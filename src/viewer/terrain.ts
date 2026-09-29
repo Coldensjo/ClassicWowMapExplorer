@@ -7,7 +7,7 @@ import type { TerrainGeometry } from '../explorer/terrainMesh';
 import type { AsyncStorageApi } from '../worker/protocol';
 import type { ObjectLevel, ObjectManager } from './objects';
 import { TextureCache } from './textureCache';
-import { createAlphaTexture, createFarMaterial, createSplatMaterial, liquidMaterials } from './terrainMaterials';
+import { createAlphaTexture, createFarMaterial, createSplatMaterial, liquidMaterials, seaMask } from './terrainMaterials';
 import { perf } from './perf';
 import { createTexture } from './textures';
 
@@ -208,6 +208,83 @@ export class TerrainManager {
 				objectLevel: 'none',
 			});
 		}
+	}
+
+	/** Where the open sea is: one flag per WDL cell over the continents, from buildSeaMask. */
+	private sea: { flags: Uint8Array; width: number; height: number; originX: number; originZ: number } | null = null;
+
+	/**
+	 * Works out where the open sea is, for the sea-level plane and the sea-floor tint: from the
+	 * open water around and between the continents, across every low-detail cell that dips below
+	 * sea level. Land below sea level walled off from the coast (Thousand Needles, the Shimmering
+	 * Flats) stays dry, as in the game, where only the map's own ocean surfaces are sea.
+	 */
+	buildSeaMask(): void {
+		const box = this.bounds();
+		const cell = TILE_SIZE / WDL_CELLS;
+		const width = Math.round((box.max.x - box.min.x) / cell);
+		const height = Math.round((box.max.y - box.min.y) / cell);
+		// Each cell's lowest corner; cells no tile covers are open water.
+		const low = new Float32Array(width * height).fill(-Infinity);
+		const row = WDL_CELLS + 1;
+		for (const t of this.tiles.values()) {
+			if (t.continent.instance || !t.farHeights) continue;
+			const h = t.farHeights;
+			const x0 = Math.round((t.originX - box.min.x) / cell);
+			const z0 = Math.round((t.originZ - box.min.y) / cell);
+			for (let j = 0; j < WDL_CELLS; j++) {
+				for (let i = 0; i < WDL_CELLS; i++) {
+					const k = j * row + i;
+					low[(z0 + j) * width + x0 + i] = Math.min(h[k], h[k + 1], h[k + row], h[k + row + 1]);
+				}
+			}
+		}
+		const flags = new Uint8Array(width * height);
+		const queue = new Int32Array(width * height);
+		let head = 0;
+		let tail = 0;
+		const flood = (k: number) => {
+			if (flags[k] || !(low[k] < 0)) return;
+			flags[k] = 255;
+			queue[tail++] = k;
+		};
+		for (let k = 0; k < low.length; k++) if (low[k] === -Infinity) flood(k);
+		for (let x = 0; x < width; x++) {
+			flood(x);
+			flood((height - 1) * width + x);
+		}
+		for (let z = 0; z < height; z++) {
+			flood(z * width);
+			flood(z * width + width - 1);
+		}
+		while (head < tail) {
+			const k = queue[head++];
+			const x = k % width;
+			if (x > 0) flood(k - 1);
+			if (x < width - 1) flood(k + 1);
+			if (k >= width) flood(k - width);
+			if (k + width < flags.length) flood(k + width);
+		}
+		this.sea = { flags, width, height, originX: box.min.x, originZ: box.min.y };
+
+		const texture = new THREE.DataTexture(flags, width, height, THREE.RedFormat, THREE.UnsignedByteType);
+		texture.unpackAlignment = 1;
+		texture.magFilter = THREE.LinearFilter;
+		texture.minFilter = THREE.LinearFilter;
+		texture.needsUpdate = true;
+		seaMask.uSeaMask.value = texture;
+		seaMask.uSeaBounds.value.set(box.min.x, box.min.y, 1 / (width * cell), 1 / (height * cell));
+	}
+
+	/** Whether a world position is open sea (at sea level); anywhere past the continents is. */
+	isSea(x: number, z: number): boolean {
+		const s = this.sea;
+		if (!s) return true;
+		const cell = TILE_SIZE / WDL_CELLS;
+		const cx = Math.floor((x - s.originX) / cell);
+		const cz = Math.floor((z - s.originZ) / cell);
+		if (cx < 0 || cz < 0 || cx >= s.width || cz >= s.height) return true;
+		return s.flags[cz * s.width + cx] > 0;
 	}
 
 	/** World-space bounds of the continents' tiles, in yards (dungeons, laid out apart, don't count). */

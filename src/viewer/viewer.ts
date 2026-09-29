@@ -292,6 +292,7 @@ export class Viewer {
 		}
 		this.continents = layoutContinents(loaded);
 		loaded.forEach(({ tiles }, i) => this.terrain.addContinent(this.continents[i], tiles));
+		this.terrain.buildSeaMask();
 		this.addOcean();
 
 		onStatus('Reading lighting and zone names');
@@ -734,7 +735,7 @@ export class Viewer {
 			}
 		}
 		const here = this.terrain.locate(p.x, p.z);
-		if (here && !here.continent.instance && p.y < 0 && this.terrain.surfaceAt(p.x, p.z) < p.y) {
+		if (here && !here.continent.instance && p.y < 0 && this.terrain.surfaceAt(p.x, p.z) < p.y && this.terrain.isSea(p.x, p.z)) {
 			return { kind: 'ocean', type: this.liquidLooks?.ocean ?? 0, surface: 0 };
 		}
 		return null;

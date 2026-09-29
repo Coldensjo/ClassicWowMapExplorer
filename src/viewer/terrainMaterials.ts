@@ -10,6 +10,29 @@ const DEEP_WATER_DEPTH = 45;
 const white = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
 white.needsUpdate = true;
 
+/**
+ * Where the open sea is (1) and isn't (0), over the continents, from TerrainManager. Land below
+ * sea level away from the coast (Thousand Needles) is dry; the sea plane and the sea-floor tint
+ * only apply where this says sea. Until it's built, everywhere counts as sea.
+ */
+export const seaMask = {
+	uSeaMask: { value: white as THREE.Texture },
+	/** World x and z of the mask's corner, and 1 / its size in yards. */
+	uSeaBounds: { value: new THREE.Vector4(0, 0, 0, 0) },
+};
+
+// The mask at a world position; outside it, the given value (sea for the plane, which reaches
+// past the continents; dry for terrain, which there is only dungeons).
+const SEA_MASK = /* glsl */ `
+uniform sampler2D uSeaMask;
+uniform vec4 uSeaBounds;
+float seaAt(vec2 xz, float outside) {
+	vec2 uv = (xz - uSeaBounds.xy) * uSeaBounds.zw;
+	if (uSeaBounds.z == 0.0) return 1.0;
+	if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return outside;
+	return texture2D(uSeaMask, uv).r;
+}
+`;
 
 const VERTEX_PARS = /* glsl */ `
 #ifdef TERRAIN_SPLAT
@@ -18,6 +41,7 @@ const VERTEX_PARS = /* glsl */ `
 	varying vec2 vTileUv;
 #endif
 varying float vWorldY;
+varying vec2 vWorldXZ;
 `;
 
 const VERTEX_MAIN = /* glsl */ `
@@ -25,12 +49,16 @@ const VERTEX_MAIN = /* glsl */ `
 	vChunk = chunkIndex;
 	vTileUv = uv;
 #endif
-	vWorldY = (modelMatrix * vec4(transformed, 1.0)).y;
+	vec4 terrainWorld = modelMatrix * vec4(transformed, 1.0);
+	vWorldY = terrainWorld.y;
+	vWorldXZ = terrainWorld.xz;
 `;
 
 const FRAGMENT_PARS = /* glsl */ `
 uniform vec3 uDeepWater;
 varying float vWorldY;
+varying vec2 vWorldXZ;
+${SEA_MASK}
 #ifdef TERRAIN_SPLAT
 	uniform sampler2D uAlpha;
 	uniform sampler2D uDiffuse0;
@@ -86,12 +114,13 @@ const FRAGMENT_MAP = /* glsl */ `
 #else
 	#include <map_fragment>
 #endif
-	diffuseColor.rgb = mix(diffuseColor.rgb, uDeepWater, clamp(-vWorldY / ${DEEP_WATER_DEPTH.toFixed(1)}, 0.0, 0.92));
+	// Sea floor only: land below sea level inland stays its own colour.
+	diffuseColor.rgb = mix(diffuseColor.rgb, uDeepWater, clamp(-vWorldY / ${DEEP_WATER_DEPTH.toFixed(1)}, 0.0, 0.92) * seaAt(vWorldXZ, 0.0));
 `;
 
 function patch(material: THREE.MeshLambertMaterial, uniforms: Record<string, THREE.IUniform>, key: string): void {
 	material.onBeforeCompile = (shader) => {
-		Object.assign(shader.uniforms, uniforms, { uDeepWater: { value: DEEP_WATER } });
+		Object.assign(shader.uniforms, uniforms, seaMask, { uDeepWater: { value: DEEP_WATER } });
 		shader.vertexShader = shader.vertexShader
 			.replace('#include <common>', `#include <common>\n${VERTEX_PARS}`)
 			.replace('#include <project_vertex>', `#include <project_vertex>\n${VERTEX_MAIN}`);
@@ -179,24 +208,29 @@ vec2 waveSlope(vec2 p, float t) {
 `;
 
 /** Water: rippling normals for moving sun glints, and more opaque at grazing angles. */
-function waterMaterial(color: number, opacity: number): THREE.MeshPhongMaterial {
+function waterMaterial(color: number, opacity: number, sea = false): THREE.MeshPhongMaterial {
 	const material = new THREE.MeshPhongMaterial({ color, specular: 0x9ab4c8, shininess: 120, transparent: true, opacity, depthWrite: false });
 	material.onBeforeCompile = (shader) => {
 		shader.uniforms.uTime = liquidTime;
 		shader.vertexShader = shader.vertexShader
 			.replace('#include <common>', `#include <common>\n${LIQUID_VERTEX_PARS}`)
 			.replace('#include <project_vertex>', `#include <project_vertex>\n${LIQUID_VERTEX_MAIN}`);
+		if (sea) Object.assign(shader.uniforms, seaMask);
 		shader.fragmentShader = shader.fragmentShader
-			.replace('#include <common>', `#include <common>\n${WAVES}`)
+			.replace('#include <common>', `#include <common>\n${WAVES}${sea ? SEA_MASK : ''}`)
 			.replace('#include <normal_fragment_maps>', /* glsl */ `#include <normal_fragment_maps>
 				vec2 slope = waveSlope(vLiquidPos.xz, uTime) + waveSlope(vLiquidPos.xz * 3.1, uTime * 1.7) * 0.5;
 				normal = normalize((viewMatrix * vec4(-slope.x, 1.0, -slope.y, 0.0)).xyz);`)
+			.replace('#include <clipping_planes_fragment>', sea
+				// The sea plane: nothing where there's no open sea.
+				? '#include <clipping_planes_fragment>\n\tif (seaAt(vLiquidPos.xz, 1.0) < 0.5) discard;'
+				: '#include <clipping_planes_fragment>')
 			.replace('#include <opaque_fragment>', /* glsl */ `
 				float facing = abs(dot(normalize(vViewPosition), (viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz));
 				diffuseColor.a = mix(0.97, diffuseColor.a, facing);
 				#include <opaque_fragment>`);
 	};
-	material.customProgramCacheKey = () => 'liquid-water';
+	material.customProgramCacheKey = () => (sea ? 'liquid-sea' : 'liquid-water');
 	return material;
 }
 
@@ -242,7 +276,7 @@ export function liquidKindOf(material: THREE.Material | THREE.Material[]): Liqui
 
 export const liquidMaterials = {
 	water: waterMaterial(0x2a5c75, 0.72),
-	ocean: waterMaterial(0x1b4a66, 0.9),
+	ocean: waterMaterial(0x1b4a66, 0.9, true),
 	slime: waterMaterial(0x4f7d24, 0.88),
 	magma: magmaMaterial(0xff5b14),
 };

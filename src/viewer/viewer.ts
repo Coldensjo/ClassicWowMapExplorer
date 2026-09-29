@@ -13,7 +13,10 @@ import { Nameplates, type Plate, type Side } from './nameplates';
 import { ObjectManager } from './objects';
 import { perf } from './perf';
 import { TerrainManager, type ContinentPlacement } from './terrain';
-import { liquidMaterials, liquidTime } from './terrainMaterials';
+import { liquidKindOf, liquidMaterials, liquidTime, setLiquidsFromBelow } from './terrainMaterials';
+import { UnderwaterAudio } from './underwater';
+import type { LiquidKind } from '../formats/mh2o';
+import type { LiquidLooks } from '../explorer/clientDb';
 import { supportsCompressedTextures } from './textures';
 
 /** A dungeon view in the URL hash: #d<map ID>/... */
@@ -32,6 +35,18 @@ const INSTANCE_SPACING = 70;
 const EYE_HEIGHT = 2;
 /** Yards of slack around area triggers: the camera is a little ball, not a point. */
 const TRIGGER_MARGIN = 1;
+/**
+ * Under water: how far you can see (yards), and the colour for when the zone's light gives none.
+ * Water and sea take their colour from the light (LightData's river and ocean colours).
+ */
+const UNDERWATER: Record<LiquidKind, { far: number; color: number }> = {
+	water: { far: 70, color: 0x0b2c3c },
+	ocean: { far: 100, color: 0x08243a },
+	slime: { far: 25, color: 0x2e4f10 },
+	magma: { far: 10, color: 0x9a3208 },
+};
+/** How far above the camera (yards) to look for a liquid surface. */
+const LIQUID_PROBE = 400;
 /** Half-minutes the T key moves the time of day (15 minutes). */
 const TIME_STEP = 30;
 /** Yards; NPC names show within this distance, like the game's name plates. */
@@ -167,6 +182,12 @@ export class Viewer {
 	private teleporting = false;
 	private lastTriggerCheck = 0;
 	private ocean: THREE.Mesh | null = null;
+	/** The liquid the camera is in, if any: its kind, LiquidType and surface height. */
+	private underwater: { kind: LiquidKind; type: number; surface: number } | null = null;
+	private liquidLooks: LiquidLooks | null = null;
+	private underwaterAudio: UnderwaterAudio | null = null;
+	private readonly liquidRay = new THREE.Raycaster();
+	private readonly liquidMeshes: THREE.Object3D[] = [];
 
 	constructor(
 		private readonly canvas: HTMLCanvasElement,
@@ -288,9 +309,13 @@ export class Viewer {
 		} catch (e) {
 			console.warn('Lighting unavailable, using defaults:', e);
 		}
+		this.storage.loadLiquidLooks().then((looks) => (this.liquidLooks = looks), (e) => console.warn('Liquid types unavailable:', e));
 		// Music starts once its tables are read; the world needn't wait for it.
 		this.storage.loadMusic().then(
-			(data) => (this.music = new MusicPlayer(this.storage, data)),
+			(data) => {
+				this.music = new MusicPlayer(this.storage, data);
+				this.underwaterAudio = new UnderwaterAudio(this.music);
+			},
 			(e) => console.warn('Music unavailable:', e),
 		);
 
@@ -580,6 +605,7 @@ export class Viewer {
 				this.musicTarget = this.musicHere();
 			}
 			this.music.update(dt, now, this.musicTarget, sunDirection(this.timeOfDay()).y < 0);
+			this.underwaterAudio?.update(dt, this.underwater !== null, this.underwaterSounds());
 		}
 		perf.record('drawCalls', this.renderer.info.render.calls);
 		perf.record('triangles', this.renderer.info.render.triangles);
@@ -644,6 +670,82 @@ export class Viewer {
 		// Clear from high up so the overview shows everything.
 		this.fog.near = Math.max(fogNear, 1200 + alt * 2);
 		this.fog.far = Math.max(fogFar, 9000 + alt * 14);
+
+		// Under water, as in the game: the view closes in and fades to the water's colour, darker
+		// the deeper you are.
+		this.underwater = this.liquidAt(this.camera.position);
+		this.sky.mesh.visible = !this.underwater;
+		setLiquidsFromBelow(this.underwater !== null);
+		if (this.underwater) {
+			const { kind, type, surface } = this.underwater;
+			const look = UNDERWATER[kind];
+			const liquid = this.liquidLooks?.types[type];
+			const color = new THREE.Color(look.color);
+			if (liquid?.color) {
+				color.setHex(liquid.color);
+			} else if (state && (kind === 'water' || kind === 'ocean')) {
+				const c = state.colors;
+				// Rivers and lakes use the zone light's river colours, the sea its ocean ones; either stands in for the other.
+				const [first, second] = kind === 'ocean' ? [c.oceanFar, c.riverFar] : [c.riverFar, c.oceanFar];
+				const far = first.getHex() ? first : second.getHex() ? second : null;
+				if (far) color.copy(far);
+			}
+			const depth = Math.max(0, surface - this.camera.position.y);
+			// The liquid's own darkening where it has one; otherwise a gentle one over the first 60 yards.
+			const reach = liquid?.darkenDepth ? Math.min(1, depth / liquid.darkenDepth) : Math.min(1, depth / 60);
+			const fogDarken = liquid?.darkenDepth ? liquid.fogDarken : 0.55;
+			color.multiplyScalar(1 - reach * fogDarken);
+			// Light too (only when just set from the zone's light, so it doesn't compound).
+			if (state) {
+				const ambient = 1 - reach * (liquid?.darkenDepth ? liquid.ambientDarken : 0.4);
+				this.ambient.color.multiplyScalar(ambient);
+				this.ambient.groundColor.multiplyScalar(ambient);
+				this.sun.color.multiplyScalar(1 - reach * (liquid?.darkenDepth ? liquid.sunDarken : 0.5));
+			}
+			this.fog.color.copy(color);
+			(this.scene.background as THREE.Color).copy(color);
+			// Starting the fade in front of the camera tints even what's close, as in the game.
+			this.fog.near = -look.far * 0.3;
+			this.fog.far = look.far;
+		}
+	}
+
+	/**
+	 * The liquid the camera is in: the surface of a lake, river, canal or pool somewhere above it,
+	 * or the open sea below sea level (where the ground is lower still).
+	 */
+	private liquidAt(p: THREE.Vector3): { kind: LiquidKind; type: number; surface: number } | null {
+		const meshes = this.liquidMeshes;
+		meshes.length = 0;
+		meshes.push(...this.terrain.liquidsAt(p.x, p.z));
+		this.objects.liquidMeshes(meshes);
+		if (meshes.length) {
+			// Surfaces only hit on the side they're drawn from: from above out of the water (down
+			// from high up, the lowest surface over the camera), from below in it (straight up).
+			const below = this.underwater !== null;
+			if (below) this.liquidRay.set(p, new THREE.Vector3(0, 1, 0));
+			else this.liquidRay.set(new THREE.Vector3(p.x, p.y + LIQUID_PROBE, p.z), new THREE.Vector3(0, -1, 0));
+			this.liquidRay.far = LIQUID_PROBE;
+			const hits = this.liquidRay.intersectObjects(meshes, false);
+			const hit = below ? hits[0] : hits[hits.length - 1];
+			if (hit) {
+				const kind = liquidKindOf((hit.object as THREE.Mesh).material);
+				if (kind) return { kind, type: (hit.object.userData.liquidType as number | undefined) ?? 0, surface: hit.point.y };
+			}
+		}
+		const here = this.terrain.locate(p.x, p.z);
+		if (here && !here.continent.instance && p.y < 0 && this.terrain.surfaceAt(p.x, p.z) < p.y) {
+			return { kind: 'ocean', type: this.liquidLooks?.ocean ?? 0, surface: 0 };
+		}
+		return null;
+	}
+
+	/** The underwater ambience for where the camera is (nearly everywhere the same). */
+	private underwaterSounds() {
+		const data = this.music?.data;
+		if (!data) return null;
+		const area = this.areaHere();
+		return data.ambiences[(area && data.underwater[area]) || data.underwaterDefault] ?? null;
 	}
 
 	/**

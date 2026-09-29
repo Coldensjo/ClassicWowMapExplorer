@@ -17,6 +17,9 @@ const VOLUME = 0.5;
 /** Decoded tracks kept as object URLs. */
 const URL_CACHE = 8;
 const STORAGE_KEY = 'mapExplorer.music';
+/** Low-pass cut-off (Hz) for music heard from under water. */
+const MUFFLED = 600;
+const CLEAR = 20000;
 
 /** What should be playing: a ZoneMusic set and an intro (0 = none). */
 export interface MusicTarget {
@@ -52,9 +55,24 @@ export class MusicPlayer {
 	private readonly urls = new Map<number, string>();
 	/** Set when the browser refused to start audio before any user gesture. */
 	private blocked = false;
+	/** Files that must keep their URL (looping sounds), whatever the cache holds. */
+	private readonly pinned = new Set<number>();
+	/** Music runs through a low-pass filter, so it can sound muffled from under water. */
+	private readonly filter: { context: AudioContext; node: BiquadFilterNode } | null = null;
 
 	constructor(private readonly storage: AsyncStorageApi, readonly data: MusicData) {
+		try {
+			const context = new AudioContext();
+			const node = context.createBiquadFilter();
+			node.type = 'lowpass';
+			node.frequency.value = CLEAR;
+			node.connect(context.destination);
+			this.filter = { context, node };
+		} catch {
+			// Without Web Audio, music just isn't muffled.
+		}
 		const unblock = () => {
+			void this.filter?.context.resume();
 			if (!this.blocked) return;
 			this.blocked = false;
 			for (const v of this.voices) void v.audio.play().catch(() => (this.blocked = true));
@@ -80,6 +98,12 @@ export class MusicPlayer {
 			this.token++;
 			this.fadeOutCurrent();
 		}
+	}
+
+	/** Muffles the music (from under water) or clears it, over a moment. */
+	set muffled(on: boolean) {
+		if (!this.filter) return;
+		this.filter.node.frequency.setTargetAtTime(on ? MUFFLED : CLEAR, this.filter.context.currentTime, 0.12);
 	}
 
 	/** Shown in the HUD. */
@@ -142,7 +166,7 @@ export class MusicPlayer {
 		const token = ++this.token;
 		let url: string;
 		try {
-			url = await this.urlFor(file);
+			url = await this.soundUrl(file);
 		} catch (e) {
 			console.warn(`Music ${file}:`, e);
 			if (token === this.token) this.nextAt = after();
@@ -152,6 +176,8 @@ export class MusicPlayer {
 		this.fadeOutCurrent();
 		const audio = new Audio(url);
 		audio.volume = 0;
+		// Through the filter only while Web Audio runs; otherwise the track would be silent.
+		if (this.filter?.context.state === 'running') this.filter.context.createMediaElementSource(audio).connect(this.filter.node);
 		const voice: Voice = { audio, target: 1, level: 0 };
 		this.voices.push(voice);
 		this.current = voice;
@@ -165,7 +191,12 @@ export class MusicPlayer {
 		audio.play().then(() => (this.blocked = false), () => (this.blocked = true));
 	}
 
-	private async urlFor(file: number): Promise<string> {
+	/**
+	 * An object URL for a sound file from the install (MP3 or Ogg). Recent ones are kept; pin
+	 * keeps a file's URL for good, for sounds that loop.
+	 */
+	async soundUrl(file: number, pin = false): Promise<string> {
+		if (pin) this.pinned.add(file);
 		const cached = this.urls.get(file);
 		if (cached) {
 			this.urls.delete(file);
@@ -173,12 +204,13 @@ export class MusicPlayer {
 			return cached;
 		}
 		const bytes = await this.storage.loadSound(file);
-		const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'audio/mpeg' }));
+		const ogg = bytes[0] === 0x4f && bytes[1] === 0x67 && bytes[2] === 0x67 && bytes[3] === 0x53; // 'OggS'
+		const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: ogg ? 'audio/ogg' : 'audio/mpeg' }));
 		this.urls.set(file, url);
 		if (this.urls.size > URL_CACHE) {
 			const [oldest, oldUrl] = this.urls.entries().next().value!;
 			// Still playing (or fading) tracks keep their URL.
-			if (!this.voices.some((v) => v.audio.src === oldUrl)) {
+			if (!this.pinned.has(oldest) && !this.voices.some((v) => v.audio.src === oldUrl)) {
 				URL.revokeObjectURL(oldUrl);
 				this.urls.delete(oldest);
 			}

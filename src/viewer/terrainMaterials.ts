@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { SplatLayer } from '../explorer/splatMesh';
+import type { LiquidKind } from '../formats/mh2o';
 
 /** Colour the sea floor fades to with depth below sea level. */
 const DEEP_WATER = new THREE.Color(0x0e2c3c);
@@ -8,6 +9,7 @@ const DEEP_WATER_DEPTH = 45;
 
 const white = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
 white.needsUpdate = true;
+
 
 const VERTEX_PARS = /* glsl */ `
 #ifdef TERRAIN_SPLAT
@@ -217,6 +219,25 @@ function magmaMaterial(color: number): THREE.MeshBasicMaterial {
 	};
 	material.customProgramCacheKey = () => 'liquid-magma';
 	return material;
+}
+
+/**
+ * Draws liquid surfaces from above or, under water, from below (where the surface shows
+ * overhead, as in the game). One side at a time: two-sided see-through surfaces cost two passes.
+ */
+export function setLiquidsFromBelow(below: boolean): void {
+	const side = below ? THREE.BackSide : THREE.FrontSide;
+	for (const m of Object.values(liquidMaterials)) {
+		if (m.side === side) continue;
+		m.side = side;
+		m.needsUpdate = true;
+	}
+}
+
+/** Which kind of liquid a surface is, by its material (for telling what the camera is in). */
+export function liquidKindOf(material: THREE.Material | THREE.Material[]): LiquidKind | null {
+	for (const [kind, m] of Object.entries(liquidMaterials)) if (m === material) return kind as LiquidKind;
+	return null;
 }
 
 export const liquidMaterials = {

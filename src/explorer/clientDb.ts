@@ -10,6 +10,7 @@ export const DB2_FILES = {
 	LightParams: 1334669,
 	LiquidType: 1371380,
 	Map: 1349477,
+	SoundAmbience: 1310628,
 	SoundKitEntry: 1237435,
 	WMOAreaTable: 1355528,
 	ZoneIntroMusicTable: 1310251,
@@ -31,6 +32,50 @@ export function loadTable(storage: CascStorage, fdid: number): Promise<Db2> {
 		cache.set(fdid, table);
 	}
 	return table;
+}
+
+/** How a liquid looks from inside it (LiquidType.db2). */
+export interface LiquidLook {
+	/** The deep colour the view fades to, 0xRRGGBB; 0 when the type has none (older liquids). */
+	color: number;
+	/** Yards below the surface at which darkening is complete, and how much it darkens fog, ambient and sun light (0-1). */
+	darkenDepth: number;
+	fogDarken: number;
+	ambientDarken: number;
+	sunDarken: number;
+}
+
+export interface LiquidLooks {
+	types: Record<number, LiquidLook>;
+	/** The type of the open sea (drawn as one plane, so it has no type of its own). */
+	ocean: number;
+}
+
+/** LiquidType fields. */
+const LIQUID_DARKEN_DEPTH = 6;
+const LIQUID_FOG_DARKEN = 7;
+const LIQUID_AMBIENT_DARKEN = 8;
+const LIQUID_SUN_DARKEN = 9;
+const LIQUID_COLORS = 17;
+
+/** Underwater looks of every liquid type. */
+export async function liquidLooks(storage: CascStorage): Promise<LiquidLooks> {
+	const table = await loadTable(storage, DB2_FILES.LiquidType);
+	const types: Record<number, LiquidLook> = {};
+	let ocean = 2;
+	for (const id of table.ids()) {
+		const name = table.getString(id, 0) ?? '';
+		if (name === 'PBRWater - Generic - Ocean') ocean = id;
+		types[id] = {
+			// Three colours, lightest to deepest; the view fades to the deepest.
+			color: (table.getInt(id, LIQUID_COLORS, 2) ?? 0) & 0xffffff,
+			darkenDepth: table.getFloat(id, LIQUID_DARKEN_DEPTH) ?? 0,
+			fogDarken: table.getFloat(id, LIQUID_FOG_DARKEN) ?? 0,
+			ambientDarken: table.getFloat(id, LIQUID_AMBIENT_DARKEN) ?? 0,
+			sunDarken: table.getFloat(id, LIQUID_SUN_DARKEN) ?? 0,
+		};
+	}
+	return { types, ocean };
 }
 
 /** Classifies liquid types by name ("Ocean", "Magma", "PBRWater - Generic - Lake", ...). */

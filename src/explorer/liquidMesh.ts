@@ -3,6 +3,8 @@ import type { LiquidInstance, LiquidKind } from '../formats/mh2o';
 
 export interface LiquidMesh {
 	kind: LiquidKind;
+	/** LiquidType ID (the first of the kind's surfaces), for how it looks from under water. */
+	type: number;
 	/** Tile-local, same space as the terrain. */
 	positions: Float32Array;
 	indices: Uint32Array;
@@ -15,11 +17,11 @@ const CELL = CHUNK_SIZE / 8;
  * viewer draws one sea-level plane for the whole world.
  */
 export function buildLiquidMeshes(liquids: LiquidInstance[], kindOf: (type: number) => LiquidKind): LiquidMesh[] {
-	const byKind = new Map<LiquidKind, { positions: number[]; indices: number[] }>();
+	const byKind = new Map<LiquidKind, { type: number; positions: number[]; indices: number[] }>();
 	for (const l of liquids) {
 		const kind = kindOf(l.type);
 		if (kind === 'ocean' || l.width === 0 || l.height === 0) continue;
-		const mesh = byKind.get(kind) ?? { positions: [], indices: [] };
+		const mesh = byKind.get(kind) ?? { type: l.type, positions: [], indices: [] };
 		byKind.set(kind, mesh);
 
 		const cx = l.chunk % CHUNKS_PER_TILE;
@@ -47,5 +49,5 @@ export function buildLiquidMeshes(liquids: LiquidInstance[], kindOf: (type: numb
 			}
 		}
 	}
-	return [...byKind].map(([kind, m]) => ({ kind, positions: new Float32Array(m.positions), indices: new Uint32Array(m.indices) }));
+	return [...byKind].map(([kind, m]) => ({ kind, type: m.type, positions: new Float32Array(m.positions), indices: new Uint32Array(m.indices) }));
 }

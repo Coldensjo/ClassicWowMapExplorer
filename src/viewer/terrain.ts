@@ -62,6 +62,8 @@ interface NearState {
 	materials: THREE.Material[];
 	ownTextures: THREE.Texture[];
 	sharedTextures: number[];
+	/** The tile's liquid surfaces (lakes, rivers, sea). */
+	liquids: THREE.Mesh[];
 }
 
 export interface TerrainStats {
@@ -326,7 +328,7 @@ export class TerrainManager {
 	}
 
 	private buildNear(tile: NearTile, textures: Map<number, THREE.Texture | null>, sharedTextures: number[]): NearState {
-		const state: NearState = { object: new THREE.Group(), geometries: [], materials: [], ownTextures: [], sharedTextures };
+		const state: NearState = { object: new THREE.Group(), geometries: [], materials: [], ownTextures: [], sharedTextures, liquids: [] };
 		const add = (geometry: THREE.BufferGeometry, material: THREE.Material | THREE.Material[]) => {
 			const mesh = new THREE.Mesh(geometry, material);
 			mesh.matrixAutoUpdate = false;
@@ -356,7 +358,10 @@ export class TerrainManager {
 
 		for (const liquid of tile.liquids) {
 			// Shared materials; drawn after the terrain so the ground shows through.
-			add(liquidGeometry(liquid.positions, liquid.indices), liquidMaterials[liquid.kind]).renderOrder = 1;
+			const mesh = add(liquidGeometry(liquid.positions, liquid.indices), liquidMaterials[liquid.kind]);
+			mesh.renderOrder = 1;
+			mesh.userData.liquidType = liquid.type;
+			state.liquids.push(mesh);
 		}
 		return state;
 	}
@@ -401,6 +406,11 @@ export class TerrainManager {
 		if (t.nearHeights) return sampleGrid(t.nearHeights, TILE_CELLS, lx, lz);
 		// A WMO-only map has no terrain at all.
 		return t.farHeights ? sampleGrid(t.farHeights, WDL_CELLS, lx, lz) : -Infinity;
+	}
+
+	/** Liquid surfaces of the detailed tile at a world position (for telling if a point is under water). */
+	liquidsAt(x: number, z: number): THREE.Mesh[] {
+		return this.tileAt(x, z)?.near?.liquids ?? [];
 	}
 
 	/** AreaTable ID at a world position, if its tile is loaded in detail. */

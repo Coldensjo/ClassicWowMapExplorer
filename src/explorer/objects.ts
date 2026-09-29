@@ -551,7 +551,7 @@ const LEGACY_LIQUIDS: LiquidKind[] = ['water', 'ocean', 'magma', 'slime'];
 
 /** Liquid surfaces (MLIQ) of a WMO's groups, merged per kind, in WMO space. */
 function buildWmoLiquids(groups: (WmoGroup | null)[], kindOf: (type: number) => LiquidKind): LiquidMesh[] {
-	const byKind = new Map<LiquidKind, { positions: number[]; indices: number[] }>();
+	const byKind = new Map<LiquidKind, { type: number; positions: number[]; indices: number[] }>();
 	for (const g of groups) {
 		const l = g?.liquid;
 		if (!g || !l || l.xVerts < 2 || l.yVerts < 2) continue;
@@ -564,7 +564,8 @@ function buildWmoLiquids(groups: (WmoGroup | null)[], kindOf: (type: number) => 
 				let kind = g.liquidType ? kindOf(g.liquidType) : LEGACY_LIQUIDS[flags & 3];
 				// WMO "ocean" isn't at sea level; draw it as water.
 				if (kind === 'ocean') kind = 'water';
-				const mesh = byKind.get(kind) ?? { positions: [], indices: [] };
+				// Legacy types 0-3 in the flags are LiquidType IDs 1-4.
+				const mesh = byKind.get(kind) ?? { type: g.liquidType || (flags & 3) + 1, positions: [], indices: [] };
 				byKind.set(kind, mesh);
 				const base = mesh.positions.length / 3;
 				for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
@@ -576,5 +577,5 @@ function buildWmoLiquids(groups: (WmoGroup | null)[], kindOf: (type: number) => 
 			}
 		}
 	}
-	return [...byKind].map(([kind, m]) => ({ kind, positions: new Float32Array(m.positions), indices: new Uint32Array(m.indices) }));
+	return [...byKind].map(([kind, m]) => ({ kind, type: m.type, positions: new Float32Array(m.positions), indices: new Uint32Array(m.indices) }));
 }

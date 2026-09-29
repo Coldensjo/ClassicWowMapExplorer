@@ -5,6 +5,8 @@ import { DB2_FILES, loadTable } from './clientDb';
 export const LIGHT_COLORS = [
 	'direct', 'ambient', 'skyTop', 'skyMiddle', 'skyBand1', 'skyBand2', 'skySmog', 'skyFog',
 	'sun', 'cloudSun', 'cloudEmissive', 'cloudLayer1', 'cloudLayer2',
+	// Water, looking into it: what the view fades to near and far, in the sea and in rivers and lakes.
+	'oceanClose', 'oceanFar', 'riverClose', 'riverFar',
 ] as const;
 export type LightColor = (typeof LIGHT_COLORS)[number];
 

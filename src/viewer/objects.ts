@@ -42,7 +42,7 @@ class ModelEntry {
 	materials: THREE.Material[] = [];
 	textures: number[] = [];
 	/** WMO liquid surfaces, instanced with the same matrices as the model. */
-	liquids: { geometry: THREE.BufferGeometry; material: THREE.Material; mesh: THREE.InstancedMesh | null }[] = [];
+	liquids: { geometry: THREE.BufferGeometry; material: THREE.Material; type: number; mesh: THREE.InstancedMesh | null }[] = [];
 	readonly instances = new Map<string, THREE.Matrix4>();
 	/** Keys of the instances currently in the instance buffer (those within view distance). */
 	visible = new Set<string>();
@@ -415,7 +415,7 @@ export class ObjectManager {
 		await this.prepare(new THREE.InstancedMesh(geometry, entry.materials, 1));
 		entry.geometry = geometry;
 		entry.radius = data.radius;
-		entry.liquids = (data.liquids ?? []).map((l) => ({ geometry: liquidGeometry(l.positions, l.indices), material: liquidMaterials[l.kind], mesh: null }));
+		entry.liquids = (data.liquids ?? []).map((l) => ({ geometry: liquidGeometry(l.positions, l.indices), material: liquidMaterials[l.kind], type: l.type, mesh: null }));
 		entry.data = { ...data, positions: new Float32Array(0), normals: new Float32Array(0), uvs: new Float32Array(0), baked: null, indices: new Uint32Array(0), liquids: [], animation: undefined };
 		entry.state = 'ready';
 		entry.dirty = true;
@@ -454,6 +454,7 @@ export class ObjectManager {
 		for (const liquid of entry.liquids) {
 			// Liquids draw after the building so it shows through the surface.
 			liquid.mesh = this.syncMesh(liquid.mesh, liquid.geometry, liquid.material, matrices, 1);
+			liquid.mesh.userData.liquidType = liquid.type;
 		}
 	}
 
@@ -552,6 +553,14 @@ export class ObjectManager {
 		}
 		this.textures.release(entry.textures);
 		if (entry.animation) this.releaseBones(entry.animation.key);
+	}
+
+	/** Buildings' liquid surfaces in view (canals, pools, cave water), for telling if a point is under water. */
+	liquidMeshes(out: THREE.Object3D[] = []): THREE.Object3D[] {
+		for (const entry of this.models.values()) {
+			for (const l of entry.liquids) if (l.mesh?.visible) out.push(l.mesh);
+		}
+		return out;
 	}
 
 	/** NPCs within range of the camera, with the world position just above their heads. */

@@ -2,13 +2,14 @@ import { compose, fromQuaternion, multiply, scaling, translation, type Mat4 } fr
 
 const BONE_SIZE = 88;
 const SEQUENCE_SIZE = 64;
-/** AnimationData ID of "Stand". */
+/** AnimationData IDs. */
 const ANIM_STAND = 0;
+const ANIM_WALK = 4;
 
 /** M2CompQuat: int16 components mapped to [-1, 1]. */
 const compQuat = (v: number) => (v < 0 ? v + 32768 : v - 32767) / 32767;
 
-/** A model's Stand sequence: where its bone tracks are, and how long it loops. */
+/** One of a model's sequences (Stand, Walk): where its bone tracks are, and how long it loops. */
 interface StandSequence {
 	view: DataView;
 	md20: number;
@@ -20,7 +21,7 @@ interface StandSequence {
 	globalLoops: number[];
 }
 
-function findStand(bytes: Uint8Array, md20: number): StandSequence | null {
+function findStand(bytes: Uint8Array, md20: number, animation = ANIM_STAND): StandSequence | null {
 	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	const u32 = (o: number) => view.getUint32(md20 + o, true);
 	const boneCount = u32(0x2c);
@@ -30,7 +31,7 @@ function findStand(bytes: Uint8Array, md20: number): StandSequence | null {
 	for (let i = 0; i < seqCount; i++) {
 		const o = md20 + seqOffset + i * SEQUENCE_SIZE;
 		// Flag 0x20: the sequence's keys are in this file rather than a separate .anim.
-		if (view.getUint16(o, true) === ANIM_STAND && view.getUint16(o + 2, true) === 0 && view.getUint32(o + 12, true) & 0x20) {
+		if (view.getUint16(o, true) === animation && view.getUint16(o + 2, true) === 0 && view.getUint32(o + 12, true) & 0x20) {
 			const loops = Array.from({ length: u32(0x14) }, (_, k) => view.getUint32(md20 + u32(0x18) + k * 4, true));
 			return { view, md20, seq: i, duration: view.getUint32(o + 4, true), boneCount, boneOffset: u32(0x30), globalLoops: loops };
 		}
@@ -132,13 +133,19 @@ export function standPose(bytes: Uint8Array, md20: number): Mat4[] | null {
 	return s ? poseAt(s, 0) : null;
 }
 
-/** The Stand loop sampled for GPU skinning: per frame, per bone, a 3x4 matrix as three rows. */
+/** A loop within the sampled frames: its first frame row, frame count and length in seconds. */
+export interface AnimationClip {
+	row: number;
+	frames: number;
+	duration: number;
+}
+
+/** Loops sampled for GPU skinning: per frame, per bone, a 3x4 matrix as three rows. */
 export interface BoneAnimation {
 	bones: number;
-	frames: number;
-	/** Loop length in seconds. */
-	duration: number;
-	/** frames x bones x 12 floats (rows of the 3x4 bone matrix). */
+	/** Stand, then Walk (the same as Stand when the model has no walk). */
+	clips: AnimationClip[];
+	/** frames x bones x 12 floats (rows of the 3x4 bone matrix), every clip's frames in turn. */
 	data: Float32Array;
 }
 
@@ -146,12 +153,26 @@ const SAMPLES_PER_SECOND = 15;
 const MAX_FRAMES = 64;
 
 /**
- * Samples the Stand loop for GPU skinning, or returns null when nothing moves in it (then the
- * model is drawn in its static first-frame pose instead).
+ * Samples the Stand loop (and with walk, the Walk loop) for GPU skinning. Returns null when
+ * nothing would move (then the model is drawn in its static first-frame pose instead).
  */
-export function standAnimation(bytes: Uint8Array, md20: number): BoneAnimation | null {
-	const s = findStand(bytes, md20);
-	if (!s || s.duration < 50) return null;
+export function standAnimation(bytes: Uint8Array, md20: number, walk = false): BoneAnimation | null {
+	const stand = findStand(bytes, md20);
+	if (!stand || stand.duration < 50) return null;
+	const standLoop = sampleLoop(stand);
+	const walkSeq = walk ? findStand(bytes, md20, ANIM_WALK) : null;
+	const walkLoop = walkSeq && walkSeq.duration >= 50 ? sampleLoop(walkSeq) : null;
+	if (!standLoop.moving && !walkLoop) return null;
+	const standClip = { row: 0, frames: standLoop.frames, duration: stand.duration / 1000 };
+	if (!walkLoop) return { bones: stand.boneCount, clips: [standClip, standClip], data: standLoop.data };
+	const data = new Float32Array(standLoop.data.length + walkLoop.data.length);
+	data.set(standLoop.data);
+	data.set(walkLoop.data, standLoop.data.length);
+	return { bones: stand.boneCount, clips: [standClip, { row: standLoop.frames, frames: walkLoop.frames, duration: walkSeq!.duration / 1000 }], data };
+}
+
+/** One loop's frames, and whether anything in it moves. */
+function sampleLoop(s: StandSequence): { frames: number; data: Float32Array; moving: boolean } {
 	const frames = Math.max(2, Math.min(MAX_FRAMES, Math.round((s.duration / 1000) * SAMPLES_PER_SECOND)));
 	const data = new Float32Array(frames * s.boneCount * 12);
 	let moving = false;
@@ -176,7 +197,7 @@ export function standAnimation(bytes: Uint8Array, md20: number): BoneAnimation |
 			}
 		}
 	}
-	return moving ? { bones: s.boneCount, frames, duration: s.duration / 1000, data } : null;
+	return { frames, data, moving };
 }
 /** Applies bone matrices to one 48-byte M2 vertex, writing position and normal. */
 export function skinVertex(view: DataView, o: number, bones: Mat4[], pos: Float32Array, nrm: Float32Array, out: number): void {

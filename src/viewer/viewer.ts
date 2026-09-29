@@ -193,6 +193,8 @@ export class Viewer {
 			return allowed.add(this.objects.pushOut(from.clone().add(allowed), CAMERA_RADIUS));
 		};
 		this.terrain = new TerrainManager(this.storage, this.usesCompressedTextures, anisotropy, this.objects, prepare);
+		// Walking creatures follow the ground.
+		this.objects.groundAt = (x, z) => this.terrain.heightAt(x, z);
 		this.scene.add(this.terrain.group, this.objects.group);
 
 		const loaded: { map: (typeof KNOWN_MAPS)[number]; tiles: FarTile[] }[] = [];

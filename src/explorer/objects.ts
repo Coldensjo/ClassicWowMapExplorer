@@ -3,14 +3,14 @@ import { MeshBVH } from 'three-mesh-bvh';
 import type { CascStorage } from '../casc/storage';
 import { chunks } from '../formats/chunks';
 import { Blend, M2_MATERIAL_TWO_SIDED, M2_MATERIAL_UNFOGGED, M2_MATERIAL_UNLIT, parseM2, parseSkin, type M2File, type M2Skin } from '../formats/m2';
-import { attachmentPoints, skinVertex, standAnimation, standPose, type AttachmentPoint, type BoneAnimation } from '../formats/m2Pose';
+import { attachmentPoints, skinVertex, standAnimation, standPose, type AnimationClip, type AttachmentPoint, type BoneAnimation } from '../formats/m2Pose';
 import { parseParticleEmitters, type ParticleEmitter } from '../formats/m2Particles';
 import {
 	parseWmoGroup, parseWmoRoot, WMO_GROUP_INTERIOR, WMO_LIQUID_CELL, type WmoGroup, WMO_MATERIAL_TWO_SIDED, WMO_MATERIAL_UNFOGGED, WMO_MATERIAL_UNLIT,
 } from '../formats/wmo';
 import type { LiquidKind } from '../formats/mh2o';
 import type { LiquidMesh } from './liquidMesh';
-import type { SpawnInfo } from './spawns';
+import type { SpawnInfo, SpawnMovement } from './spawns';
 import { compose, fromQuaternion, multiply, rotationX, rotationY, rotationZ, scaling, translation, type Mat4 } from './mat4';
 
 const MDDF_FILE_ID = 0x40;
@@ -34,6 +34,8 @@ export interface Placement {
 	spawn?: SpawnInfo;
 	/** Distinguishes looks that share a display ID, e.g. held weapons (main_off_shield). */
 	variant?: string;
+	/** Creatures that walk: their waypoints or wander radius. */
+	movement?: SpawnMovement;
 }
 
 export interface ModelMaterial {
@@ -104,9 +106,8 @@ export interface ModelAnimation {
 	/** Identifies the skeleton, so looks sharing a model share one bone texture. */
 	key: string;
 	bones: number;
-	frames: number;
-	/** Loop length in seconds. */
-	duration: number;
+	/** Stand, then Walk (the same as Stand when the model has no walk). */
+	clips: AnimationClip[];
 	/** frames x bones x 12 floats (rows of each 3x4 bone matrix). */
 	data: Float32Array;
 	boneIndex: Uint16Array;
@@ -224,7 +225,8 @@ function prepareM2(storage: CascStorage, fdid: number, stand: boolean): Promise<
 		const uvs = new Float32Array(n * 2);
 		const v = new DataView(vertices.buffer, vertices.byteOffset, vertices.byteLength);
 		// Moving models are skinned on the GPU from bind space; still ones are posed here once.
-		const animation = standAnimation(bytes, m2.md20);
+		// Creatures (posed standing) also get their walk, for those that roam.
+		const animation = standAnimation(bytes, m2.md20, stand);
 		const bones = !animation && stand ? standPose(bytes, m2.md20) : null;
 		const boneIndex = animation ? new Uint16Array(n * 4) : null;
 		const boneWeight = animation ? new Uint8Array(n * 4) : null;
@@ -392,7 +394,7 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 		radius: prepared.m2.bounds.radius || boundingRadius(positions), height: topOf(positions, indices, batches),
 		// The bone data is shared by every look of this model, so it's keyed for reuse on the GPU.
 		animation: anim && boneIndex && boneWeight
-			? { key: `m2:${fdid}`, bones: anim.bones, frames: anim.frames, duration: anim.duration, data: anim.data.slice(), boneIndex, boneWeight }
+			? { key: `m2:${fdid}`, bones: anim.bones, clips: anim.clips, data: anim.data.slice(), boneIndex, boneWeight }
 			: undefined,
 		emitters: emitters.length ? emitters : undefined,
 	};

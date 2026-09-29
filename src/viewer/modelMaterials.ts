@@ -6,8 +6,8 @@ import { Blend } from '../formats/m2';
 /** Shared uniforms for a skinned model: its bone texture and loop. */
 export interface SkinUniforms {
 	uBoneTex: THREE.IUniform<THREE.Texture>;
-	uBoneFrames: THREE.IUniform<number>;
-	uAnimDuration: THREE.IUniform<number>;
+	/** Stand and Walk: first frame row, frame count, loop length (s). */
+	uClips: THREE.IUniform<THREE.Vector3[]>;
 }
 
 /**
@@ -89,9 +89,10 @@ uniform float uTime;
 	attribute vec4 boneIndex;
 	attribute vec4 boneWeight;
 	attribute float instancePhase;
+	/** 0 standing, 1 walking. */
+	attribute float instanceAnim;
 	uniform sampler2D uBoneTex;
-	uniform float uBoneFrames;
-	uniform float uAnimDuration;
+	uniform vec3 uClips[2];
 	mat4 animSkin;
 	// Row-major 3x4 bone matrix: three texels per bone, one row of texels per frame.
 	mat4 boneFrame(int bone, int frame) {
@@ -110,9 +111,11 @@ uniform float uTime;
 // three's skin chunks sit inside #ifs in some materials (MeshBasic), so they can't host it.
 const SKIN_BASE = /* glsl */ `
 #ifdef M2_SKINNED
-	float animFrame = fract((uTime + instancePhase) / uAnimDuration) * uBoneFrames;
-	int frame0 = int(floor(animFrame));
-	int frame1 = frame0 + 1 >= int(uBoneFrames) ? 0 : frame0 + 1;
+	vec3 clip = instanceAnim > 0.5 ? uClips[1] : uClips[0];
+	float animFrame = fract((uTime + instancePhase) / clip.z) * clip.y;
+	int frameIndex = int(floor(animFrame));
+	int frame0 = int(clip.x) + frameIndex;
+	int frame1 = int(clip.x) + (frameIndex + 1 >= int(clip.y) ? 0 : frameIndex + 1);
 	float frameMix = animFrame - floor(animFrame);
 	animSkin = mat4(0.0);
 	float weightSum = 0.0;

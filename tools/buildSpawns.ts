@@ -30,9 +30,33 @@ interface CreatureTemplate {
 	type: number; rank: number; npc_flags: number; faction: number; equipment_id: number;
 	display_id1: number; display_id2: number; display_id3: number; display_id4: number;
 	display_scale1: number; display_scale2: number; display_scale3: number; display_scale4: number;
+	speed_walk: number;
 }
 interface ObjectTemplate { entry: number; name: string; type: number; displayId: number; size: number; data0: number }
-interface Spawn { guid: number; id: number; x: number; y: number; z: number; o: number; r0?: number; r1?: number; r2?: number; r3?: number }
+interface Spawn {
+	guid: number; id: number; x: number; y: number; z: number; o: number;
+	r0?: number; r1?: number; r2?: number; r3?: number;
+	movement_type?: number; wander_distance?: number;
+}
+
+/** creature.movement_type */
+const MOVE_RANDOM = 1;
+const MOVE_WAYPOINTS = 2;
+
+interface Waypoint { id: number; x: number; y: number; z: number; wait: number }
+
+/** Waypoint paths by key (spawn guid, or template entry), flattened to [x, y, z, wait seconds, ...]. */
+function paths(sql: string): Map<number, number[]> {
+	const out = new Map<number, number[]>();
+	for (const p of query<Waypoint>(sql)) {
+		const list = out.get(p.id) ?? [];
+		list.push(round(p.x), round(p.y), round(p.z), round(p.wait / 1000, 1));
+		out.set(p.id, list);
+	}
+	return out;
+}
+const spawnPaths = paths('select id, position_x as x, position_y as y, position_z as z, waittime as wait from creature_movement order by id, point');
+const templatePaths = paths('select entry as id, position_x as x, position_y as y, position_z as z, waittime as wait from creature_movement_template where path_id = 0 order by entry, point');
 
 const creatureTemplates = new Map(query<CreatureTemplate>(latest('creature_template')).map((t) => [t.entry, t]));
 const objectTemplates = new Map(query<ObjectTemplate>(latest('gameobject_template')).map((t) => [t.entry, t]));
@@ -69,7 +93,8 @@ if (existsSync(LISTFILE)) {
 	console.warn(`${LISTFILE} not found; NPCs will have no hair textures`);
 }
 for (const map of MAPS) {
-	const creatures = query<Spawn>(`select guid, id, position_x as x, position_y as y, position_z as z, orientation as o
+	const creatures = query<Spawn>(`select guid, id, position_x as x, position_y as y, position_z as z, orientation as o,
+		movement_type, wander_distance
 		from creature where map = ${map} and patch_min <= ${PATCH} and patch_max >= ${PATCH}
 		and guid not in (select guid from game_event_creature where event > 0)`);
 	const objects = query<Spawn>(`select guid, id, position_x as x, position_y as y, position_z as z, orientation as o,
@@ -86,7 +111,7 @@ for (const map of MAPS) {
 		const scales = [t.display_scale1, t.display_scale2, t.display_scale3, t.display_scale4];
 		npcTemplates[t.entry] = [t.name, t.subname ?? '', t.level_min, t.level_max, t.type, t.rank, t.npc_flags,
 			displays.filter((d) => d), scales.filter((_, i) => displays[i]).map((v) => round(v, 3)), t.faction,
-			weapons.get(t.equipment_id) ?? 0];
+			weapons.get(t.equipment_id) ?? 0, round(t.speed_walk, 3)];
 	}
 	const goTemplates: Record<number, unknown[]> = {};
 	for (const s of objects) {
@@ -110,12 +135,28 @@ for (const map of MAPS) {
 		pages[firstPage] = chain;
 	}
 
+	// Movement per spawn: a wander radius (> 0), a waypoint path (-1: its own, -2: its template's), or 0.
+	const movementOf = (s: Spawn): number => {
+		if (s.movement_type === MOVE_WAYPOINTS) return spawnPaths.has(s.guid) ? -1 : templatePaths.has(s.id) ? -2 : 0;
+		if (s.movement_type === MOVE_RANDOM && (s.wander_distance ?? 0) > 0) return round(s.wander_distance!, 1);
+		return 0;
+	};
+	const walkPaths: Record<number, number[]> = {};
+	const walkTemplatePaths: Record<number, number[]> = {};
+	for (const s of creatures) {
+		const m = movementOf(s);
+		if (m === -1) walkPaths[s.guid] = spawnPaths.get(s.guid)!;
+		else if (m === -2) walkTemplatePaths[s.id] = templatePaths.get(s.id)!;
+	}
+
 	const out = {
 		source: 'VMaNGOS world database (GPL-2.0), patch 1.12',
 		pages,
 		creatures: {
 			templates: npcTemplates,
-			spawns: creatures.filter((s) => npcTemplates[s.id]).map((s) => [s.guid, s.id, round(s.x), round(s.y), round(s.z), round(s.o, 3)]),
+			spawns: creatures.filter((s) => npcTemplates[s.id]).map((s) => [s.guid, s.id, round(s.x), round(s.y), round(s.z), round(s.o, 3), movementOf(s)]),
+			paths: walkPaths,
+			templatePaths: walkTemplatePaths,
 		},
 		objects: {
 			templates: goTemplates,

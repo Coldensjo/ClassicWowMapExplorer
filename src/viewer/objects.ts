@@ -4,6 +4,7 @@ import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
 import type { SpawnInfo } from '../explorer/spawns';
 import type { AsyncStorageApi } from '../worker/protocol';
 import { createModelMaterial, type SkinUniforms } from './modelMaterials';
+import { Mover, type GroundAt } from './movers';
 import { perf } from './perf';
 import { PARTICLE_RANGE, ParticleSystem, type EmitterSource, type LoadedEmitter } from './particles';
 import { liquidMaterials } from './terrainMaterials';
@@ -21,6 +22,8 @@ const MAX_MODEL_REQUESTS = 4;
 const UNUSED_MODEL_TTL = 15000;
 /** How often (ms) instance visibility is re-checked against the camera. */
 const CULL_INTERVAL = 250;
+/** Creatures further than this (yards) from the camera stand still. */
+const MOVE_RANGE = 300;
 
 /**
  * View distance for a doodad of a given (scaled) radius, like the game's doodad LOD: small props
@@ -49,6 +52,8 @@ class ModelEntry {
 	emitters: LoadedEmitter[] = [];
 	/** Instance key for each slot in the instance buffer, for picking. */
 	drawnKeys: string[] = [];
+	/** Slot in the instance buffer by instance key, for moving creatures. */
+	slots = new Map<string, number>();
 	radius = 0;
 	dirty = false;
 	unusedSince = 0;
@@ -68,6 +73,8 @@ interface PlacedObject {
 	parts: { entry: ModelEntry; key: string }[];
 	/** WMO doodad instances, kept apart so they can come and go with detail. */
 	doodadParts: { entry: ModelEntry; key: string }[];
+	/** Creatures that walk (waypoints or wandering); moves matrix in place. */
+	mover?: Mover;
 }
 
 export type ObjectLevel = 'none' | 'wmo' | 'all';
@@ -180,6 +187,7 @@ export class ObjectManager {
 			parts: [],
 			doodadParts: [],
 		};
+		if (p.movement) object.mover = new Mover(p.movement, object.matrix, new THREE.Vector3().setFromMatrixPosition(toWorld));
 		this.objects.set(key, object);
 		object.parts.push(this.addInstance(p.kind, p.fdid, key, object.matrix, p.variant));
 	}
@@ -277,9 +285,46 @@ export class ObjectManager {
 				entry.unusedSince = 0;
 			}
 		}
+		perf.time('movers', () => this.moveCreatures(dt, cull));
 		perf.time('particles', () => this.particles.update(dt, this.nearbyEmitters()));
 		// Not a time: the live particle count, averaged the same way.
 		perf.record('particles.alive', this.particles.count);
+	}
+
+	/** Ground height for walking creatures; the viewer supplies the terrain's. */
+	groundAt: GroundAt = () => NaN;
+
+	/** Walks the creatures near the camera and writes their new places into the instance buffers. */
+	private moveCreatures(dt: number, cull: boolean): void {
+		if (dt <= 0) return;
+		for (const entry of this.models.values()) {
+			const mesh = entry.mesh;
+			if (entry.kind !== 'creature' || !mesh || !entry.visible.size) continue;
+			const anim = entry.geometry?.getAttribute('instanceAnim') as THREE.InstancedBufferAttribute | undefined;
+			let moved = false;
+			for (const key of entry.visible) {
+				const mover = this.objects.get(key)?.mover;
+				const slot = entry.slots.get(key);
+				if (!mover || slot === undefined) continue;
+				const m = entry.instances.get(key)!;
+				const e = m.elements;
+				if ((e[12] - this.camera.x) ** 2 + (e[13] - this.camera.y) ** 2 + (e[14] - this.camera.z) ** 2 > MOVE_RANGE ** 2) continue;
+				if (mover.update(dt, this.groundAt)) {
+					mesh.setMatrixAt(slot, m);
+					moved = true;
+				}
+				const walking = mover.walking ? 1 : 0;
+				if (anim && anim.getX(slot) !== walking) {
+					anim.setX(slot, walking);
+					anim.needsUpdate = true;
+				}
+			}
+			if (moved) {
+				mesh.instanceMatrix.needsUpdate = true;
+				// Walkers can leave the bounds the mesh was culled by.
+				if (cull) mesh.computeBoundingSphere();
+			}
+		}
 	}
 
 	/** Placed copies of models with particle emitters, near enough for their particles to show. */
@@ -349,12 +394,12 @@ export class ObjectManager {
 			const a = data.animation;
 			geometry.setAttribute('boneIndex', new THREE.BufferAttribute(a.boneIndex, 4));
 			geometry.setAttribute('boneWeight', new THREE.BufferAttribute(a.boneWeight, 4, true));
+			const frames = a.clips.reduce((n, c) => Math.max(n, c.row + c.frames), 0);
 			skin = {
-				uBoneTex: { value: this.acquireBones(a.key, a.data, a.bones, a.frames) },
-				uBoneFrames: { value: a.frames },
-				uAnimDuration: { value: a.duration },
+				uBoneTex: { value: this.acquireBones(a.key, a.data, a.bones, frames) },
+				uClips: { value: a.clips.map((c) => new THREE.Vector3(c.row, c.frames, c.duration)) },
 			};
-			entry.animation = { key: a.key, duration: a.duration };
+			entry.animation = { key: a.key, duration: a.clips[0].duration };
 		}
 		geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
 		const batches = [...data.batches].sort((a, b) => a.order - b.order);
@@ -402,6 +447,7 @@ export class ObjectManager {
 		entry.visible = new Set();
 		for (const [key, m] of entry.instances) if (this.isVisible(entry, m)) entry.visible.add(key);
 		entry.drawnKeys = [...entry.visible];
+		entry.slots = new Map(entry.drawnKeys.map((key, i) => [key, i]));
 		const matrices = entry.drawnKeys.map((key) => entry.instances.get(key)!);
 		entry.mesh = this.syncMesh(entry.mesh, entry.geometry, entry.materials, matrices, entry.kind === 'wmo' ? -1 : 0);
 		if (entry.animation) this.writePhases(entry.mesh, entry.geometry, entry.drawnKeys, entry.animation.duration);
@@ -449,12 +495,20 @@ export class ObjectManager {
 			attribute = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
 			geometry.setAttribute('instancePhase', attribute);
 		}
+		let anim = geometry.getAttribute('instanceAnim') as THREE.InstancedBufferAttribute | undefined;
+		if (!anim || anim.count !== capacity) {
+			anim = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
+			geometry.setAttribute('instanceAnim', anim);
+		}
 		keys.forEach((key, i) => {
 			let h = 2166136261;
 			for (let c = 0; c < key.length; c++) h = Math.imul(h ^ key.charCodeAt(c), 16777619);
 			attribute!.setX(i, ((h >>> 0) / 4294967296) * duration);
+			// Standing or walking (see moveCreatures).
+			anim!.setX(i, this.objects.get(key)?.mover?.walking ? 1 : 0);
 		});
 		attribute.needsUpdate = true;
+		anim.needsUpdate = true;
 	}
 
 	/** Bone textures by skeleton, shared by every look (display, gear) that uses the model. */

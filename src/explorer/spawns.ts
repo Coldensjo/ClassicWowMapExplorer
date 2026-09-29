@@ -32,10 +32,16 @@ export type Reaction = 'hostile' | 'neutral' | 'friendly';
 interface SpawnFile {
 	pages: Record<number, string[]>;
 	creatures: {
-		/** entry -> [name, subname, levelMin, levelMax, type, rank, npcFlags, displayIds, scales, factionTemplate, weapons] */
-		templates: Record<number, [string, string, number, number, number, number, number, number[], number[], number, Weapons | 0]>;
-		/** [guid, entry, x, y, z, orientation] in world coordinates */
-		spawns: [number, number, number, number, number, number][];
+		/** entry -> [name, subname, levelMin, levelMax, type, rank, npcFlags, displayIds, scales, factionTemplate, weapons, walkSpeed] */
+		templates: Record<number, [string, string, number, number, number, number, number, number[], number[], number, Weapons | 0, number?]>;
+		/**
+		 * [guid, entry, x, y, z, orientation, movement] in world coordinates. movement: a wander
+		 * radius (> 0), a waypoint path (-1: in paths by guid, -2: in templatePaths by entry), or 0.
+		 */
+		spawns: [number, number, number, number, number, number, number?][];
+		/** Waypoints, [x, y, z, wait seconds, ...] in world coordinates, looping. */
+		paths?: Record<number, number[]>;
+		templatePaths?: Record<number, number[]>;
 	};
 	objects: {
 		/** entry -> [name, type, displayId, size, data0] */
@@ -68,6 +74,28 @@ const WORLD_BASIS: Mat4 = (() => {
 
 function spawnMatrix(x: number, y: number, z: number, rotation: Mat4, scale: number): Mat4 {
 	return compose(translation(MAP_ORIGIN - y, z, MAP_ORIGIN - x), WORLD_BASIS, rotation, scaling(scale));
+}
+
+/** Base walking speed (yd/s); creature templates scale it. */
+const WALK_SPEED = 2.5;
+
+/** How a creature moves, like the server's movement generators. */
+export interface SpawnMovement {
+	/** Walking speed, yd/s. */
+	speed: number;
+	/** Facing at the spawn point (WoW orientation, radians); the placement matrix has it built in. */
+	orientation: number;
+	/** Wander radius around the spawn point, or 0. */
+	wander: number;
+	/** Looping waypoints in continent space: [x, y, z, wait seconds] per point; empty when wandering. */
+	path: number[];
+}
+
+/** World waypoints -> continent space, the same mapping as spawnMatrix. */
+function continentPath(points: number[]): number[] {
+	const out: number[] = [];
+	for (let i = 0; i + 3 < points.length; i += 4) out.push(MAP_ORIGIN - points[i + 1], points[i + 2], MAP_ORIGIN - points[i], points[i + 3]);
+	return out;
 }
 
 export type ReactionLookup = (factionTemplate: number) => { alliance: Reaction; horde: Reaction };
@@ -108,10 +136,14 @@ export class SpawnSource {
 			this.byTile.set(key, list);
 		};
 		const { creatures, objects, pages } = this.file;
-		for (const [guid, entry, x, y, z, o] of creatures.spawns) {
+		for (const [guid, entry, x, y, z, o, move = 0] of creatures.spawns) {
 			const t = creatures.templates[entry];
 			if (!t) continue;
-			const [name, subname, levelMin, levelMax, type, rank, , displays, scales, faction, weapons] = t;
+			const [name, subname, levelMin, levelMax, type, rank, , displays, scales, faction, weapons, walk = 1] = t;
+			const points = move === -1 ? creatures.paths?.[guid] : move === -2 ? creatures.templatePaths?.[entry] : undefined;
+			const movement: SpawnMovement | undefined = move > 0 || (points && points.length >= 8)
+				? { speed: WALK_SPEED * (walk || 1), orientation: o, wander: Math.max(0, move), path: points ? continentPath(points) : [] }
+				: undefined;
 			if (!displays.length) continue;
 			// Templates with several looks pick one per spawn; keep it stable per guid.
 			const pick = guid % displays.length;
@@ -124,6 +156,7 @@ export class SpawnSource {
 				matrix: spawnMatrix(x, y, z, rotationZ((o * 180) / Math.PI), scale),
 				doodadSet: 0,
 				variant: weapons ? weapons.join('_') : undefined,
+				movement,
 				spawn: {
 					type: 'npc', guid, entry, name,
 					subname: subname || undefined,

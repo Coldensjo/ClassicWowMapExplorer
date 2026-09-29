@@ -12,8 +12,9 @@ type Kind = ObjectKind;
 // Ray casts use a model's BVH when it has one (buildings); InstancedMesh casts go through this too.
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const MODEL_BATCH = 24;
-const MAX_MODEL_REQUESTS = 2;
+/** Models per worker request; small batches let the nearest models show up sooner. */
+const MODEL_BATCH = 8;
+const MAX_MODEL_REQUESTS = 4;
 /** Unused models stay cached this long, so flying back and forth doesn't reload them. */
 const UNUSED_MODEL_TTL = 15000;
 /** How often (ms) instance visibility is re-checked against the camera. */
@@ -245,6 +246,7 @@ export class ObjectManager {
 		this.camera.copy(camera);
 		const cull = now - this.lastCull > CULL_INTERVAL;
 		if (cull) this.lastCull = now;
+		if (this.requests < MAX_MODEL_REQUESTS && this.queue.length) this.prioritize();
 		while (this.requests < MAX_MODEL_REQUESTS && this.queue.length) {
 			const batch = this.queue.splice(0, MODEL_BATCH).filter((e) => e.state === 'queued');
 			if (batch.length) void this.load(batch);
@@ -261,6 +263,20 @@ export class ObjectManager {
 				entry.unusedSince = 0;
 			}
 		}
+	}
+
+	/** Orders the load queue by each model's nearest placed copy, so the area around you fills in first. */
+	private prioritize(): void {
+		const distance = new Map<ModelEntry, number>();
+		for (const entry of this.queue) {
+			let best = Infinity;
+			for (const m of entry.instances.values()) {
+				const e = m.elements;
+				best = Math.min(best, (e[12] - this.camera.x) ** 2 + (e[13] - this.camera.y) ** 2 + (e[14] - this.camera.z) ** 2);
+			}
+			distance.set(entry, best);
+		}
+		this.queue.sort((a, b) => distance.get(a)! - distance.get(b)!);
 	}
 
 	private async load(batch: ModelEntry[]): Promise<void> {

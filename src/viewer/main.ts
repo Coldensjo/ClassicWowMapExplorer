@@ -53,6 +53,8 @@ $('explore').addEventListener('click', async () => {
 	try {
 		await storage.open($<HTMLSelectElement>('product').value);
 		const viewer = new Viewer($('view'), storage, showHud, showInfo, $('nameplates'));
+		// For poking at the scene from the console (and test scripts) while developing.
+		if (import.meta.env.DEV) (globalThis as unknown as { mapExplorerViewer: Viewer }).mapExplorerViewer = viewer;
 		await viewer.load((text) => setStatus(`${text}…`));
 		$('start').hidden = true;
 		$('hud').hidden = $('help').hidden = false;

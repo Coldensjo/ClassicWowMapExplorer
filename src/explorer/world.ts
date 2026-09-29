@@ -127,7 +127,9 @@ export class WorldLoader {
 			tile?.files.obj0 ? this.storage.readFile(tile.files.obj0).then(parsePlacements) : ([] as Placement[]),
 			this.tileSpawns(wdtFdid, x, y),
 		]);
-		return placements.concat(spawns);
+		// Spawn placements are cached per tile; send copies of their matrices, since the
+		// transfer to the main thread empties the originals.
+		return placements.concat(spawns.map((p) => ({ ...p, matrix: p.matrix.slice() })));
 	}
 
 	private readonly spawnSources = new Map<number, Promise<SpawnSource | null>>();

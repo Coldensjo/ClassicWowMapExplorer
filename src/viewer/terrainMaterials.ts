@@ -292,8 +292,14 @@ function waterMaterial(opacity: number, sea = false): THREE.MeshPhongMaterial {
 				uniform float uFromBelow;
 				${WAVES}${FOAM}${sea ? SEA_MASK : ''}`)
 			.replace('#include <clipping_planes_fragment>', sea
-				// The sea plane: nothing where there's no open sea.
-				? '#include <clipping_planes_fragment>\n\tif (seaAt(vLiquidPos.xz, 1.0) < 0.5 || inSeaHole(vLiquidPos.xz)) discard;'
+				// The sea plane: nothing where there's no open sea. Nor on the pixel row at its horizon,
+				// where antialiasing works out the depth at pixel centres just past the sea's edge and
+				// gets nonsense (in front of everything): a line through the trees and hills.
+				? /* glsl */ `#include <clipping_planes_fragment>
+					if (seaAt(vLiquidPos.xz, 1.0) < 0.5 || inSeaHole(vLiquidPos.xz)) discard;
+					#ifdef USE_LOGARITHMIC_DEPTH_BUFFER
+						if (!(vFragDepth >= 1.0)) discard;
+					#endif`
 				: '#include <clipping_planes_fragment>')
 			.replace('#include <color_fragment>', /* glsl */ `#include <color_fragment>
 				// How steeply the surface is seen (1 straight down), and the depth of water under it:

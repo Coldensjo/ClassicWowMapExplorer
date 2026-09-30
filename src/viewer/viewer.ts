@@ -60,6 +60,10 @@ const UNDERWATER: Record<LiquidKind, { far: number; color: number }> = {
 	slime: { far: 25, color: 0x2e4f10 },
 	magma: { far: 10, color: 0x9a3208 },
 };
+/** The far plane sits this much past the fog's end, where everything is already the fog's colour. */
+const FAR_PAST_FOG = 1.1;
+/** Yards; the far plane never comes closer than this, so the sky dome (1000 yd around the camera) always shows. */
+const MIN_FAR = 1500;
 /** How far above the camera (yards) to look for a liquid surface. */
 const LIQUID_PROBE = 400;
 /** Half-minutes the T key moves the time of day (15 minutes). */
@@ -874,6 +878,12 @@ export class Viewer {
 			// Starting the fade in front of the camera tints even what's close, as in the game.
 			this.fog.near = -look.far * 0.3;
 			this.fog.far = look.far;
+		}
+		// Past the fog's end everything is the fog's colour: don't draw it at all.
+		const far = Math.max(this.fog.far * FAR_PAST_FOG, MIN_FAR);
+		if (Math.abs(far - this.camera.far) > this.camera.far * 0.01) {
+			this.camera.far = far;
+			this.camera.updateProjectionMatrix();
 		}
 	}
 

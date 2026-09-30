@@ -271,9 +271,10 @@ export class WorldLoader {
 					// Game objects are either M2 or WMO; the file's first chunk says which.
 					const file = await this.displays.object(fdid);
 					if (!file) return null;
-					const head = await this.storage.readFile(file);
-					const isWmo = head[0] === 0x52 && head[1] === 0x45 && head[2] === 0x56 && head[3] === 0x4d; // 'REVM'
-					const model = isWmo ? await loadWmo(this.storage, file, await this.liquidKind()) : await loadM2(this.storage, file);
+					// Read once and handed on, rather than read (and decompressed) again by the loader.
+					const bytes = await this.storage.readFile(file);
+					const isWmo = bytes[0] === 0x52 && bytes[1] === 0x45 && bytes[2] === 0x56 && bytes[3] === 0x4d; // 'REVM'
+					const model = isWmo ? await loadWmo(this.storage, file, await this.liquidKind(), bytes) : await loadM2(this.storage, file, {}, bytes);
 					return { ...model, fdid };
 				}
 				return await loadM2(this.storage, fdid);

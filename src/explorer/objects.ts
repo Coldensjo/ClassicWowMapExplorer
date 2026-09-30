@@ -234,7 +234,8 @@ interface PreparedM2 {
 const preparedM2 = new Map<string, Promise<PreparedM2>>();
 const PREPARED_M2_LIMIT = 600;
 
-function prepareM2(storage: CascStorage, fdid: number, stand: boolean): Promise<PreparedM2> {
+/** file: the M2's bytes, when the caller has already read them. */
+function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Uint8Array): Promise<PreparedM2> {
 	const key = `${fdid}:${stand ? 1 : 0}`;
 	let entry = preparedM2.get(key);
 	if (entry) {
@@ -245,7 +246,7 @@ function prepareM2(storage: CascStorage, fdid: number, stand: boolean): Promise<
 	}
 	entry = (async () => {
 		// The whole file is only needed here, for the vertices and the pose; it isn't cached.
-		const { bytes, vertices, ...m2 } = parseM2(await storage.readFile(fdid));
+		const { bytes, vertices, ...m2 } = parseM2(file ?? await storage.readFile(fdid));
 		if (!m2.skinFdids[0]) throw new Error(`M2 ${fdid} has no skin`);
 		const skin = parseSkin(await storage.readFile(m2.skinFdids[0]));
 
@@ -337,8 +338,8 @@ function dressM2(prepared: PreparedM2, options: M2Options) {
 
 const brokenGear = new Set<number>();
 
-export async function loadM2(storage: CascStorage, fdid: number, options: M2Options = {}): Promise<ModelData> {
-	const prepared = await prepareM2(storage, fdid, !!options.stand);
+export async function loadM2(storage: CascStorage, fdid: number, options: M2Options = {}, file?: Uint8Array): Promise<ModelData> {
+	const prepared = await prepareM2(storage, fdid, !!options.stand, file);
 	const animated = prepared.animation !== null;
 	// rest: where the part sits in the resting pose, for its particle emitters.
 	const parts: { prepared: PreparedM2; batches: ModelBatch[]; transform: Mat4 | null; rest: Mat4 | null; bone: number }[] = [
@@ -429,8 +430,9 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 		emitters: emitters.length ? emitters : undefined,
 	};
 }
-export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type: number) => LiquidKind): Promise<ModelData> {
-	const root = parseWmoRoot(await storage.readFile(fdid));
+/** file: the root file's bytes, when the caller has already read them. */
+export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type: number) => LiquidKind, file?: Uint8Array): Promise<ModelData> {
+	const root = parseWmoRoot(file ?? await storage.readFile(fdid));
 	const groups = await Promise.all(root.groupFdids.map(async (g) => {
 		try {
 			return parseWmoGroup(await storage.readFile(g));

@@ -107,3 +107,57 @@ export class FileListSource implements FileSource {
 		return [...names];
 	}
 }
+
+/** A file read in byte ranges over HTTP. */
+class HttpFile implements RandomAccessFile {
+	constructor(private readonly url: string, readonly size: number) {}
+
+	async read(offset: number, length: number): Promise<Uint8Array> {
+		if (length <= 0) return new Uint8Array(0);
+		const response = await fetch(this.url, { headers: { Range: `bytes=${offset}-${offset + length - 1}` } });
+		if (!response.ok) throw new Error(`Reading ${this.url} failed: ${response.status}`);
+		const bytes = new Uint8Array(await response.arrayBuffer());
+		// A server that ignores Range sends the whole file.
+		return response.status === 206 ? bytes : bytes.subarray(offset, offset + length);
+	}
+}
+
+/**
+ * Source served over HTTP: the portable launcher (and the dev server) serve the install they
+ * found on this computer under /__wow/. Files support Range requests; a path ending in '/'
+ * lists that folder, one name per line.
+ */
+export class HttpSource implements FileSource {
+	private readonly files = new Map<string, Promise<RandomAccessFile>>();
+
+	/** base ends in '/', e.g. http://127.0.0.1:51730/__wow/ */
+	constructor(private readonly base: string) {}
+
+	private url(path: string[]): string {
+		return this.base + path.map(encodeURIComponent).join('/');
+	}
+
+	openFile(path: string[]): Promise<RandomAccessFile> {
+		const key = path.join('/').toLowerCase();
+		let file = this.files.get(key);
+		if (!file) {
+			file = (async () => {
+				const url = this.url(path);
+				const response = await fetch(url, { method: 'HEAD' });
+				if (response.status === 404) throw new NotFoundError(path);
+				if (!response.ok) throw new Error(`Opening ${url} failed: ${response.status}`);
+				return new HttpFile(url, Number(response.headers.get('Content-Length')));
+			})();
+			file.catch(() => this.files.delete(key));
+			this.files.set(key, file);
+		}
+		return file;
+	}
+
+	async listDir(path: string[]): Promise<string[]> {
+		const response = await fetch(`${this.url(path)}/`);
+		if (response.status === 404) throw new NotFoundError(path);
+		if (!response.ok) throw new Error(`Listing ${path.join('/')} failed: ${response.status}`);
+		return (await response.text()).split('\n').filter(Boolean);
+	}
+}

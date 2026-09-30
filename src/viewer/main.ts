@@ -84,9 +84,31 @@ async function useSource(init: SourceInit): Promise<void> {
 		$('product-step').hidden = products.length === 0;
 		setStatus(products.length ? 'No Classic version found; choose a game version and press Explore.' : 'No World of Warcraft game found in this folder.', true);
 	} catch {
-		setStatus('That isn\'t the World of Warcraft folder. Choose the folder that contains _classic_ or _classic_beta_ (not that folder itself).', true);
+		setStatus(init.kind === 'http'
+			? 'World of Warcraft was found but couldn\'t be read. Choose its folder instead.'
+			: 'That isn\'t the World of Warcraft folder. Choose the folder that contains _classic_ or _classic_beta_ (not that folder itself).', true);
 	}
 }
+
+/**
+ * The portable launcher (and the dev server) look for World of Warcraft on this computer and
+ * serve it under /__wow/; when they found it, there's nothing to choose. A plain web server
+ * has no such path, and then the folder is chosen by hand.
+ */
+async function findWow(): Promise<void> {
+	const base = new URL('__wow/', location.href).href;
+	let found = false;
+	try {
+		const response = await fetch(`${base}.build.info`, { method: 'HEAD' });
+		// Some servers answer every path with the page itself.
+		found = response.ok && !response.headers.get('Content-Type')?.includes('text/html');
+	} catch {
+		// Not served from here.
+	}
+	$('start').classList.remove('finding');
+	if (found) await useSource({ kind: 'http', base });
+}
+void findWow();
 
 // Dropping the folder on the page works like choosing it.
 const drop = $('drop');

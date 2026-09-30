@@ -1,4 +1,4 @@
-import { FileListSource, DirectoryHandleSource, type FileSource } from '../casc/source';
+import { FileListSource, DirectoryHandleSource, HttpSource, type FileSource } from '../casc/source';
 import { CascStorage } from '../casc/storage';
 import { describeError, MapExplorer } from '../explorer/maps';
 import { WorldLoader } from '../explorer/world';
@@ -24,7 +24,7 @@ function send(message: Response, transfer: Transferable[] = []): void {
 
 const api: AsyncStorageApi = {
 	async setSource(init: SourceInit) {
-		source = init.kind === 'handle' ? new DirectoryHandleSource(init.handle) : new FileListSource(init.files);
+		source = init.kind === 'handle' ? new DirectoryHandleSource(init.handle) : init.kind === 'http' ? new HttpSource(init.base) : new FileListSource(init.files);
 		explorer = null;
 		world = null;
 		return CascStorage.listProducts(source);

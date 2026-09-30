@@ -43,8 +43,9 @@ run('gcc', ['-O2', '-s', '-static', '-municode', '-mwindows', '-Wall', 'tools/po
 
 writeFileSync(join(OUT, 'README.txt'), `Map Explorer (portable)
 
-Double-click MapExplorer.exe. Map Explorer opens in a window of its own; choose your World of
-Warcraft folder there, and fly. Close the window when you're done.
+Double-click MapExplorer.exe. Map Explorer opens in a window of its own, finds World of
+Warcraft by itself (or asks for its folder if it can't), and you fly. Close the window when
+you're done.
 
 Keep MapExplorer.exe next to the "app" folder. The window is Microsoft Edge (or Chrome) showing
 the app, served from the "app" folder to this computer only; nothing is sent anywhere. Its

@@ -1,7 +1,8 @@
 // Map Explorer's portable launcher: serves the built app (the "app" folder next to this exe)
 // on 127.0.0.1 and shows it in a window of its own (Edge's or Chrome's app mode), with no
 // console. The app needs a web server: module workers and fetch don't work from file:// pages.
-// Closing the window stops it.
+// It also finds World of Warcraft and serves its files to the page, so there's no folder to
+// choose. Closing the window stops it.
 //
 // Built by tools/buildPortable.ts (gcc from mingw-w64).
 
@@ -17,6 +18,7 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
 
@@ -27,8 +29,14 @@
 // Answered by a running launcher, so a second one just opens the page instead of another server.
 #define HELLO_PATH "/__mapexplorer"
 #define HELLO_BODY "Map Explorer"
+// The World of Warcraft install, served to the page here so it opens without asking for the folder.
+#define WOW_PATH "/__wow/"
 
 static wchar_t appDir[MAX_PATH];
+// The install found at startup (the folder holding .build.info); empty if there's none.
+static wchar_t wowDir[MAX_PATH];
+// The port being served, which requests for the game files must be addressed to.
+static int serverPort;
 
 struct MimeType {
 	const char *extension;
@@ -68,13 +76,15 @@ static void sendAll(SOCKET s, const char *data, int length) {
 	}
 }
 
-static void sendStatus(SOCKET s, const char *status, const char *body) {
+// A short text answer; its body only for GET (an answer to HEAD has none, or it would run into
+// the next answer on the connection).
+static void sendStatus(SOCKET s, const char *method, const char *status, const char *body) {
 	char header[256];
 	int n = snprintf(header, sizeof header,
-		"HTTP/1.1 %s\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n",
+		"HTTP/1.1 %s\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: %d\r\n\r\n",
 		status, (int)strlen(body));
 	sendAll(s, header, n);
-	sendAll(s, body, (int)strlen(body));
+	if (strcmp(method, "HEAD") != 0) sendAll(s, body, (int)strlen(body));
 }
 
 static int hexValue(char c) {
@@ -106,62 +116,269 @@ static int cleanPath(char *path) {
 	return 1;
 }
 
-static DWORD WINAPI serve(LPVOID param) {
-	SOCKET s = (SOCKET)(ULONG_PTR)param;
-	char request[8192];
-	int length = 0;
-	// Read the request line and headers (there's no body for GET or HEAD).
-	while (length < (int)sizeof request - 1) {
-		int n = recv(s, request + length, (int)sizeof request - 1 - length, 0);
-		if (n <= 0) break;
-		length += n;
-		request[length] = 0;
-		if (strstr(request, "\r\n\r\n")) break;
+// A request header's value, copied to out; false if the request has none.
+static int headerValue(const char *request, const char *name, char *out, size_t size) {
+	size_t nameLength = strlen(name);
+	for (const char *line = strstr(request, "\r\n"); line && line[2]; line = strstr(line + 2, "\r\n")) {
+		const char *value = line + 2;
+		if (_strnicmp(value, name, nameLength) != 0 || value[nameLength] != ':') continue;
+		value += nameLength + 1;
+		while (*value == ' ') value++;
+		size_t n = strcspn(value, "\r\n");
+		if (n >= size) n = size - 1;
+		memcpy(out, value, n);
+		out[n] = 0;
+		return 1;
 	}
-	request[length] = 0;
+	return 0;
+}
 
+// Whether a request names this server as 127.0.0.1 or localhost, so no web page elsewhere can
+// reach the game files through a name of its own that points here (DNS rebinding).
+static int addressedHere(const char *request) {
+	char host[256];
+	char expected[64];
+	if (!headerValue(request, "Host", host, sizeof host)) return 0;
+	snprintf(expected, sizeof expected, "127.0.0.1:%d", serverPort);
+	if (_stricmp(host, expected) == 0) return 1;
+	snprintf(expected, sizeof expected, "localhost:%d", serverPort);
+	return _stricmp(host, expected) == 0;
+}
+
+// A cleaned URL path (UTF-8, '/' separated) -> a file or folder under root, with no '\' at the end.
+static void localPath(const wchar_t *root, const char *path, wchar_t *out, size_t size) {
+	wchar_t relative[2048];
+	MultiByteToWideChar(CP_UTF8, 0, path, -1, relative, 2048);
+	for (wchar_t *c = relative; *c; c++) {
+		if (*c == L'/') *c = L'\\';
+	}
+	swprintf(out, size, L"%ls%ls%ls", root, relative[0] == L'\\' ? L"" : L"\\", relative);
+	size_t n = wcslen(out);
+	while (n > 0 && out[n - 1] == L'\\') out[--n] = 0;
+}
+
+// Sends a file, or the part a Range header asks for ("bytes=first-last" or "bytes=first-").
+// Opened shared for writing too, so the game files can be read while the game runs.
+static void sendFile(SOCKET s, const char *method, const wchar_t *file, const char *type, const char *range) {
+	DWORD attributes = GetFileAttributesW(file);
+	HANDLE f = attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) ? INVALID_HANDLE_VALUE
+		: CreateFileW(file, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	LARGE_INTEGER size;
+	if (f == INVALID_HANDLE_VALUE || !GetFileSizeEx(f, &size)) {
+		if (f != INVALID_HANDLE_VALUE) CloseHandle(f);
+		sendStatus(s, method, "404 Not Found", "Not found");
+		return;
+	}
+	long long first = 0;
+	long long last = size.QuadPart - 1;
+	long long a = 0;
+	long long b = 0;
+	int parts = range ? sscanf(range, "bytes=%lld-%lld", &a, &b) : 0;
+	if (parts >= 1) {
+		if (a < 0 || a >= size.QuadPart || (parts == 2 && b < a)) {
+			CloseHandle(f);
+			char header[256];
+			int n = snprintf(header, sizeof header,
+				"HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */%lld\r\nContent-Length: 0\r\n\r\n",
+				(long long)size.QuadPart);
+			sendAll(s, header, n);
+			return;
+		}
+		first = a;
+		if (parts == 2 && b < last) last = b;
+	}
+	char contentRange[128] = "";
+	if (parts >= 1) snprintf(contentRange, sizeof contentRange, "Content-Range: bytes %lld-%lld/%lld\r\n", first, last, (long long)size.QuadPart);
+	char header[512];
+	int n = snprintf(header, sizeof header,
+		"HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %lld\r\n%sAccept-Ranges: bytes\r\nCache-Control: no-cache\r\n\r\n",
+		parts >= 1 ? "206 Partial Content" : "200 OK", type, last - first + 1, contentRange);
+	sendAll(s, header, n);
+	if (strcmp(method, "GET") == 0) {
+		LARGE_INTEGER position;
+		position.QuadPart = first;
+		SetFilePointerEx(f, position, NULL, FILE_BEGIN);
+		long long remaining = last - first + 1;
+		char chunk[65536];
+		DWORD read;
+		while (remaining > 0 && ReadFile(f, chunk, (DWORD)(remaining < (long long)sizeof chunk ? remaining : (long long)sizeof chunk), &read, NULL) && read > 0) {
+			sendAll(s, chunk, (int)read);
+			remaining -= read;
+		}
+	}
+	CloseHandle(f);
+}
+
+// Lists a folder for the page: the names in it, one per line, in UTF-8.
+static void sendListing(SOCKET s, const char *method, const wchar_t *dir) {
+	wchar_t pattern[MAX_PATH * 2];
+	swprintf(pattern, sizeof pattern / sizeof pattern[0], L"%ls\\*", dir);
+	WIN32_FIND_DATAW found;
+	HANDLE find = FindFirstFileW(pattern, &found);
+	if (find == INVALID_HANDLE_VALUE) {
+		sendStatus(s, method, "404 Not Found", "Not found");
+		return;
+	}
+	size_t capacity = 4096;
+	size_t length = 0;
+	char *body = malloc(capacity);
+	do {
+		if (!body || wcscmp(found.cFileName, L".") == 0 || wcscmp(found.cFileName, L"..") == 0) continue;
+		char name[MAX_PATH * 4];
+		int n = WideCharToMultiByte(CP_UTF8, 0, found.cFileName, -1, name, sizeof name, NULL, NULL);
+		if (n <= 1) continue;
+		while (length + n > capacity) {
+			char *bigger = realloc(body, capacity *= 2);
+			if (!bigger) free(body);
+			body = bigger;
+			if (!body) break;
+		}
+		if (!body) continue;
+		memcpy(body + length, name, n - 1);
+		length += n - 1;
+		body[length++] = '\n';
+	} while (FindNextFileW(find, &found));
+	FindClose(find);
+	if (!body) {
+		sendStatus(s, method, "500 Internal Server Error", "Out of memory");
+		return;
+	}
+	char header[256];
+	int n = snprintf(header, sizeof header,
+		"HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: %d\r\nCache-Control: no-cache\r\n\r\n", (int)length);
+	sendAll(s, header, n);
+	if (strcmp(method, "GET") == 0) sendAll(s, body, (int)length);
+	free(body);
+}
+
+// Answers one request; false when the connection should close after it.
+static int answer(SOCKET s, const char *request) {
 	char method[8] = {0};
 	char path[2048] = {0};
 	if (sscanf(request, "%7s %2047s", method, path) != 2) {
-		sendStatus(s, "400 Bad Request", "Bad request");
-	} else if (strcmp(method, "GET") != 0 && strcmp(method, "HEAD") != 0) {
-		sendStatus(s, "405 Method Not Allowed", "Only GET and HEAD");
-	} else if (!cleanPath(path)) {
-		sendStatus(s, "404 Not Found", "Not found");
+		sendStatus(s, "GET", "400 Bad Request", "Bad request");
+		return 0;
+	}
+	if (strcmp(method, "GET") != 0 && strcmp(method, "HEAD") != 0) {
+		sendStatus(s, "GET", "405 Method Not Allowed", "Only GET and HEAD");
+		return 0;
+	}
+	char connection[32];
+	int keepOpen = !(headerValue(request, "Connection", connection, sizeof connection) && _stricmp(connection, "close") == 0);
+	wchar_t file[MAX_PATH * 2];
+	if (!cleanPath(path)) {
+		sendStatus(s, method, "404 Not Found", "Not found");
 	} else if (strcmp(path, HELLO_PATH) == 0) {
-		sendStatus(s, "200 OK", HELLO_BODY);
+		sendStatus(s, method, "200 OK", HELLO_BODY);
+	} else if (strncmp(path, WOW_PATH, strlen(WOW_PATH)) == 0) {
+		const char *relative = path + strlen(WOW_PATH);
+		// Only what the page reads: .build.info and the Data folder.
+		int allowed = wowDir[0] && addressedHere(request) && (strcmp(relative, ".build.info") == 0 || _strnicmp(relative, "Data/", 5) == 0);
+		char range[128];
+		if (!allowed) {
+			sendStatus(s, method, "404 Not Found", "Not found");
+		} else {
+			localPath(wowDir, relative, file, sizeof file / sizeof file[0]);
+			if (relative[strlen(relative) - 1] == '/') sendListing(s, method, file);
+			else sendFile(s, method, file, "application/octet-stream", headerValue(request, "Range", range, sizeof range) ? range : NULL);
+		}
 	} else {
 		if (path[strlen(path) - 1] == '/') strncat(path, "index.html", sizeof path - strlen(path) - 1);
-		// The URL path (UTF-8) -> a file under the app folder.
-		wchar_t relative[2048];
-		wchar_t file[MAX_PATH * 2];
-		MultiByteToWideChar(CP_UTF8, 0, path, -1, relative, 2048);
-		for (wchar_t *c = relative; *c; c++) {
-			if (*c == L'/') *c = L'\\';
+		localPath(appDir, path, file, sizeof file / sizeof file[0]);
+		sendFile(s, method, file, mimeType(path), NULL);
+	}
+	return keepOpen;
+}
+
+// Answers requests on a connection until it closes. It stays open between them, as the page
+// reads the game files in many small pieces; browsers don't pipeline, so each request comes
+// on its own. A connection left idle closes after a while, ending its thread.
+static DWORD WINAPI serve(LPVOID param) {
+	SOCKET s = (SOCKET)(ULONG_PTR)param;
+	DWORD idle = 30000;
+	setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&idle, sizeof idle);
+	char request[8192];
+	for (;;) {
+		// The request line and headers (there's no body for GET or HEAD).
+		int length = 0;
+		request[0] = 0;
+		while (length < (int)sizeof request - 1 && !strstr(request, "\r\n\r\n")) {
+			int n = recv(s, request + length, (int)sizeof request - 1 - length, 0);
+			if (n <= 0) break;
+			length += n;
+			request[length] = 0;
 		}
-		swprintf(file, sizeof file / sizeof file[0], L"%ls%ls", appDir, relative);
-		HANDLE f = CreateFileW(file, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-		LARGE_INTEGER size;
-		if (f == INVALID_HANDLE_VALUE || !GetFileSizeEx(f, &size)) {
-			if (f != INVALID_HANDLE_VALUE) CloseHandle(f);
-			sendStatus(s, "404 Not Found", "Not found");
-		} else {
-			char header[512];
-			int n = snprintf(header, sizeof header,
-				"HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %lld\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
-				mimeType(path), (long long)size.QuadPart);
-			sendAll(s, header, n);
-			if (strcmp(method, "GET") == 0) {
-				char chunk[65536];
-				DWORD read;
-				while (ReadFile(f, chunk, sizeof chunk, &read, NULL) && read > 0) sendAll(s, chunk, (int)read);
-			}
-			CloseHandle(f);
-		}
+		if (!strstr(request, "\r\n\r\n") || !answer(s, request)) break;
 	}
 	shutdown(s, SD_SEND);
 	closesocket(s);
 	return 0;
+}
+
+// Makes a folder the install if it is one, or is inside one: the registry can name a game
+// version's folder (_classic_ and the like), one below the install.
+static int useInstall(const wchar_t *candidate) {
+	wchar_t dir[MAX_PATH];
+	wcsncpy(dir, candidate, MAX_PATH - 1);
+	dir[MAX_PATH - 1] = 0;
+	for (int up = 0; up < 3; up++) {
+		size_t n = wcslen(dir);
+		while (n > 0 && dir[n - 1] == L'\\') dir[--n] = 0;
+		if (n == 0) return 0;
+		wchar_t probe[MAX_PATH * 2];
+		swprintf(probe, MAX_PATH * 2, L"%ls\\.build.info", dir);
+		DWORD info = GetFileAttributesW(probe);
+		swprintf(probe, MAX_PATH * 2, L"%ls\\Data\\data", dir);
+		DWORD data = GetFileAttributesW(probe);
+		if (info != INVALID_FILE_ATTRIBUTES && data != INVALID_FILE_ATTRIBUTES && (data & FILE_ATTRIBUTE_DIRECTORY)) {
+			wcscpy(wowDir, dir);
+			return 1;
+		}
+		wchar_t *slash = wcsrchr(dir, L'\\');
+		if (!slash) return 0;
+		*slash = 0;
+	}
+	return 0;
+}
+
+// Tries a registry value in a key and its subkeys; with onlyWow, only in the subkeys named for
+// World of Warcraft (the installer adds one for each game version).
+static int fromRegistry(const wchar_t *key, const wchar_t *value, int onlyWow) {
+	wchar_t path[MAX_PATH];
+	DWORD bytes = sizeof path;
+	if (!onlyWow && RegGetValueW(HKEY_LOCAL_MACHINE, key, value, RRF_RT_REG_SZ, NULL, path, &bytes) == ERROR_SUCCESS && useInstall(path)) return 1;
+	HKEY k;
+	if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, key, 0, KEY_READ, &k) != ERROR_SUCCESS) return 0;
+	int found = 0;
+	wchar_t name[256];
+	for (DWORD i = 0; !found; i++) {
+		DWORD length = 256;
+		if (RegEnumKeyExW(k, i, name, &length, NULL, NULL, NULL, NULL) != ERROR_SUCCESS) break;
+		if (onlyWow && wcsncmp(name, L"World of Warcraft", 17) != 0) continue;
+		bytes = sizeof path;
+		if (RegGetValueW(k, name, value, RRF_RT_REG_SZ, NULL, path, &bytes) == ERROR_SUCCESS) found = useInstall(path);
+	}
+	RegCloseKey(k);
+	return found;
+}
+
+// Looks for World of Warcraft: where its installer says it is, then the usual folders on each
+// hard drive. If it isn't found, the page asks for the folder instead.
+static void findInstall(void) {
+	if (fromRegistry(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", L"InstallLocation", 1)) return;
+	if (fromRegistry(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", L"InstallLocation", 1)) return;
+	if (fromRegistry(L"SOFTWARE\\WOW6432Node\\Blizzard Entertainment\\World of Warcraft", L"InstallPath", 0)) return;
+	static const wchar_t *const FOLDERS[] = {L"Program Files (x86)\\World of Warcraft", L"Program Files\\World of Warcraft", L"World of Warcraft", L"Games\\World of Warcraft"};
+	DWORD drives = GetLogicalDrives();
+	for (int d = 2; d < 26; d++) {
+		wchar_t root[4] = {(wchar_t)(L'A' + d), L':', L'\\', 0};
+		if (!(drives & (1u << d)) || GetDriveTypeW(root) != DRIVE_FIXED) continue;
+		for (size_t i = 0; i < sizeof FOLDERS / sizeof FOLDERS[0]; i++) {
+			wchar_t path[MAX_PATH];
+			swprintf(path, MAX_PATH, L"%ls%ls", root, FOLDERS[i]);
+			if (useInstall(path)) return;
+		}
+	}
 }
 
 // Whether a Map Explorer launcher already answers on this port.
@@ -345,6 +562,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR arguments, int
 		fail(message);
 		return 1;
 	}
+	serverPort = port;
+	findInstall();
 	HANDLE server = CreateThread(NULL, 0, acceptLoop, (LPVOID)(ULONG_PTR)listener, 0, NULL);
 	if (noBrowser) {
 		WaitForSingleObject(server, INFINITE);

@@ -14,12 +14,13 @@ You need **Windows 10 or 11** and **World of Warcraft Classic** installed. Nothi
 2. Double-click **MapExplorer.exe**. Map Explorer opens in a window of its own.
    The first time, Windows may say *"Windows protected your PC"*, because the program isn't signed:
    click **More info**, then **Run anyway**.
-3. Click **Choose your World of Warcraft folder** (or drag the folder onto the window) and pick the
+3. It finds World of Warcraft by itself and the world opens. If it can't find it, click
+   **Choose your World of Warcraft folder** (or drag the folder onto the window) and pick the
    folder that contains `_classic_` or `_classic_beta_`, usually
    `C:\Program Files (x86)\World of Warcraft`. The window calls it an upload, but the files never
    leave your computer.
 
-The world opens by itself. Click to look around, fly with **W A S D**, and hold **Shift** to go faster.
+Click to look around, fly with **W A S D**, and hold **Shift** to go faster.
 Close the window when you're done.
 
 ### About the portable version
@@ -30,6 +31,9 @@ Close the window when you're done.
   showing Map Explorer with no tabs or address bar. `MapExplorer.exe` serves the `app` folder to it
   at `http://127.0.0.1:51730`, reachable from this computer only, and stops when you close the
   window.
+- **Finding the game**: it looks where World of Warcraft's installer says it is, then in the usual
+  folders on each hard drive, and serves only the game's `.build.info` and `Data` folder to the
+  window, read as they are.
 - **Its own settings**: highlights and other settings are kept in a `data` folder beside it, apart
   from your own browser (in `%LOCALAPPDATA%\MapExplorer` if its folder is read-only).
 - **Opening it again** while it's running opens another window onto the same Map Explorer.
@@ -40,7 +44,8 @@ On any system with Chrome or Edge, and **[Node.js](https://nodejs.org)** (the LT
 
 1. `git clone https://github.com/Coldensjo/ClassicWowMapExplorer.git` (or **Code → Download ZIP**)
 2. In the project folder, run `npm install`, then `npm run dev`.
-3. Open **http://localhost:5173** in Chrome or Edge, and choose your World of Warcraft folder as above.
+3. Open **http://localhost:5173** in Chrome or Edge. The dev server finds World of Warcraft as the
+   portable version does (set `WOW_DIR` to point it elsewhere); if it can't, choose the folder as above.
 
 ## Features
 

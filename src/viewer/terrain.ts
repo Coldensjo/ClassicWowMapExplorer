@@ -54,6 +54,8 @@ interface TileState {
 	nearHoles: Uint8Array | null;
 	/** AreaTable ID per chunk while the tile is detailed. */
 	areaIds: Uint32Array | null;
+	/** Chunks (y * 16 + x) the sea covers, from the tile's own ocean surfaces, once read in detail. */
+	seaChunks: Uint8Array | null;
 	nearLoading: boolean;
 	/** Its full-detail files couldn't be read: not tried again. */
 	nearFailed: boolean;
@@ -180,6 +182,7 @@ export class TerrainManager {
 				nearHeights: null,
 				nearHoles: null,
 				areaIds: null,
+				seaChunks: null,
 				nearLoading: false,
 				nearFailed: false,
 				distance: Infinity,
@@ -211,6 +214,7 @@ export class TerrainManager {
 				nearHeights: null,
 				nearHoles: null,
 				areaIds: null,
+				seaChunks: null,
 				nearLoading: false,
 				nearFailed: false,
 				distance: Infinity,
@@ -220,7 +224,7 @@ export class TerrainManager {
 	}
 
 	/** Where the open sea is: one flag per WDL cell over the continents, from buildSeaMask. */
-	private sea: { flags: Uint8Array; width: number; height: number; originX: number; originZ: number } | null = null;
+	private sea: { flags: Uint8Array; width: number; height: number; originX: number; originZ: number; texture: THREE.DataTexture } | null = null;
 
 	/**
 	 * Works out where the open sea is, for the sea-level plane and the sea-floor tint: from the
@@ -228,7 +232,9 @@ export class TerrainManager {
 	 * sea level. Land below sea level walled off from the coast (Thousand Needles, the Shimmering
 	 * Flats) stays dry, as in the game, where only the map's own ocean surfaces are sea. The other
 	 * maps laid out in the sea count the same way where they have low-detail terrain; the sea
-	 * covers the rest of them (see Viewer's sea hole for maps that are only a building).
+	 * covers the rest of them (see Viewer's sea hole for maps that are only a building). That's a
+	 * guess, which floods dry land below sea level near a coast; tiles read in detail replace it
+	 * with their own ocean surfaces (applySea).
 	 */
 	buildSeaMask(): void {
 		const box = this.bounds();
@@ -276,15 +282,40 @@ export class TerrainManager {
 			if (k >= width) flood(k - width);
 			if (k + width < flags.length) flood(k + width);
 		}
-		this.sea = { flags, width, height, originX: box.min.x, originZ: box.min.y };
-
 		const texture = new THREE.DataTexture(flags, width, height, THREE.RedFormat, THREE.UnsignedByteType);
 		texture.unpackAlignment = 1;
 		texture.magFilter = THREE.LinearFilter;
 		texture.minFilter = THREE.LinearFilter;
+		this.sea = { flags, width, height, originX: box.min.x, originZ: box.min.y, texture };
+		// Tiles already read in detail know better.
+		for (const t of this.tiles.values()) this.applySea(t);
 		texture.needsUpdate = true;
 		seaMask.uSeaMask.value = texture;
 		seaMask.uSeaBounds.value.set(box.min.x, box.min.y, 1 / (width * cell), 1 / (height * cell));
+	}
+
+	/**
+	 * Puts a tile's own ocean surfaces into the sea mask in place of the guess, one flag per
+	 * chunk (a WDL cell is a chunk). Returns whether the mask changed.
+	 */
+	private applySea(t: TileState): boolean {
+		const s = this.sea;
+		if (!s || !t.seaChunks || t.continent.apart) return false;
+		const cell = TILE_SIZE / WDL_CELLS;
+		const x0 = Math.round((t.originX - s.originX) / cell);
+		const z0 = Math.round((t.originZ - s.originZ) / cell);
+		let changed = false;
+		for (let j = 0; j < WDL_CELLS; j++) {
+			for (let i = 0; i < WDL_CELLS; i++) {
+				const k = (z0 + j) * s.width + x0 + i;
+				const flag = t.seaChunks[j * WDL_CELLS + i] ? 255 : 0;
+				if (s.flags[k] !== flag) {
+					s.flags[k] = flag;
+					changed = true;
+				}
+			}
+		}
+		return changed;
 	}
 
 	/** Whether a world position is open sea (at sea level); anywhere past the continents is. */
@@ -445,6 +476,9 @@ export class TerrainManager {
 			t.nearHeights = tile.heights;
 			t.nearHoles = tile.holes;
 			t.areaIds = tile.areaIds;
+			// Kept after the tile drops back to low detail: it's what the map says, not a guess.
+			t.seaChunks = tile.sea;
+			if (this.applySea(t)) this.sea!.texture.needsUpdate = true;
 			if (t.far) t.far.visible = false;
 		} catch (e) {
 			console.warn(`Tile ${t.continent.name} ${t.x}_${t.y}:`, e);

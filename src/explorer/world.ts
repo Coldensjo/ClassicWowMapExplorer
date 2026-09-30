@@ -72,6 +72,8 @@ export interface NearTile {
 	/** 128x128 cells, 1 where the terrain has a hole (cave and mine entrances). */
 	holes: Uint8Array;
 	liquids: LiquidMesh[];
+	/** 1 per chunk (y * 16 + x) the sea covers: where the tile has an ocean surface. */
+	sea: Uint8Array;
 	/** AreaTable ID per chunk (y * 16 + x). */
 	areaIds: Uint32Array;
 }
@@ -189,13 +191,17 @@ export class WorldLoader {
 		]);
 		const root = parseAdtRoot(rootBytes);
 		const liquids = buildLiquidMeshes(root.liquids, kindOf);
+		const sea = new Uint8Array(256);
+		for (const l of root.liquids) {
+			if (kindOf(l.type) === 'ocean' && l.width && l.height && (!l.exists || l.exists.includes(1))) sea[l.chunk] = 1;
+		}
 		const areaIds = new Uint32Array(256);
 		for (const c of root.chunks) areaIds[c.indexY * 16 + c.indexX] = c.areaId;
 
 		if (texBytes) {
 			const tex = parseAdtTex(texBytes, (wdt.flags & MPHD_BIG_ALPHA) !== 0, (i) => !(root.chunks[i]?.flags & MCNK_DO_NOT_FIX_ALPHA));
 			const terrain = buildSplatTerrain(root, tex);
-			return { x, y, terrain, fallback: null, heights: terrain.heights, holes: terrain.holes, liquids, areaIds };
+			return { x, y, terrain, fallback: null, heights: terrain.heights, holes: terrain.holes, liquids, sea, areaIds };
 		}
 		const grids = tileGrids(root);
 		return {
@@ -209,6 +215,7 @@ export class WorldLoader {
 			heights: grids.outer,
 			holes: grids.holes,
 			liquids,
+			sea,
 			areaIds,
 		};
 	}

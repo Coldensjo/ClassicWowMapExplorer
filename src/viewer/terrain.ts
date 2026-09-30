@@ -7,7 +7,7 @@ import type { TerrainGeometry } from '../explorer/terrainMesh';
 import type { AsyncStorageApi } from '../worker/protocol';
 import type { ObjectLevel, ObjectManager } from './objects';
 import { TextureCache } from './textureCache';
-import { createAlphaTexture, createFarMaterial, createSplatMaterial, liquidMaterials, seaMask } from './terrainMaterials';
+import { createAlphaTexture, createFarMaterial, createSplatMaterial, liquidMaterial, seaMask } from './terrainMaterials';
 import { perf } from './perf';
 import { createTexture } from './textures';
 
@@ -28,8 +28,12 @@ export interface ContinentPlacement {
 	/** Where the continent's tile (0, 0) sits in the shared world grid, in tiles. */
 	offsetX: number;
 	offsetY: number;
-	/** Set for maps entered through area triggers (dungeons), laid out away from the continents. */
+	/** Set for every map but the continents (dungeons, raids, battlegrounds...): laid out in the sea south of them. */
 	instance?: boolean;
+	/** A map that couldn't be laid out with the rest, placed far off on its own. */
+	apart?: boolean;
+	/** A map that's one building (most dungeons), no terrain: where it lies, in world yards (x, z). */
+	building?: THREE.Box2;
 }
 
 interface TileState {
@@ -218,7 +222,9 @@ export class TerrainManager {
 	 * Works out where the open sea is, for the sea-level plane and the sea-floor tint: from the
 	 * open water around and between the continents, across every low-detail cell that dips below
 	 * sea level. Land below sea level walled off from the coast (Thousand Needles, the Shimmering
-	 * Flats) stays dry, as in the game, where only the map's own ocean surfaces are sea.
+	 * Flats) stays dry, as in the game, where only the map's own ocean surfaces are sea. The other
+	 * maps laid out in the sea count the same way where they have low-detail terrain; the sea
+	 * covers the rest of them (see Viewer's sea hole for maps that are only a building).
 	 */
 	buildSeaMask(): void {
 		const box = this.bounds();
@@ -229,7 +235,7 @@ export class TerrainManager {
 		const low = new Float32Array(width * height).fill(-Infinity);
 		const row = WDL_CELLS + 1;
 		for (const t of this.tiles.values()) {
-			if (t.continent.instance || !t.farHeights) continue;
+			if (!t.farHeights) continue;
 			const h = t.farHeights;
 			const x0 = Math.round((t.originX - box.min.x) / cell);
 			const z0 = Math.round((t.originZ - box.min.y) / cell);
@@ -288,11 +294,11 @@ export class TerrainManager {
 		return s.flags[cz * s.width + cx] > 0;
 	}
 
-	/** World-space bounds of the continents' tiles, in yards (dungeons, laid out apart, don't count). */
+	/** World-space bounds of every map's tiles, in yards (except any laid out apart). */
 	bounds(): THREE.Box2 {
 		const box = new THREE.Box2();
 		for (const t of this.tiles.values()) {
-			if (t.continent.instance) continue;
+			if (t.continent.apart) continue;
 			box.expandByPoint(new THREE.Vector2(t.originX, t.originZ));
 			box.expandByPoint(new THREE.Vector2(t.originX + TILE_SIZE, t.originZ + TILE_SIZE));
 		}
@@ -435,8 +441,8 @@ export class TerrainManager {
 		}
 
 		for (const liquid of tile.liquids) {
-			// Shared materials; drawn after the terrain so the ground shows through.
-			const mesh = add(liquidGeometry(liquid.positions, liquid.indices), liquidMaterials[liquid.kind]);
+			// Shared materials (one per liquid type); drawn after the terrain so the ground shows through.
+			const mesh = add(liquidGeometry(liquid.positions, liquid.indices), liquidMaterial(liquid.kind, liquid.type));
 			mesh.renderOrder = 1;
 			mesh.userData.liquidType = liquid.type;
 			state.liquids.push(mesh);

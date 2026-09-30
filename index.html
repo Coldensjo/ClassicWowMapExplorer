@@ -54,6 +54,18 @@
 	<select id="map-picker" hidden aria-label="Go to map"></select>
 
 	<div id="nameplates" aria-hidden="true"></div>
+
+	<div id="highlight" hidden>
+		<label class="highlight-on"><input type="checkbox" id="highlight-on"> Highlight <kbd>H</kbd></label>
+		<div id="highlight-groups">
+			<label data-group="chest"><input type="checkbox" value="chest"> Chests</label>
+			<label data-group="herb"><input type="checkbox" value="herb"> Herbs</label>
+			<label data-group="ore"><input type="checkbox" value="ore"> Ore</label>
+			<label data-group="fishing"><input type="checkbox" value="fishing"> Fishing</label>
+		</div>
+		<input id="highlight-query" type="search" placeholder="Find anything by name…" autocomplete="off" spellcheck="false" aria-label="Highlight by name">
+		<div id="highlight-status" class="muted small" aria-live="polite"></div>
+	</div>
 	<div id="crosshair" hidden></div>
 
 	<aside id="info" hidden aria-live="polite">
@@ -71,9 +83,10 @@
 
 	<div id="help" hidden>
 		<div><kbd>Click</kbd> look around (<kbd>Esc</kbd> to release) · click creatures and objects for info</div>
-		<div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly · <kbd>Space</kbd>/<kbd>C</kbd> up/down · <kbd>Shift</kbd> fast</div>
+		<div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly · <kbd>Space</kbd>/<kbd>C</kbd> up/down · <kbd>Shift</kbd> fast · <kbd>G</kbd> go through walls</div>
 		<div><kbd>Wheel</kbd> zoom · <kbd>O</kbd> whole world · <kbd>1</kbd>/<kbd>2</kbd> continents · <kbd>R</kbd> back to start</div>
-		<div><kbd>T</kbd>/<kbd>Shift</kbd>+<kbd>T</kbd> later/earlier · <kbd>N</kbd> back to local time · <kbd>L</kbd> torch · <kbd>F</kbd> Alliance/Horde names · <kbd>M</kbd> music and sound</div>
+		<div><kbd>T</kbd>/<kbd>Shift</kbd>+<kbd>T</kbd> later/earlier · <kbd>N</kbd> back to local time · <kbd>L</kbd> torch · <kbd>F</kbd> Alliance/Horde names · <kbd>M</kbd> music and sound · <kbd>U</kbd> hide the interface</div>
+		<div><kbd>H</kbd> highlight chests, herbs, ore, fishing pools or anything by name, seen from afar</div>
 	</div>
 
 	<script type="module" src="/src/viewer/main.ts"></script>

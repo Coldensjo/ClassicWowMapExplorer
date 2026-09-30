@@ -9,6 +9,7 @@ export const DB2_FILES = {
 	LightData: 1375580,
 	LightParams: 1334669,
 	LiquidType: 1371380,
+	Lock: 1343608,
 	Map: 1349477,
 	SoundAmbience: 1310628,
 	SoundKitEntry: 1237435,
@@ -38,6 +39,10 @@ export function loadTable(storage: CascStorage, fdid: number): Promise<Db2> {
 export interface LiquidLook {
 	/** The deep colour the view fades to, 0xRRGGBB; 0 when the type has none (older liquids). */
 	color: number;
+	/** The surface's colours from the shore to deep water, 0xRRGGBB; 0 where the type has none. */
+	colors: [number, number, number];
+	/** Foam along the shore, 0xRRGGBB; 0 where the type has none. */
+	foam: number;
 	/** Yards below the surface at which darkening is complete, and how much it darkens fog, ambient and sun light (0-1). */
 	darkenDepth: number;
 	fogDarken: number;
@@ -56,6 +61,7 @@ const LIQUID_DARKEN_DEPTH = 6;
 const LIQUID_FOG_DARKEN = 7;
 const LIQUID_AMBIENT_DARKEN = 8;
 const LIQUID_SUN_DARKEN = 9;
+const LIQUID_FOAM_COLOR = 15;
 const LIQUID_COLORS = 17;
 
 /** Underwater looks of every liquid type. */
@@ -66,9 +72,13 @@ export async function liquidLooks(storage: CascStorage): Promise<LiquidLooks> {
 	for (const id of table.ids()) {
 		const name = table.getString(id, 0) ?? '';
 		if (name === 'PBRWater - Generic - Ocean') ocean = id;
+		// Three colours, lightest to deepest; the view fades to the deepest. Only the newer
+		// (PBRWater) types have them, and only those have a foam colour too.
+		const colors = [0, 1, 2].map((k) => (table.getInt(id, LIQUID_COLORS, k) ?? 0) & 0xffffff) as [number, number, number];
 		types[id] = {
-			// Three colours, lightest to deepest; the view fades to the deepest.
-			color: (table.getInt(id, LIQUID_COLORS, 2) ?? 0) & 0xffffff,
+			color: colors[2],
+			colors,
+			foam: colors[2] ? (table.getInt(id, LIQUID_FOAM_COLOR) ?? 0) & 0xffffff : 0,
 			darkenDepth: table.getFloat(id, LIQUID_DARKEN_DEPTH) ?? 0,
 			fogDarken: table.getFloat(id, LIQUID_FOG_DARKEN) ?? 0,
 			ambientDarken: table.getFloat(id, LIQUID_AMBIENT_DARKEN) ?? 0,
@@ -76,6 +86,36 @@ export async function liquidLooks(storage: CascStorage): Promise<LiquidLooks> {
 		};
 	}
 	return { types, ocean };
+}
+
+/** What opening a lock takes: a gathering skill, or picking it. */
+export type LockKind = 'herb' | 'ore' | 'lockbox';
+
+/** Lock fields: [8] arrays of index, required skill and key type. */
+const LOCK_INDEX = 1;
+const LOCK_SKILL = 2;
+const LOCK_TYPE = 3;
+/** Key type 2 is a lock type (LockType.db2), whose ID is in the index field. */
+const KEY_LOCK_TYPE = 2;
+const LOCK_KINDS: Record<number, LockKind> = { 1: 'lockbox', 2: 'herb', 3: 'ore' };
+
+/**
+ * Locks that take Herbalism, Mining or Lockpicking, by Lock ID (game object data0 for chests,
+ * which is what herbs and ore veins are). Quest objects gathered without the skill need none.
+ */
+export async function lockKinds(storage: CascStorage): Promise<Record<number, LockKind>> {
+	const table = await loadTable(storage, DB2_FILES.Lock);
+	const kinds: Record<number, LockKind> = {};
+	for (const id of table.ids()) {
+		for (let k = 0; k < 8; k++) {
+			const kind = LOCK_KINDS[table.getInt(id, LOCK_INDEX, k) ?? 0];
+			if (kind && table.getInt(id, LOCK_TYPE, k) === KEY_LOCK_TYPE && (table.getInt(id, LOCK_SKILL, k) ?? 0) > 0) {
+				kinds[id] = kind;
+				break;
+			}
+		}
+	}
+	return kinds;
 }
 
 /** Classifies liquid types by name ("Ocean", "Magma", "PBRWater - Generic - Lake", ...). */

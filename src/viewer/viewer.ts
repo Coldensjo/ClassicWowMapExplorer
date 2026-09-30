@@ -1,23 +1,26 @@
 import * as THREE from 'three';
 import { TILE_SIZE } from '../formats/adt';
 import { KNOWN_MAPS } from '../explorer/maps';
-import type { FarTile } from '../explorer/world';
+import type { FarTile, InstanceMap, MapCategory } from '../explorer/world';
 import type { AsyncStorageApi } from '../worker/protocol';
 import type { AreaInfo } from '../explorer/lighting';
 import type { WmoArea } from '../explorer/music';
 import type { SpawnInfo } from '../explorer/spawns';
 import { FlyControls } from './flyControls';
+import { Highlights, type HighlightSettings } from './highlights';
+import { MapLabels } from './mapLabels';
 import { DAY, Lighting, Sky, sunDirection } from './lighting';
 import { MusicPlayer, type MusicTarget } from './music';
 import { Nameplates, type Plate, type Side } from './nameplates';
 import { ObjectManager } from './objects';
 import { perf } from './perf';
 import { TerrainManager, type ContinentPlacement } from './terrain';
-import { liquidKindOf, liquidMaterials, liquidTime, setLiquidsFromBelow } from './terrainMaterials';
+import { GroundDistancePass } from './groundDistance';
+import { animateLava, LAVA_FRAMES, liquidKindOf, liquidMaterials, liquidTime, seaMask, setLavaFrames, setLiquidLooks, setLiquidsFromBelow } from './terrainMaterials';
 import { UnderwaterAudio } from './underwater';
 import type { LiquidKind } from '../formats/mh2o';
 import type { LiquidLooks } from '../explorer/clientDb';
-import { supportsCompressedTextures } from './textures';
+import { createTexture, supportsCompressedTextures } from './textures';
 
 /** A dungeon view in the URL hash: #d<map ID>/... */
 const HASH_INSTANCE = /^#d(\d+)\//;
@@ -28,9 +31,21 @@ const MAP_ORIGIN = 32 * TILE_SIZE;
 const SKY = new THREE.Color(0x9ec4e4);
 /** Yards the camera keeps from building surfaces: well past its 0.5 yd near plane, so looking down never clips through a floor. */
 const CAMERA_RADIUS = 1.5;
-/** Where dungeons are laid out, in tiles: well south of the continents, side by side. */
-const INSTANCE_OFFSET_Y = 200;
+/**
+ * Tiles of open sea around each of the other maps (dungeons, raids, battlegrounds...), laid out
+ * in rows south of the continents so they can be flown to.
+ */
+const MAP_GAP = 3;
+/** Maps that couldn't be laid out with the rest go further south, side by side, in tiles. */
+const INSTANCE_OFFSET_Y = 250;
 const INSTANCE_SPACING = 70;
+/** The order the other maps are laid out in, row by row. */
+const MAP_ORDER: MapCategory[] = ['dungeon', 'raid', 'battleground', 'other'];
+/** Yards above the ground the camera must be for the maps' names to show. */
+const LABEL_ALTITUDE = 40;
+/** Where the light of the open sea between the laid-out maps is taken from (see updateLighting). */
+const OPEN_SEA_LIGHT = { mapId: 0, x: 1e6, y: 1e6 };
+const CATEGORY_NAMES: Record<MapCategory, string> = { continent: 'Continent', dungeon: 'Dungeon', raid: 'Raid', battleground: 'Battleground', other: 'Other map' };
 /** Yards above a teleport's destination (the ground there) to put the camera. */
 const EYE_HEIGHT = 2;
 /** Yards of slack around area triggers: the camera is a little ball, not a point. */
@@ -54,6 +69,8 @@ const NAMEPLATE_RANGE = 45;
 /** Yards; clicks further than this don't select anything. */
 const PICK_DISTANCE = 400;
 const TORCH_COLOR = 0xffa650;
+/** Where the light is carried, in camera space (x right, y up, z back): as if from a torch held on the right. */
+const TORCH_POSITION = new THREE.Vector3(0.35, 0, -1.13);
 /** Yards; the light fades to nothing at this distance. */
 const TORCH_RANGE = 45;
 /** Candela-like units: about full daylight brightness at 10 yards. */
@@ -87,6 +104,10 @@ export interface HudInfo {
 	zone: string | null;
 	subzone: string | null;
 	music: string;
+	/** Highlighted spawns on this map, or '' when nothing is being highlighted. */
+	highlights: string;
+	/** Whether walls, floors and the ground stop the camera (G toggles). */
+	collision: string;
 }
 
 /**
@@ -166,6 +187,11 @@ export class Viewer {
 	/** Whose eyes name colours are seen through (F toggles). */
 	private side: Side = 'alliance';
 	private readonly nameplates: Nameplates | null;
+	/** Markers over chests, herbs, ore and anything found by name. */
+	private readonly highlights: Highlights | null;
+	/** Names over the maps laid out in the sea. */
+	private readonly mapLabels: MapLabels | null;
+	private lastLabelCheck = 0;
 	/** Zone music (M toggles). */
 	private music: MusicPlayer | null = null;
 	private musicTarget: MusicTarget = { set: 0, intro: 0 };
@@ -195,6 +221,8 @@ export class Viewer {
 	private underwaterAudio: UnderwaterAudio | null = null;
 	private readonly liquidRay = new THREE.Raycaster();
 	private readonly liquidMeshes: THREE.Object3D[] = [];
+	/** How far the ground is under each pixel, for how deep the water there looks. */
+	private groundPass!: GroundDistancePass;
 
 	constructor(
 		private readonly canvas: HTMLCanvasElement,
@@ -204,10 +232,13 @@ export class Viewer {
 		plateContainer: HTMLElement | null = null,
 	) {
 		this.nameplates = plateContainer ? new Nameplates(plateContainer) : null;
+		this.highlights = plateContainer ? new Highlights(plateContainer, storage.loadLockKinds()) : null;
+		this.mapLabels = plateContainer ? new MapLabels(plateContainer) : null;
 		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
 		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 		this.camera = new THREE.PerspectiveCamera(60, 1, 0.5, 400000);
 		this.controls = new FlyControls(this.camera, canvas);
+		this.groundPass = new GroundDistancePass(this.renderer);
 
 		this.scene.background = SKY;
 		this.scene.fog = this.fog;
@@ -217,8 +248,8 @@ export class Viewer {
 		this.ambient.intensity = Math.PI;
 		this.sun.position.set(-0.6, 1, 0.45);
 		this.scene.add(this.sun, this.ambient, this.sky.mesh);
-		// Held low and to the right, so nearby surfaces get some shading rather than flat front light.
-		this.torch.position.set(0.8, -0.6, -0.4);
+		// Off to the right, so nearby surfaces get some shading rather than flat front light.
+		this.torch.position.copy(TORCH_POSITION);
 		this.camera.add(this.torch);
 		this.scene.add(this.camera);
 
@@ -270,6 +301,11 @@ export class Viewer {
 		else this.camera.remove(this.torch);
 	}
 
+	/** What to highlight on the ground (chests, herbs, ore, fishing pools, names). */
+	setHighlights(settings: HighlightSettings): void {
+		this.highlights?.set(settings);
+	}
+
 	get usesCompressedTextures(): boolean {
 		return supportsCompressedTextures(this.renderer);
 	}
@@ -299,6 +335,8 @@ export class Viewer {
 		}
 		this.continents = layoutContinents(loaded);
 		loaded.forEach(({ tiles }, i) => this.terrain.addContinent(this.continents[i], tiles));
+		onStatus('Placing dungeons and other maps');
+		await this.placeMaps();
 		this.terrain.buildSeaMask();
 		this.addOcean();
 
@@ -317,7 +355,15 @@ export class Viewer {
 		} catch (e) {
 			console.warn('Lighting unavailable, using defaults:', e);
 		}
-		this.storage.loadLiquidLooks().then((looks) => (this.liquidLooks = looks), (e) => console.warn('Liquid types unavailable:', e));
+		// The lava animation's frames; lava churns without them meanwhile.
+		this.storage.loadTextures(LAVA_FRAMES, this.usesCompressedTextures).then(
+			(frames) => setLavaFrames(frames.every((f) => f.texture) ? frames.map((f) => createTexture(f.texture!, anisotropy, true)) : []),
+			(e) => console.warn('Lava textures unavailable:', e),
+		);
+		this.storage.loadLiquidLooks().then((looks) => {
+			this.liquidLooks = looks;
+			setLiquidLooks(looks);
+		}, (e) => console.warn('Liquid types unavailable:', e));
 		// Music starts once its tables are read; the world needn't wait for it.
 		this.storage.loadMusic().then(
 			(data) => {
@@ -417,28 +463,19 @@ export class Viewer {
 	}
 
 	/**
-	 * Where a map sits in the world: a continent's placement, or a dungeon's, which is loaded and
-	 * laid out (south of the continents, side by side) the first time it's needed. Null when the
-	 * map isn't in the install.
+	 * Where a map sits in the world: a continent's placement, or another map's from the layout
+	 * made at the start (placeMaps). Null when the map isn't in the install.
 	 */
 	private placementFor(mapId: number): Promise<ContinentPlacement | null> {
 		const continent = this.continents.find((c) => c.mapId === mapId);
 		if (continent) return Promise.resolve(continent);
 		let placement = this.instances.get(mapId);
 		if (!placement) {
+			// Normally every map was laid out at the start; this is for one that wasn't.
 			const slot = this.instances.size;
 			placement = this.storage.loadInstance(mapId).then((map) => {
 				if (!map) return null;
-				const p: ContinentPlacement = { name: map.name, mapId, wdt: map.wdt, offsetX: slot * INSTANCE_SPACING, offsetY: INSTANCE_OFFSET_Y, instance: true };
-				this.terrain.addContinent(p, map.farTiles);
-				this.terrain.addObjectTiles(p, map.wmoTiles);
-				this.terrain.addObjectTiles(p, map.terrainTiles, true);
-				if (map.wmoBounds) {
-					// Placement space around the map's centre -> this map's place in the world.
-					const at = (v: [number, number, number]) => new THREE.Vector3(MAP_ORIGIN + v[0] + p.offsetX * TILE_SIZE, v[1], MAP_ORIGIN + v[2] + p.offsetY * TILE_SIZE);
-					this.instanceBounds.set(mapId, new THREE.Box3().setFromPoints([at(map.wmoBounds.min), at(map.wmoBounds.max)]));
-				}
-				this.loadedInstances.set(mapId, p);
+				const p = this.addMap(map, slot * INSTANCE_SPACING, INSTANCE_OFFSET_Y, true);
 				void this.terrain.loadFarTextures(this.camera.position, p);
 				return p;
 			}, (e) => {
@@ -448,6 +485,70 @@ export class Viewer {
 			this.instances.set(mapId, placement);
 		}
 		return placement;
+	}
+
+	/**
+	 * Lays every map other than the continents out in the sea south of them, in rows, so all
+	 * of them can be flown to. Reading them takes little: their layout (WDT) and low-detail
+	 * terrain; buildings and full detail stream in as the camera comes near, as on the continents.
+	 */
+	private async placeMaps(): Promise<void> {
+		const listings = await this.storage.listMaps().catch((e) => {
+			console.warn('Map list unavailable:', e);
+			return [];
+		});
+		const others = listings.filter((m) => !this.continents.some((c) => c.mapId === m.id));
+		const maps = (await Promise.all(others.map((m) => this.storage.loadInstance(m.id).then(
+			(map) => (map ? { map, category: m.category } : null),
+			(e) => {
+				console.warn(`Map ${m.id}:`, e);
+				return null;
+			},
+		)))).filter((m) => m !== null);
+		const world = this.terrain.bounds();
+		for (const { map, category, offsetX, offsetY } of layoutMaps(maps, world)) {
+			const p = this.addMap(map, offsetX, offsetY);
+			this.labelMap(map, p, CATEGORY_NAMES[category]);
+			this.instances.set(map.mapId, Promise.resolve(p));
+		}
+	}
+
+	/** Puts a map into the world with its tile (0, 0) at the given tile offset. */
+	private addMap(map: InstanceMap, offsetX: number, offsetY: number, apart = false): ContinentPlacement {
+		const p: ContinentPlacement = { name: map.name, mapId: map.mapId, wdt: map.wdt, offsetX, offsetY, instance: true, apart };
+		if (map.wmoTiles.length && !map.farTiles.length && !map.terrainTiles.length) {
+			const xs = map.wmoTiles.map((t) => t[0]);
+			const ys = map.wmoTiles.map((t) => t[1]);
+			p.building = new THREE.Box2(
+				new THREE.Vector2((Math.min(...xs) + offsetX) * TILE_SIZE, (Math.min(...ys) + offsetY) * TILE_SIZE),
+				new THREE.Vector2((Math.max(...xs) + 1 + offsetX) * TILE_SIZE, (Math.max(...ys) + 1 + offsetY) * TILE_SIZE),
+			);
+		}
+		this.terrain.addContinent(p, map.farTiles);
+		this.terrain.addObjectTiles(p, map.wmoTiles);
+		this.terrain.addObjectTiles(p, map.terrainTiles, true);
+		if (map.wmoBounds) {
+			// Placement space around the map's centre -> this map's place in the world.
+			const at = (v: [number, number, number]) => new THREE.Vector3(MAP_ORIGIN + v[0] + p.offsetX * TILE_SIZE, v[1], MAP_ORIGIN + v[2] + p.offsetY * TILE_SIZE);
+			this.instanceBounds.set(map.mapId, new THREE.Box3().setFromPoints([at(map.wmoBounds.min), at(map.wmoBounds.max)]));
+		}
+		this.loadedInstances.set(map.mapId, p);
+		return p;
+	}
+
+	/** A name over the middle of a placed map, a little above its highest point. */
+	private labelMap(map: InstanceMap, p: ContinentPlacement, kind: string): void {
+		if (!this.mapLabels) return;
+		const tiles = [...map.farTiles.map((t): [number, number] => [t.x, t.y]), ...map.terrainTiles, ...map.wmoTiles];
+		if (!tiles.length) return;
+		const xs = tiles.map((t) => t[0]);
+		const ys = tiles.map((t) => t[1]);
+		const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs) + 1, Math.min(...ys), Math.max(...ys) + 1];
+		let top = map.wmoBounds?.max[1] ?? -Infinity;
+		for (const t of map.farTiles) for (const h of t.heights) top = Math.max(top, h);
+		if (!Number.isFinite(top)) top = 100;
+		const position = new THREE.Vector3(((minX + maxX) / 2 + p.offsetX) * TILE_SIZE, top + 80, ((minY + maxY) / 2 + p.offsetY) * TILE_SIZE);
+		this.mapLabels.add(map.name, kind, position, (Math.max(maxX - minX, maxY - minY) / 2) * TILE_SIZE);
 	}
 
 	/**
@@ -555,6 +656,7 @@ export class Viewer {
 		else if (e.code === 'KeyT') this.timeOffset += e.shiftKey ? -TIME_STEP : TIME_STEP;
 		else if (e.code === 'KeyN') this.timeOffset = 0;
 		else if (e.code === 'KeyL') this.setTorch(!this.torchOn);
+		else if (e.code === 'KeyG') this.controls.ghost = !this.controls.ghost;
 		else if (e.code === 'KeyF') this.side = this.side === 'alliance' ? 'horde' : 'alliance';
 		else if (e.code === 'KeyM' && this.music) this.music.enabled = !this.music.enabled;
 	}
@@ -623,6 +725,7 @@ export class Viewer {
 	private tick(dt: number, now: number): void {
 		this.controls.update(dt, (x, z) => this.terrain.heightAt(x, z), (x, z) => this.terrain.surfaceAt(x, z));
 		liquidTime.value = now / 1000;
+		animateLava(now / 1000);
 		const pos = this.camera.position;
 
 		if (now - this.lastTriggerCheck > 100) {
@@ -643,8 +746,19 @@ export class Viewer {
 			perf.time('lod.update', () => this.terrain.update(pos));
 		}
 		perf.time('objects.update', () => this.objects.update(now, pos));
+		// Under water the surface is seen from below, where its depth isn't used.
+		if (!this.underwater) perf.time('groundDistance', () => this.groundPass.render(this.renderer, this.terrain.group, this.camera));
 		perf.time('render', () => this.renderer.render(this.scene, this.camera));
 		perf.time('nameplates', () => this.updateNameplates(now));
+		if (this.mapLabels) {
+			// Only out in the open: not in a cave, a building or down on the ground among things.
+			if (now - this.lastLabelCheck > 250) {
+				this.lastLabelCheck = now;
+				this.mapLabels.visible = this.controls.altitude > LABEL_ALTITUDE && !this.objects.roomAt(pos);
+			}
+			this.mapLabels.update(this.camera, this.canvas.clientWidth, this.canvas.clientHeight);
+		}
+		perf.time('highlights', () => this.highlights?.update(now, this.camera, this.terrain.locate(pos.x, pos.z)?.continent ?? null, this.canvas.clientWidth, this.canvas.clientHeight));
 		if (this.music) {
 			if (now - this.lastMusicCheck > 250) {
 				this.lastMusicCheck = now;
@@ -687,13 +801,20 @@ export class Viewer {
 
 	/** Sun, ambient, sky and fog from the game's light zones for the current place and time. */
 	private updateLighting(): void {
-		// Dungeons lie within the sea plane's reach; it mustn't flood them.
+		// A map laid out apart isn't in the sea mask, so it gets no sea at all.
 		const here = this.terrain.locate(this.camera.position.x, this.camera.position.z);
-		if (this.ocean) this.ocean.visible = !here?.continent.instance;
+		if (this.ocean) this.ocean.visible = !here?.continent.apart;
+		// Over a map that's only a building, the sea opens up over it.
+		const building = here?.continent.building;
+		if (building) seaMask.uSeaHole.value.set(building.min.x, building.min.y, building.max.x, building.max.y);
+		else seaMask.uSeaHole.value.set(0, 0, 0, 0);
 		const t = this.timeOfDay();
 		const sunDir = sunDirection(t);
 		const where = this.wowPosition();
-		const state = this.lighting && where ? this.lighting.sample(where.mapId, where.x, where.y, t) : null;
+		// The open sea between the laid-out maps belongs to no map: the Eastern Kingdoms' outdoor
+		// light there (far from any of its zones, so only its global light).
+		const place = where ?? OPEN_SEA_LIGHT;
+		const state = this.lighting ? this.lighting.sample(place.mapId, place.x, place.y, t) : null;
 		const alt = this.controls.altitude;
 		let fogNear = 1200;
 		let fogFar = 9000;
@@ -780,7 +901,8 @@ export class Viewer {
 			}
 		}
 		const here = this.terrain.locate(p.x, p.z);
-		if (here && !here.continent.instance && p.y < 0 && this.terrain.surfaceAt(p.x, p.z) < p.y && this.terrain.isSea(p.x, p.z)) {
+		// Not in a map laid out apart (no sea there) or over a building-only one (the sea opens up).
+		if (!here?.continent.apart && !here?.continent.building && p.y < 0 && this.terrain.surfaceAt(p.x, p.z) < p.y && this.terrain.isSea(p.x, p.z)) {
 			return { kind: 'ocean', type: this.liquidLooks?.ocean ?? 0, surface: 0 };
 		}
 		return null;
@@ -879,8 +1001,45 @@ export class Viewer {
 			...this.zoneNames(),
 			side: this.side === 'alliance' ? 'Alliance' : 'Horde',
 			music: this.music?.status ?? 'unavailable',
+			highlights: this.highlights?.status ?? '',
+			collision: this.controls.ghost ? 'Off: through walls' : 'On',
 		};
 	}
+}
+
+/**
+ * Rows of maps south of the continents (world, in yards), each map with MAP_GAP tiles of sea
+ * around it: dungeons first, then raids, battlegrounds and the rest, tallest first in each
+ * group so rows fill evenly. Returns where each map's tile (0, 0) goes.
+ */
+function layoutMaps(maps: { map: InstanceMap; category: MapCategory }[], world: THREE.Box2): { map: InstanceMap; category: MapCategory; offsetX: number; offsetY: number }[] {
+	const footprints = maps.map(({ map, category }) => {
+		const tiles = [...map.farTiles.map((t): [number, number] => [t.x, t.y]), ...map.terrainTiles, ...map.wmoTiles];
+		if (!tiles.length) return null;
+		const xs = tiles.map((t) => t[0]);
+		const ys = tiles.map((t) => t[1]);
+		const minX = Math.min(...xs);
+		const minY = Math.min(...ys);
+		return { map, category, minX, minY, width: Math.max(...xs) - minX + 1, height: Math.max(...ys) - minY + 1 };
+	}).filter((f) => f !== null);
+	footprints.sort((a, b) => MAP_ORDER.indexOf(a.category) - MAP_ORDER.indexOf(b.category) || b.height - a.height || a.map.name.localeCompare(b.map.name));
+
+	const left = Math.floor(world.min.x / TILE_SIZE) + MAP_GAP;
+	const right = Math.ceil(world.max.x / TILE_SIZE) - MAP_GAP;
+	let x = left;
+	let y = Math.ceil(world.max.y / TILE_SIZE) + MAP_GAP;
+	let rowHeight = 0;
+	return footprints.map((f) => {
+		if (x > left && x + f.width > right) {
+			x = left;
+			y += rowHeight + MAP_GAP;
+			rowHeight = 0;
+		}
+		const placed = { map: f.map, category: f.category, offsetX: x - f.minX, offsetY: y - f.minY };
+		x += f.width + MAP_GAP;
+		rowHeight = Math.max(rowHeight, f.height);
+		return placed;
+	});
 }
 
 /** Places Kalimdor west of the Eastern Kingdoms, vertically centred, with open sea between. */

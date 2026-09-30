@@ -34,8 +34,9 @@ The world opens by itself. Click to look around, fly with **W A S D**, and hold 
 - Zone names and zone music, including inside inns, Ironforge and other buildings
 - Creatures and objects from VMaNGOS: clickable, with Wowhead links, name plates, their gear and
   animations, walking their patrols
-- Dungeons and raids you can walk into through their entrances, and a map picker for every map in
-  the install (battlegrounds, unused and test maps included)
+- Every other map in the install (dungeons, raids, battlegrounds, unused and test maps) laid out in
+  the sea south of the continents, named from afar, to fly to or walk into through their entrances
+- Highlights for chests, herbs, ore veins, fishing pools or anything by name, seen from afar
 
 ## Controls
 
@@ -45,17 +46,26 @@ The world opens by itself. Click to look around, fly with **W A S D**, and hold 
 | W A S D / arrows | Move |
 | Space / E, C / Q | Up, down |
 | Shift | Move faster |
+| G | Go through walls, floors and the ground on / off |
 | Mouse wheel | Zoom |
 | 1, 2 | Jump to a continent |
 | O | Overview of the whole world |
 | R | Return to the start position |
 | T / Shift+T | Time of day forward / back |
 | N | Reset time to the local clock |
-| L | Toggle torch |
+| L | Torch light on / off |
 | F | Switch name plate colours between Alliance and Horde |
 | M | Music and sound on / off |
+| H | Highlights on / off |
+| U or Alt+Z | Hide / show the interface |
 
-**Go to map…** (top right) jumps to any map, including ones nothing leads to.
+**Go to map…** (top right) jumps to any map, including ones nothing leads to. The other maps also sit
+in rows in the sea south of the continents, with their names floating over them, so you can fly there.
+Maps that are a single building (most dungeons) lie under the sea until you fly over them.
+
+**Highlight** (bottom right) marks chests, herbs, ore and fishing pools within 1000 yards, through
+terrain and buildings; typing a name marks every creature or object with that name on the map, however far away.
+The spawn data lists every place a herb or vein can appear, so there are more marks than nodes up at any one time.
 
 The camera position is kept in the URL, so a link brings you back to the same spot. Add `?time=HH:MM` to set the time of day.
 

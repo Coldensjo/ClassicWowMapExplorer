@@ -29,7 +29,7 @@ export interface SpawnInfo {
 export type Reaction = 'hostile' | 'neutral' | 'friendly';
 
 /** public/spawns/map<id>.json, written by tools/buildSpawns.ts. */
-interface SpawnFile {
+export interface SpawnFile {
 	pages: Record<number, string[]>;
 	creatures: {
 		/** entry -> [name, subname, levelMin, levelMax, type, rank, npcFlags, displayIds, scales, factionTemplate, weapons, walkSpeed] */

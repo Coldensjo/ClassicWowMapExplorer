@@ -59,6 +59,9 @@ export class FlyControls {
 	/** Adjusts a move so it doesn't pass through solid things; set by the viewer. */
 	collide: ((from: THREE.Vector3, move: THREE.Vector3) => THREE.Vector3) | null = null;
 
+	/** Passing through everything: walls, floors and the ground (G toggles, in the viewer). */
+	ghost = false;
+
 	lock(): void {
 		if (!this.locked) this.element.requestPointerLock();
 	}
@@ -132,11 +135,11 @@ export class FlyControls {
 				this.zoomVelocity *= Math.pow(0.004, dt);
 			}
 			// Walls, floors and ceilings of buildings and caves are solid (flights between views aren't).
-			pos.add(this.collide ? this.collide(pos, delta) : delta);
+			pos.add(this.collide && !this.ghost ? this.collide(pos, delta) : delta);
 		}
 
 		const floor = groundHeight(pos.x, pos.z) + MIN_CLEARANCE;
-		if (aboveGround && pos.y < floor) pos.y = floor;
+		if (aboveGround && !this.ghost && pos.y < floor) pos.y = floor;
 		this.apply();
 	}
 

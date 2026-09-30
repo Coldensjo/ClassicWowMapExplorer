@@ -3,7 +3,7 @@ import { parseAdtTex } from '../formats/adtTex';
 import { blpTexture, type TextureData } from '../formats/blp';
 import type { LiquidKind } from '../formats/mh2o';
 import { parseWdl, WDL_CELLS } from '../formats/wdl';
-import { DB2_FILES, liquidKinds, liquidLooks, loadTable, type LiquidLooks } from './clientDb';
+import { DB2_FILES, liquidKinds, liquidLooks, loadTable, lockKinds, type LiquidLooks, type LockKind } from './clientDb';
 import { loadAreas, loadLighting, type AreaInfo, type LightingData } from './lighting';
 import { buildLiquidMeshes, type LiquidMesh } from './liquidMesh';
 import { MusicTables, type MusicData, type WmoArea } from './music';
@@ -301,6 +301,10 @@ export class WorldLoader {
 
 	loadLiquidLooks(): Promise<LiquidLooks> {
 		return liquidLooks(this.storage);
+	}
+
+	loadLockKinds(): Promise<Record<number, LockKind>> {
+		return lockKinds(this.storage);
 	}
 
 	loadMusic(): Promise<MusicData> {

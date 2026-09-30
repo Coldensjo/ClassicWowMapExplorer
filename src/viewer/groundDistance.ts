@@ -1,0 +1,74 @@
+import * as THREE from 'three';
+import { groundDistance, setLiquidsVisible } from './terrainMaterials';
+
+/** Resolution of the pass relative to the screen: water depth needn't be sharper than this. */
+const SCALE = 0.5;
+
+/**
+ * Renders how far the ground is from the camera under each pixel (terrain only, no liquids),
+ * before the frame. Water compares it with its own distance to know how deep it is there: the
+ * game's water is clear and light at the shore, darker and opaque further out, with foam where
+ * it meets the land.
+ */
+export class GroundDistancePass {
+	private readonly target: THREE.WebGLRenderTarget;
+	private readonly scene = new THREE.Scene();
+	private readonly size = new THREE.Vector2();
+	private readonly clearColor = new THREE.Color();
+
+	constructor(renderer: THREE.WebGLRenderer) {
+		// Full floats keep shallow water exact far away; half floats if the GPU can't render to them.
+		const float = renderer.extensions.has('EXT_color_buffer_float');
+		this.target = new THREE.WebGLRenderTarget(1, 1, {
+			type: float ? THREE.FloatType : THREE.HalfFloatType,
+			format: THREE.RedFormat,
+			minFilter: THREE.NearestFilter,
+			magFilter: THREE.NearestFilter,
+			generateMipmaps: false,
+			depthBuffer: true,
+		});
+		this.scene.overrideMaterial = new THREE.ShaderMaterial({
+			vertexShader: /* glsl */ `
+				#include <common>
+				#include <logdepthbuf_pars_vertex>
+				varying vec3 vView;
+				void main() {
+					vec4 view = modelViewMatrix * vec4(position, 1.0);
+					vView = view.xyz;
+					gl_Position = projectionMatrix * view;
+					#include <logdepthbuf_vertex>
+				}`,
+			fragmentShader: /* glsl */ `
+				#include <logdepthbuf_pars_fragment>
+				varying vec3 vView;
+				void main() {
+					#include <logdepthbuf_fragment>
+					gl_FragColor = vec4(length(vView), 0.0, 0.0, 1.0);
+				}`,
+		});
+		groundDistance.uGroundDistance.value = this.target.texture;
+	}
+
+	/** Draws the terrain group on its own (borrowed from the main scene for the pass). */
+	render(renderer: THREE.WebGLRenderer, terrain: THREE.Object3D, camera: THREE.Camera): void {
+		renderer.getDrawingBufferSize(this.size);
+		const width = Math.max(1, Math.round(this.size.x * SCALE));
+		const height = Math.max(1, Math.round(this.size.y * SCALE));
+		if (this.target.width !== width || this.target.height !== height) this.target.setSize(width, height);
+		groundDistance.uScreenSize.value.copy(this.size);
+
+		const parent = terrain.parent;
+		const clearAlpha = renderer.getClearAlpha();
+		renderer.getClearColor(this.clearColor);
+		setLiquidsVisible(false);
+		this.scene.add(terrain);
+		// Nothing drawn reads as 0: no ground there, as deep as can be.
+		renderer.setClearColor(0x000000, 0);
+		renderer.setRenderTarget(this.target);
+		renderer.render(this.scene, camera);
+		renderer.setRenderTarget(null);
+		renderer.setClearColor(this.clearColor, clearAlpha);
+		parent?.add(terrain);
+		setLiquidsVisible(true);
+	}
+}

@@ -78,6 +78,9 @@ const api: AsyncStorageApi = {
 	async loadLiquidLooks() {
 		return requireWorld().loadLiquidLooks();
 	},
+	async loadLockKinds() {
+		return requireWorld().loadLockKinds();
+	},
 	async loadMusic() {
 		return requireWorld().loadMusic();
 	},

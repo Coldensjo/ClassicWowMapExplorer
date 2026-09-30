@@ -3,6 +3,7 @@ import { createStorageClient } from '../worker/client';
 import type { SourceInit } from '../worker/protocol';
 import type { SpawnInfo } from '../explorer/spawns';
 import type { MapCategory, MapListing } from '../explorer/world';
+import type { HighlightGroup, HighlightSettings } from './highlights';
 import { Viewer, type HudInfo } from './viewer';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -32,6 +33,7 @@ const LOADING_STEPS: [RegExp, number, string][] = [
 	[/^Reading root table/, 0.64, 'Opening the game files'],
 	[/^Reading Eastern Kingdoms/, 0.72, 'Loading Eastern Kingdoms'],
 	[/^Reading Kalimdor/, 0.82, 'Loading Kalimdor'],
+	[/^Placing/, 0.88, 'Placing dungeons and other maps'],
 	[/^Reading lighting/, 0.9, 'Loading light and zones'],
 	[/^Starting/, 0.97, 'Starting'],
 ];
@@ -156,6 +158,7 @@ async function explore(): Promise<void> {
 		$('hud').hidden = $('help').hidden = false;
 		viewer.start();
 		void setUpMapPicker(viewer);
+		setUpHighlights(viewer);
 	} catch (e) {
 		setStatus(`Could not start: ${(e as Error).message}`, true);
 		button.disabled = false;
@@ -203,6 +206,76 @@ async function setUpMapPicker(viewer: Viewer): Promise<void> {
 		if (!(await viewer.goToMap(id))) console.warn(`${name} couldn't be loaded`);
 	});
 }
+
+// --- Highlighting things on the ground ---
+
+const HIGHLIGHT_KEY = 'mapExplorer.highlight';
+
+/** The highlight panel: kinds to mark and a name to find, remembered between visits. */
+function setUpHighlights(viewer: Viewer): void {
+	const panel = $('highlight');
+	const on = $<HTMLInputElement>('highlight-on');
+	const query = $<HTMLInputElement>('highlight-query');
+	const boxes = [...panel.querySelectorAll<HTMLInputElement>('#highlight-groups input')];
+	let saved: Partial<HighlightSettings> = {};
+	try {
+		saved = JSON.parse(localStorage.getItem(HIGHLIGHT_KEY) ?? '{}');
+	} catch {
+		// Storage blocked or unreadable: start with nothing highlighted.
+	}
+	on.checked = saved.on ?? false;
+	query.value = saved.query ?? '';
+	for (const box of boxes) box.checked = saved.groups?.includes(box.value as HighlightGroup) ?? false;
+
+	const apply = () => {
+		const settings: HighlightSettings = {
+			on: on.checked,
+			groups: boxes.filter((b) => b.checked).map((b) => b.value as HighlightGroup),
+			query: query.value,
+		};
+		panel.classList.toggle('off', !settings.on);
+		viewer.setHighlights(settings);
+		try {
+			localStorage.setItem(HIGHLIGHT_KEY, JSON.stringify(settings));
+		} catch {
+			// Not remembered; it still works for this visit.
+		}
+	};
+	for (const box of [on, ...boxes]) {
+		box.addEventListener('change', () => {
+			// Choosing a kind turns highlighting on.
+			if (box !== on && box.checked) on.checked = true;
+			apply();
+			// Out of the way of the flying keys, which inputs keep for themselves.
+			box.blur();
+		});
+	}
+	query.addEventListener('input', () => {
+		if (query.value.trim()) on.checked = true;
+		apply();
+	});
+	query.addEventListener('keydown', (e) => {
+		if (e.code === 'Enter' || e.code === 'Escape') query.blur();
+	});
+	window.addEventListener('keydown', (e) => {
+		if (e.code !== 'KeyH' || e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+		on.checked = !on.checked;
+		apply();
+	});
+	apply();
+	panel.hidden = false;
+}
+
+// --- Hiding the interface ---
+
+// U, or Alt+Z as in the game: everything drawn over the world goes, for a clear view or
+// screenshots. The NVIDIA overlay takes Alt+Z for itself where it's installed, hence U too.
+window.addEventListener('keydown', (e) => {
+	const toggle = e.altKey ? e.code === 'KeyZ' : e.code === 'KeyU' && !e.ctrlKey && !e.metaKey;
+	if (!toggle || $('start').hidden === false || e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+	e.preventDefault();
+	document.body.classList.toggle('ui-hidden');
+});
 
 // --- Clicked creature or object ---
 
@@ -280,6 +353,7 @@ function announceZone(zone: string | null, subzone: string | null): void {
 
 function showHud(info: HudInfo): void {
 	announceZone(info.zone, info.subzone);
+	$('highlight-status').textContent = info.highlights;
 	$('hud-location').textContent = info.zone ? [info.zone, info.subzone].filter(Boolean).join(' · ') : info.location;
 	$('hud-coords').textContent = info.zone ? `${info.location} · ${info.coordinates}` : info.coordinates;
 	const rows: [string, string][] = [
@@ -288,6 +362,7 @@ function showHud(info: HudInfo): void {
 		['Music', info.music],
 		['Altitude', `${info.altitude.toFixed(0)} yd above ground`],
 		['Speed', `${info.speed.toFixed(0)} yd/s`],
+		['Collision', info.collision],
 		['Detail', info.near],
 		['Objects', info.objects],
 		['Textures', info.textures],

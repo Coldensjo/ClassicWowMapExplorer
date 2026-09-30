@@ -7,7 +7,7 @@ import { createModelMaterial, type SkinUniforms } from './modelMaterials';
 import { Mover, type GroundAt } from './movers';
 import { perf } from './perf';
 import { PARTICLE_RANGE, ParticleSystem, type EmitterSource, type LoadedEmitter } from './particles';
-import { liquidMaterials } from './terrainMaterials';
+import { liquidMaterial } from './terrainMaterials';
 import { TextureCache } from './textureCache';
 
 type Kind = ObjectKind;
@@ -415,7 +415,7 @@ export class ObjectManager {
 		await this.prepare(new THREE.InstancedMesh(geometry, entry.materials, 1));
 		entry.geometry = geometry;
 		entry.radius = data.radius;
-		entry.liquids = (data.liquids ?? []).map((l) => ({ geometry: liquidGeometry(l.positions, l.indices), material: liquidMaterials[l.kind], type: l.type, mesh: null }));
+		entry.liquids = (data.liquids ?? []).map((l) => ({ geometry: liquidGeometry(l.positions, l.indices), material: liquidMaterial(l.kind, l.type), type: l.type, mesh: null }));
 		entry.data = { ...data, positions: new Float32Array(0), normals: new Float32Array(0), uvs: new Float32Array(0), baked: null, indices: new Uint32Array(0), liquids: [], animation: undefined };
 		entry.state = 'ready';
 		entry.dirty = true;

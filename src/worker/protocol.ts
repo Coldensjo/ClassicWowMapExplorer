@@ -2,7 +2,7 @@ import type { ProductInfo } from '../casc/config';
 import type { StorageStats } from '../casc/storage';
 import type { AreaInfo, LightingData } from '../explorer/lighting';
 import type { MapSummary, TileDetails } from '../explorer/maps';
-import type { LiquidLooks } from '../explorer/clientDb';
+import type { LiquidLooks, LockKind } from '../explorer/clientDb';
 import type { MusicData, WmoArea } from '../explorer/music';
 import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
 import type { FarTile, InstanceMap, LoadedTexture, MapListing, NearTile, TileTexture } from '../explorer/world';
@@ -31,6 +31,7 @@ export interface StorageApi {
 	loadAreas(): AreaInfo[];
 	loadMusic(): MusicData;
 	loadLiquidLooks(): LiquidLooks;
+	loadLockKinds(): Record<number, LockKind>;
 	wmoArea(wmoId: number, nameSet: number, groupId: number): WmoArea | null;
 	loadSound(fdid: number): Uint8Array;
 }

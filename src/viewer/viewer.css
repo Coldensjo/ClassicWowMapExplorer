@@ -360,6 +360,146 @@ kbd {
 	margin: 8px 0;
 }
 
+/* Names over the maps laid out in the sea. */
+.map-label {
+	position: absolute;
+	left: 0;
+	top: 0;
+	text-align: center;
+	white-space: nowrap;
+	font: 700 15px/1.2 'Trebuchet MS', system-ui, sans-serif;
+	color: #ffd100;
+	text-shadow: 1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000, 0 0 6px #000;
+	will-change: transform;
+}
+
+.map-label-kind {
+	font-size: 11px;
+	font-weight: 400;
+	color: var(--text);
+}
+
+/* Alt+Z: only the world. */
+.ui-hidden :is(#hud, #help, #map-picker, #highlight, #info, #zone-banner, #crosshair, #nameplates) {
+	display: none !important;
+}
+
+/* What to highlight on the ground. */
+#highlight {
+	position: fixed;
+	right: 12px;
+	bottom: 12px;
+	width: 230px;
+	background: var(--panel);
+	border-radius: 6px;
+	padding: 8px 12px;
+	font-size: 13px;
+	display: grid;
+	gap: 6px;
+}
+
+#highlight label {
+	cursor: pointer;
+	user-select: none;
+}
+
+.highlight-on {
+	font-weight: 600;
+}
+
+#highlight-groups {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 2px 8px;
+}
+
+#highlight.off #highlight-groups,
+#highlight.off #highlight-query {
+	opacity: 0.5;
+}
+
+#highlight-query {
+	width: 100%;
+	font: inherit;
+	color: var(--text);
+	background: #1b1f25;
+	border: 1px solid var(--line);
+	border-radius: 4px;
+	padding: 3px 6px;
+}
+
+#highlight-status:empty {
+	display: none;
+}
+
+/* The colours of the markers: gold treasure, green herbs, copper ore, blue fishing pools. */
+#highlight-groups [data-group='chest'], .beacon[data-group='chest'] {
+	--beacon: #ffd100;
+}
+
+#highlight-groups [data-group='herb'], .beacon[data-group='herb'] {
+	--beacon: #5ee35e;
+}
+
+#highlight-groups [data-group='ore'], .beacon[data-group='ore'] {
+	--beacon: #e39a5a;
+}
+
+#highlight-groups [data-group='fishing'], .beacon[data-group='fishing'] {
+	--beacon: #5ac8fa;
+}
+
+.beacon[data-group='named'] {
+	--beacon: #ff7ae0;
+}
+
+#highlight-groups input {
+	accent-color: var(--beacon);
+}
+
+/* A diamond on the spot, with the name and distance beside it for the nearest. */
+.beacon {
+	position: absolute;
+	left: 0;
+	top: 0;
+	white-space: nowrap;
+	font: 700 12px/1.2 'Trebuchet MS', system-ui, sans-serif;
+	color: var(--beacon);
+	text-shadow: 1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000;
+	will-change: transform;
+}
+
+.beacon::before {
+	content: '';
+	position: absolute;
+	left: -5px;
+	top: -5px;
+	width: 8px;
+	height: 8px;
+	transform: rotate(45deg);
+	background: var(--beacon);
+	border: 1px solid #000;
+	box-shadow: 0 0 6px var(--beacon);
+}
+
+.beacon-name {
+	margin-left: 9px;
+	position: relative;
+	top: -7px;
+}
+
+.beacon-distance {
+	margin-left: 5px;
+	position: relative;
+	top: -7px;
+	font-weight: 400;
+	color: var(--text);
+}
+
+.beacon-distance:empty {
+	display: none;
+}
+
 /* NPC names above their heads. Positioned by transform each frame; never catch the mouse. */
 #nameplates {
 	position: fixed;

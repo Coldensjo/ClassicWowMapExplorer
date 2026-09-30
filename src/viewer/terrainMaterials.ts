@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { SplatLayer } from '../explorer/splatMesh';
+import type { LiquidLooks } from '../explorer/clientDb';
 import type { LiquidKind } from '../formats/mh2o';
 
 /** Colour the sea floor fades to with depth below sea level. */
@@ -19,6 +20,11 @@ export const seaMask = {
 	uSeaMask: { value: white as THREE.Texture },
 	/** World x and z of the mask's corner, and 1 / its size in yards. */
 	uSeaBounds: { value: new THREE.Vector4(0, 0, 0, 0) },
+	/**
+	 * A rectangle (min x, min z, max x, max z) the sea plane leaves out: the building-only map
+	 * the camera is over, so it can be seen and entered though the sea would cover it.
+	 */
+	uSeaHole: { value: new THREE.Vector4(0, 0, 0, 0) },
 };
 
 // The mask at a world position; outside it, the given value (sea for the plane, which reaches
@@ -26,6 +32,10 @@ export const seaMask = {
 const SEA_MASK = /* glsl */ `
 uniform sampler2D uSeaMask;
 uniform vec4 uSeaBounds;
+uniform vec4 uSeaHole;
+bool inSeaHole(vec2 xz) {
+	return xz.x > uSeaHole.x && xz.y > uSeaHole.y && xz.x < uSeaHole.z && xz.y < uSeaHole.w;
+}
 float seaAt(vec2 xz, float outside) {
 	vec2 uv = (xz - uSeaBounds.xy) * uSeaBounds.zw;
 	if (uSeaBounds.z == 0.0) return 1.0;
@@ -207,49 +217,181 @@ vec2 waveSlope(vec2 p, float t) {
 }
 `;
 
-/** Water: rippling normals for moving sun glints, and more opaque at grazing angles. */
-function waterMaterial(color: number, opacity: number, sea = false): THREE.MeshPhongMaterial {
-	const material = new THREE.MeshPhongMaterial({ color, specular: 0x9ab4c8, shininess: 120, transparent: true, opacity, depthWrite: false });
+/**
+ * The distance from the camera to the ground under each pixel (GroundDistancePass), and the
+ * screen's size in pixels to look it up by. 0 where there's no ground: deep water.
+ */
+const black = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+black.needsUpdate = true;
+export const groundDistance = {
+	uGroundDistance: { value: black as THREE.Texture },
+	uScreenSize: { value: new THREE.Vector2(1, 1) },
+};
+
+/** 1 while the camera is under water: surfaces are seen from below, where depth means nothing. */
+const fromBelow: THREE.IUniform<number> = { value: 0 };
+
+type WaterKind = Exclude<LiquidKind, 'magma'>;
+
+/** Shore to deep colours and foam, for liquid types that don't name their own (the older ones). */
+const DEFAULT_LOOKS: Record<WaterKind, { colors: [number, number, number]; foam: number }> = {
+	water: { colors: [0x4f9fb0, 0x2f7390, 0x1b4d6a], foam: 0xc8eef0 },
+	ocean: { colors: [0x5fb5b5, 0x2f7c90, 0x163f5a], foam: 0xd0f0ee },
+	slime: { colors: [0x8cad48, 0x5a8a28, 0x2e4f10], foam: 0xc8dc90 },
+};
+
+/** A little animated foam pattern, 0-1. */
+const FOAM = /* glsl */ `
+float foamAt(vec2 p, float t) {
+	float a = sin(p.x * 1.7 + t * 0.9 + sin(p.y * 1.3 + t * 0.4) * 2.0);
+	float b = sin(p.y * 2.3 - t * 0.7 + sin(p.x * 1.1 - t * 0.5) * 2.0);
+	float c = sin((p.x + p.y) * 4.1 + t * 1.6);
+	return smoothstep(-0.1, 0.8, a * b + c * 0.25 + 0.35);
+}
+`;
+
+interface WaterUniforms {
+	uShallow: THREE.IUniform<THREE.Color>;
+	uMid: THREE.IUniform<THREE.Color>;
+	uDeep: THREE.IUniform<THREE.Color>;
+	uFoam: THREE.IUniform<THREE.Color>;
+}
+
+/** The colour uniforms of each water material. */
+const waterUniforms = new WeakMap<THREE.Material, WaterUniforms>();
+
+/**
+ * Water as the game draws it: light and clear where it's shallow, through to its deep colour
+ * and nearly opaque further out, with foam at the shore, the sky mirrored at low angles and
+ * rippling normals for moving sun glints. How deep it is under each pixel comes from the
+ * ground distance pass.
+ */
+function waterMaterial(opacity: number, sea = false): THREE.MeshPhongMaterial {
+	const material = new THREE.MeshPhongMaterial({ specular: 0x9ab4c8, shininess: 120, transparent: true, opacity, depthWrite: false });
+	const water: WaterUniforms = {
+		uShallow: { value: new THREE.Color() },
+		uMid: { value: new THREE.Color() },
+		uDeep: { value: new THREE.Color() },
+		uFoam: { value: new THREE.Color() },
+	};
+	waterUniforms.set(material, water);
 	material.onBeforeCompile = (shader) => {
-		shader.uniforms.uTime = liquidTime;
+		Object.assign(shader.uniforms, water, groundDistance, { uTime: liquidTime, uFromBelow: fromBelow });
 		shader.vertexShader = shader.vertexShader
 			.replace('#include <common>', `#include <common>\n${LIQUID_VERTEX_PARS}`)
 			.replace('#include <project_vertex>', `#include <project_vertex>\n${LIQUID_VERTEX_MAIN}`);
 		if (sea) Object.assign(shader.uniforms, seaMask);
 		shader.fragmentShader = shader.fragmentShader
-			.replace('#include <common>', `#include <common>\n${WAVES}${sea ? SEA_MASK : ''}`)
+			.replace('#include <common>', /* glsl */ `#include <common>
+				uniform vec3 uShallow;
+				uniform vec3 uMid;
+				uniform vec3 uDeep;
+				uniform vec3 uFoam;
+				uniform sampler2D uGroundDistance;
+				uniform vec2 uScreenSize;
+				uniform float uFromBelow;
+				${WAVES}${FOAM}${sea ? SEA_MASK : ''}`)
+			.replace('#include <clipping_planes_fragment>', sea
+				// The sea plane: nothing where there's no open sea.
+				? '#include <clipping_planes_fragment>\n\tif (seaAt(vLiquidPos.xz, 1.0) < 0.5 || inSeaHole(vLiquidPos.xz)) discard;'
+				: '#include <clipping_planes_fragment>')
+			.replace('#include <color_fragment>', /* glsl */ `#include <color_fragment>
+				// How steeply the surface is seen (1 straight down), and the depth of water under it:
+				// the stretch of view ray between surface and ground, stood upright.
+				float facing = abs(dot(normalize(vViewPosition), (viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz));
+				float depth = 1000.0;
+				if (uFromBelow < 0.5) {
+					float ground = texture2D(uGroundDistance, gl_FragCoord.xy / uScreenSize).r;
+					if (ground > 0.0) depth = max(ground - length(vViewPosition), 0.0) * max(facing, 0.05);
+				}
+				// The middle colour is a light tint that washes out under direct light; a touch of it only.
+				vec3 water = mix(uShallow, uDeep, smoothstep(0.0, 7.0, depth));
+				water = mix(water, uMid, 0.15 * (1.0 - smoothstep(0.0, 3.0, depth)));
+				float foam = uFromBelow < 0.5 ? foamAt(vLiquidPos.xz, uTime) * (1.0 - smoothstep(0.1, 0.9, depth)) : 0.0;
+				diffuseColor.rgb = mix(water, uFoam, foam * 0.85);
+				// The ground shows through the shallows, with a soft edge where the water meets it.
+				diffuseColor.a = mix(0.2, diffuseColor.a, smoothstep(0.0, 8.0, depth));
+				diffuseColor.a = max(diffuseColor.a, foam * 0.8) * smoothstep(0.0, 0.12, depth);`)
 			.replace('#include <normal_fragment_maps>', /* glsl */ `#include <normal_fragment_maps>
 				vec2 slope = waveSlope(vLiquidPos.xz, uTime) + waveSlope(vLiquidPos.xz * 3.1, uTime * 1.7) * 0.5;
 				normal = normalize((viewMatrix * vec4(-slope.x, 1.0, -slope.y, 0.0)).xyz);`)
-			.replace('#include <clipping_planes_fragment>', sea
-				// The sea plane: nothing where there's no open sea.
-				? '#include <clipping_planes_fragment>\n\tif (seaAt(vLiquidPos.xz, 1.0) < 0.5) discard;'
-				: '#include <clipping_planes_fragment>')
 			.replace('#include <opaque_fragment>', /* glsl */ `
-				float facing = abs(dot(normalize(vViewPosition), (viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz));
+				// More opaque, and mirroring the sky, at low angles.
 				diffuseColor.a = mix(0.97, diffuseColor.a, facing);
+				#ifdef USE_FOG
+					outgoingLight = mix(outgoingLight, fogColor, pow(1.0 - facing, 4.0) * 0.55 * (1.0 - foam) * (1.0 - uFromBelow));
+				#endif
 				#include <opaque_fragment>`);
 	};
 	material.customProgramCacheKey = () => (sea ? 'liquid-sea' : 'liquid-water');
 	return material;
 }
 
-/** Lava: a slowly churning glow. Unlit, as it's its own light source. */
+/** The game's lava animation: 30 frames (XTextures\lava\lava.1-30.blp), by file ID. */
+export const LAVA_FRAMES = [
+	219795, 219806, 219817, 219819, 219820, 219821, 219822, 219823, 219824, 219796,
+	219797, 219798, 219799, 219800, 219801, 219802, 219803, 219804, 219805, 219807,
+	219808, 219809, 219810, 219811, 219812, 219813, 219814, 219815, 219816, 219818,
+];
+/** Frames a second; neighbouring frames are blended so it flows rather than steps. */
+const LAVA_FPS = 8;
+/** Yards one repeat of the lava texture covers. */
+const LAVA_REPEAT = 12;
+
+/** The two frames shown now and how far between them, set by animateLava. */
+const lava = {
+	uLavaA: { value: white as THREE.Texture },
+	uLavaB: { value: white as THREE.Texture },
+	uLavaBlend: { value: 0 },
+	uLavaLoaded: { value: 0 },
+};
+let lavaFrames: THREE.Texture[] = [];
+
+/** Hands over the lava animation's frames once they're read. */
+export function setLavaFrames(frames: THREE.Texture[]): void {
+	lavaFrames = frames;
+	lava.uLavaLoaded.value = frames.length ? 1 : 0;
+}
+
+/** Picks the lava frames for a time in seconds; call every frame. */
+export function animateLava(seconds: number): void {
+	if (!lavaFrames.length) return;
+	const f = seconds * LAVA_FPS;
+	const i = Math.floor(f);
+	lava.uLavaA.value = lavaFrames[i % lavaFrames.length];
+	lava.uLavaB.value = lavaFrames[(i + 1) % lavaFrames.length];
+	lava.uLavaBlend.value = f - i;
+}
+
+/**
+ * Lava: the game's animated lava texture, unlit, as it's its own light source. Until the frames
+ * are read, a churning stand-in of the same colour.
+ */
 function magmaMaterial(color: number): THREE.MeshBasicMaterial {
 	const material = new THREE.MeshBasicMaterial({ color });
 	material.onBeforeCompile = (shader) => {
-		shader.uniforms.uTime = liquidTime;
+		Object.assign(shader.uniforms, lava, { uTime: liquidTime });
 		shader.vertexShader = shader.vertexShader
 			.replace('#include <common>', `#include <common>\n${LIQUID_VERTEX_PARS}`)
 			.replace('#include <project_vertex>', `#include <project_vertex>\n${LIQUID_VERTEX_MAIN}`);
 		shader.fragmentShader = shader.fragmentShader
-			.replace('#include <common>', `#include <common>\n${WAVES}`)
+			.replace('#include <common>', /* glsl */ `#include <common>
+				uniform float uTime;
+				uniform sampler2D uLavaA;
+				uniform sampler2D uLavaB;
+				uniform float uLavaBlend;
+				uniform float uLavaLoaded;
+				varying vec3 vLiquidPos;`)
 			.replace('#include <color_fragment>', /* glsl */ `#include <color_fragment>
-				vec2 p = vLiquidPos.xz * 0.35;
-				float t = uTime * 0.25;
-				float n = sin(p.x + sin(p.y * 1.3 + t) * 1.7 + t) * sin(p.y * 0.8 - sin(p.x * 1.1 - t) * 1.4 - t * 0.7);
-				float crust = smoothstep(0.35, 0.9, n);
-				diffuseColor.rgb = mix(diffuseColor.rgb * 1.25, vec3(0.16, 0.05, 0.03), crust * 0.85);`);
+				if (uLavaLoaded > 0.5) {
+					vec2 uv = vLiquidPos.xz / ${LAVA_REPEAT.toFixed(1)};
+					diffuseColor.rgb = mix(texture2D(uLavaA, uv).rgb, texture2D(uLavaB, uv).rgb, uLavaBlend);
+				} else {
+					vec2 p = vLiquidPos.xz * 0.35;
+					float t = uTime * 0.25;
+					float n = sin(p.x + sin(p.y * 1.3 + t) * 1.7 + t) * sin(p.y * 0.8 - sin(p.x * 1.1 - t) * 1.4 - t * 0.7);
+					diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.16, 0.05, 0.03), smoothstep(0.35, 0.9, n) * 0.85);
+				}`);
 	};
 	material.customProgramCacheKey = () => 'liquid-magma';
 	return material;
@@ -260,23 +402,74 @@ function magmaMaterial(color: number): THREE.MeshBasicMaterial {
  * overhead, as in the game). One side at a time: two-sided see-through surfaces cost two passes.
  */
 export function setLiquidsFromBelow(below: boolean): void {
+	fromBelow.value = below ? 1 : 0;
 	const side = below ? THREE.BackSide : THREE.FrontSide;
-	for (const m of Object.values(liquidMaterials)) {
+	for (const m of kinds.keys()) {
 		if (m.side === side) continue;
 		m.side = side;
 		m.needsUpdate = true;
 	}
 }
 
-/** Which kind of liquid a surface is, by its material (for telling what the camera is in). */
-export function liquidKindOf(material: THREE.Material | THREE.Material[]): LiquidKind | null {
-	for (const [kind, m] of Object.entries(liquidMaterials)) if (m === material) return kind as LiquidKind;
-	return null;
+/** Hides every liquid surface, for the ground distance pass. */
+export function setLiquidsVisible(visible: boolean): void {
+	for (const m of kinds.keys()) m.visible = visible;
 }
 
+/** Which kind of liquid a surface is, by its material (for telling what the camera is in). */
+export function liquidKindOf(material: THREE.Material | THREE.Material[]): LiquidKind | null {
+	return Array.isArray(material) ? null : kinds.get(material) ?? null;
+}
+
+/** Every liquid material, and the kind of liquid it draws. */
+const kinds = new Map<THREE.Material, LiquidKind>();
+/** Water materials per liquid kind and type, each with its type's colours. */
+const byType = new Map<string, { kind: WaterKind; type: number; material: THREE.Material }>();
+let looks: LiquidLooks | null = null;
+
+/** The liquid type's own colours where it has them (the newer types), else its kind's. */
+function applyLook(material: THREE.Material, kind: WaterKind, type: number): void {
+	const water = waterUniforms.get(material);
+	if (!water) return;
+	const own = looks?.types[type];
+	const look = own?.colors[2] ? own : DEFAULT_LOOKS[kind];
+	water.uShallow.value.setHex(look.colors[0]);
+	water.uMid.value.setHex(look.colors[1]);
+	water.uDeep.value.setHex(look.colors[2]);
+	water.uFoam.value.setHex(look.foam || DEFAULT_LOOKS[kind].foam);
+}
+
+const OPACITY: Record<WaterKind, number> = { water: 0.85, ocean: 0.94, slime: 0.92 };
+
+/** The material for a liquid surface of a given LiquidType. */
+export function liquidMaterial(kind: LiquidKind, type: number): THREE.Material {
+	if (kind === 'magma') return liquidMaterials.magma;
+	const key = `${kind}:${type}`;
+	let entry = byType.get(key);
+	if (!entry) {
+		const material = waterMaterial(OPACITY[kind]);
+		material.side = fromBelow.value ? THREE.BackSide : THREE.FrontSide;
+		applyLook(material, kind, type);
+		kinds.set(material, kind);
+		entry = { kind, type, material };
+		byType.set(key, entry);
+	}
+	return entry.material;
+}
+
+/** Gives the liquids their colours once LiquidType.db2 has been read. */
+export function setLiquidLooks(value: LiquidLooks): void {
+	looks = value;
+	for (const { kind, type, material } of byType.values()) applyLook(material, kind, type);
+	applyLook(liquidMaterials.ocean, 'ocean', value.ocean);
+}
+
+/** The sea plane's material, lava's, and the defaults per kind. */
 export const liquidMaterials = {
-	water: waterMaterial(0x2a5c75, 0.72),
-	ocean: waterMaterial(0x1b4a66, 0.9, true),
-	slime: waterMaterial(0x4f7d24, 0.88),
+	water: waterMaterial(OPACITY.water),
+	ocean: waterMaterial(OPACITY.ocean, true),
+	slime: waterMaterial(OPACITY.slime),
 	magma: magmaMaterial(0xff5b14),
 };
+for (const kind of ['water', 'ocean', 'slime'] as const) applyLook(liquidMaterials[kind], kind, 0);
+for (const [kind, material] of Object.entries(liquidMaterials)) kinds.set(material, kind as LiquidKind);

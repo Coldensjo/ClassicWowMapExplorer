@@ -5,6 +5,7 @@ import type { SpawnInfo } from '../explorer/spawns';
 import type { MapCategory, MapListing } from '../explorer/world';
 import type { HighlightGroup, HighlightSettings } from './highlights';
 import { Viewer, type HudInfo } from './viewer';
+import { setVolume, volumeSetting, type VolumeChannel } from './volume';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = $('status');
@@ -160,6 +161,7 @@ async function explore(): Promise<void> {
 		viewer.start();
 		void setUpMapPicker(viewer);
 		setUpHighlights(viewer);
+		setUpSound();
 	} catch (e) {
 		setStatus(`Could not start: ${(e as Error).message}`, true);
 		button.disabled = false;
@@ -264,6 +266,28 @@ function setUpHighlights(viewer: Viewer): void {
 		apply();
 	});
 	apply();
+	panel.hidden = false;
+}
+
+// --- Volume ---
+
+/** The Sound panel: a slider per kind of sound, applied as they move. */
+function setUpSound(): void {
+	const panel = $('sound');
+	for (const slider of panel.querySelectorAll<HTMLInputElement>('input[type=range]')) {
+		const channel = slider.dataset.channel as VolumeChannel;
+		const shown = slider.nextElementSibling as HTMLOutputElement;
+		slider.value = String(Math.round(volumeSetting(channel) * 100));
+		shown.value = `${slider.value}%`;
+		slider.addEventListener('input', () => {
+			setVolume(channel, Number(slider.value) / 100);
+			shown.value = `${slider.value}%`;
+		});
+		// Out of the way of the flying keys once let go.
+		slider.addEventListener('change', () => slider.blur());
+	}
+	// Space flies up; it mustn't fold the panel.
+	panel.querySelector('summary')!.addEventListener('click', (e) => (e.currentTarget as HTMLElement).blur());
 	panel.hidden = false;
 }
 

@@ -1,8 +1,12 @@
 import type { MusicPlayer } from './music';
+import { volume } from './volume';
 
-/** Volume of the underwater loop and of the sounds for going under and coming up. */
+/**
+ * Volume of the underwater loop and of the sounds for going under and coming up, at full
+ * setting in the Sound panel.
+ */
 const LOOP_VOLUME = 0.55;
-const SPLASH_VOLUME = 0.4;
+const SPLASH_VOLUME = 0.2;
 /** Seconds to fade the loop in or out. */
 const FADE = 0.35;
 
@@ -39,7 +43,7 @@ export class UnderwaterAudio {
 		}
 		if (!this.loop) return;
 		this.level = on ? Math.min(1, this.level + dt / FADE) : Math.max(0, this.level - dt / FADE);
-		this.loop.volume = this.level * LOOP_VOLUME;
+		this.loop.volume = this.level * LOOP_VOLUME * volume('ambience');
 		if (!on && this.level === 0) {
 			this.loop.pause();
 			this.loop = null;
@@ -65,7 +69,7 @@ export class UnderwaterAudio {
 		const url = await this.music.soundUrl(file, true).catch(() => null);
 		if (!url) return;
 		const audio = new Audio(url);
-		audio.volume = SPLASH_VOLUME;
+		audio.volume = SPLASH_VOLUME * volume('effects');
 		void audio.play().catch(() => {});
 	}
 }

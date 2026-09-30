@@ -1,5 +1,6 @@
 import type { MusicData, MusicSet } from '../explorer/music';
 import type { AsyncStorageApi } from '../worker/protocol';
+import { volume } from './volume';
 
 /** Seconds to fade a track in or out. */
 const FADE_IN = 2;
@@ -13,6 +14,7 @@ const SETTLE = 1500;
 const GAP: [number, number] = [15000, 45000];
 /** Pause between an intro fanfare and the zone's own music. */
 const AFTER_INTRO = 2000;
+/** Music volume at full setting in the Sound panel. */
 const VOLUME = 0.5;
 /** Decoded tracks kept as object URLs. */
 const URL_CACHE = 8;
@@ -227,7 +229,7 @@ export class MusicPlayer {
 		for (let i = this.voices.length - 1; i >= 0; i--) {
 			const v = this.voices[i];
 			v.level = v.target > v.level ? Math.min(v.target, v.level + dt / FADE_IN) : Math.max(v.target, v.level - dt / FADE_OUT);
-			v.audio.volume = v.level * v.level * VOLUME;
+			v.audio.volume = v.level * v.level * VOLUME * volume('music');
 			if (v.target === 0 && v.level === 0) {
 				v.audio.pause();
 				v.audio.removeAttribute('src');

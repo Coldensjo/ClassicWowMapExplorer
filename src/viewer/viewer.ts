@@ -64,6 +64,18 @@ const UNDERWATER: Record<LiquidKind, { far: number; color: number }> = {
 const FAR_PAST_FOG = 1.1;
 /** Yards; the far plane never comes closer than this, so the sky dome (1000 yd around the camera) always shows. */
 const MIN_FAR = 1500;
+/**
+ * Screenshots (P): at most this many tiles in view load in full, nearest first (each takes some
+ * 6 MB of video memory), and the picture is this many times the screen's resolution, up to
+ * SHOT_MAX_SIZE pixels across.
+ */
+const SHOT_TILES = 100;
+const SHOT_SCALE = 2;
+const SHOT_MAX_SIZE = 8192;
+/** ms; once nothing is left to load, a screenshot waits this long for the last models to show. */
+const SHOT_SETTLE = 500;
+/** ms; a screenshot is taken after this long even if something never finished loading. */
+const SHOT_TIMEOUT = 180000;
 /** How far above the camera (yards) to look for a liquid surface. */
 const LIQUID_PROBE = 400;
 /** Half-minutes the T key moves the time of day (15 minutes). */
@@ -227,6 +239,13 @@ export class Viewer {
 	private readonly liquidMeshes: THREE.Object3D[] = [];
 	/** How far the ground is under each pixel, for how deep the water there looks. */
 	private groundPass!: GroundDistancePass;
+	/**
+	 * A screenshot being prepared (P): when it started, how many tiles are held for it, since
+	 * when nothing has been left to load, and the view it's taken from (the camera stays put).
+	 */
+	private shot: { started: number; tiles: number; readySince: number; position: THREE.Vector3; yaw: number; pitch: number } | null = null;
+	/** Screenshot progress for the page to show; null when there's none, done once it's saved. */
+	onShotStatus: (text: string | null, done?: boolean) => void = () => {};
 
 	constructor(
 		private readonly canvas: HTMLCanvasElement,
@@ -653,7 +672,11 @@ export class Viewer {
 
 	private onKey(e: KeyboardEvent): void {
 		if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || !this.terrain) return;
-		if (e.code === 'KeyO') this.overview();
+		if (e.code === 'KeyP') {
+			if (this.shot) this.endShot();
+			else this.startShot();
+		} else if (e.code === 'Escape' && this.shot) this.endShot();
+		else if (e.code === 'KeyO') this.overview();
 		else if (e.code === 'KeyR') this.controls.flyTo(this.startPosition(), 0, -0.3, 2.5);
 		else if (e.code.startsWith('Digit')) this.goToContinent(Number(e.code.slice(5)) - 1);
 		// Letters rather than [ ] \, which need AltGr on many layouts. Holding T keeps going.
@@ -727,7 +750,8 @@ export class Viewer {
 	}
 
 	private tick(dt: number, now: number): void {
-		this.controls.update(dt, (x, z) => this.terrain.heightAt(x, z), (x, z) => this.terrain.surfaceAt(x, z));
+		// The camera holds still while a screenshot is prepared.
+		if (!this.shot) this.controls.update(dt, (x, z) => this.terrain.heightAt(x, z), (x, z) => this.terrain.surfaceAt(x, z));
 		liquidTime.value = now / 1000;
 		animateLava(now / 1000);
 		const pos = this.camera.position;
@@ -753,6 +777,7 @@ export class Viewer {
 		// Under water the surface is seen from below, where its depth isn't used.
 		if (!this.underwater) perf.time('groundDistance', () => this.groundPass.render(this.renderer, this.terrain.group, this.camera));
 		perf.time('render', () => this.renderer.render(this.scene, this.camera));
+		if (this.shot) this.updateShot(now);
 		perf.time('nameplates', () => this.updateNameplates(now));
 		if (this.mapLabels) {
 			// Only out in the open: not in a cave, a building or down on the ground among things.
@@ -782,6 +807,75 @@ export class Viewer {
 			this.onHud(this.hudInfo());
 			this.writeHash(now);
 		}
+	}
+
+	/**
+	 * Starts a screenshot of the current view: the tiles in it load in full, with every tree and
+	 * prop on them however far off, and once they have the picture is saved (see updateShot).
+	 */
+	private startShot(): void {
+		if (this.controls.locked) document.exitPointerLock();
+		const tiles = this.terrain.holdInView(this.camera, SHOT_TILES);
+		this.objects.unlimited = true;
+		this.shot = { started: performance.now(), tiles, readySince: 0, position: this.camera.position.clone(), yaw: this.controls.yaw, pitch: this.controls.pitch };
+		// Start loading on the next frame.
+		this.lastLodUpdate = 0;
+		this.onShotStatus('Screenshot: finding what’s in view…');
+	}
+
+	/** Lets the held tiles and far objects go again, back at the view the screenshot was taken from. */
+	private endShot(): void {
+		const shot = this.shot;
+		if (!shot) return;
+		this.shot = null;
+		this.terrain.holdInView(null);
+		this.objects.unlimited = false;
+		this.controls.set(shot.position, shot.yaw, shot.pitch);
+		this.onShotStatus(null);
+	}
+
+	/** Called after each frame while a screenshot is prepared: reports progress, and takes it once all has loaded. */
+	private updateShot(now: number): void {
+		const shot = this.shot!;
+		const tiles = this.terrain.heldPending;
+		const models = this.objects.pending;
+		const timedOut = now - shot.started > SHOT_TIMEOUT;
+		if ((tiles || models) && !timedOut) {
+			shot.readySince = 0;
+			this.onShotStatus(`Screenshot: loading ${shot.tiles - tiles} of ${shot.tiles} tiles, ${models} model loads to go · P or Esc cancels`);
+			return;
+		}
+		shot.readySince ||= now;
+		if (now - shot.readySince < SHOT_SETTLE && !timedOut) return;
+		const name = this.takeShot();
+		this.endShot();
+		this.onShotStatus(`Screenshot saved: ${name}${timedOut ? ' (some of it never loaded)' : ''}`, true);
+	}
+
+	/** Draws the view again at a higher resolution and saves it as a PNG; returns the file name. */
+	private takeShot(): string {
+		const ratio = this.renderer.getPixelRatio();
+		const size = this.renderer.getSize(new THREE.Vector2());
+		const largest = Math.min(this.renderer.capabilities.maxTextureSize, SHOT_MAX_SIZE);
+		this.renderer.setPixelRatio(ratio * Math.min(SHOT_SCALE, largest / (size.x * ratio), largest / (size.y * ratio)));
+		if (!this.underwater) this.groundPass.render(this.renderer, this.terrain.group, this.camera);
+		this.renderer.render(this.scene, this.camera);
+		const pos = this.camera.position;
+		const place = this.zoneNames().zone ?? this.terrain.locate(pos.x, pos.z)?.continent.name ?? 'Open sea';
+		const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '.');
+		const name = `MapExplorer ${place.replace(/[\\/:*?"<>|]/g, '')} ${stamp}.png`;
+		// The canvas is copied now, before it's resized back (which clears it); only the encoding waits.
+		this.canvas.toBlob((blob) => {
+			if (!blob) return;
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = name;
+			link.click();
+			setTimeout(() => URL.revokeObjectURL(url), 60000);
+		}, 'image/png');
+		this.renderer.setPixelRatio(ratio);
+		return name;
 	}
 
 	/** Game time in half-minutes: the local clock, shifted with [ and ]. */

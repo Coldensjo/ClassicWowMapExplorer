@@ -152,6 +152,7 @@ async function explore(): Promise<void> {
 		const viewer = new Viewer($('view'), storage, showHud, showInfo, $('nameplates'));
 		// For poking at the scene from the console (and test scripts) while developing.
 		if (import.meta.env.DEV) (globalThis as unknown as { mapExplorerViewer: Viewer }).mapExplorerViewer = viewer;
+		viewer.onShotStatus = showShotStatus;
 		await viewer.load((text) => showProgress(text));
 		showProgress('Starting');
 		$('start').hidden = true;
@@ -276,6 +277,19 @@ window.addEventListener('keydown', (e) => {
 	e.preventDefault();
 	document.body.classList.toggle('ui-hidden');
 });
+
+// --- Screenshots ---
+
+let shotStatusTimer = 0;
+
+/** Screenshot progress (P); kept on screen even with the interface hidden, but never in the picture. */
+function showShotStatus(text: string | null, done = false): void {
+	const el = $('shot-status');
+	clearTimeout(shotStatusTimer);
+	el.hidden = !text;
+	el.textContent = text ?? '';
+	if (done) shotStatusTimer = window.setTimeout(() => (el.hidden = true), 5000);
+}
 
 // --- Clicked creature or object ---
 

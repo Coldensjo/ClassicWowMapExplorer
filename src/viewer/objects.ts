@@ -140,7 +140,10 @@ export class ObjectManager {
 			this.storage.loadTileObjects(wdt, x, y).then((placements) => {
 				record.placements = placements;
 				this.apply(tileKey, record);
-			}, (e) => console.warn(`Objects for ${tileKey}:`, e));
+			}, (e) => {
+				console.warn(`Objects for ${tileKey}:`, e);
+				record.placements = [];
+			});
 			return;
 		}
 		tile.level = level;
@@ -422,9 +425,25 @@ export class ObjectManager {
 		for (const fn of entry.onReady.splice(0)) fn(entry);
 	}
 
+	private showAll = false;
+
+	/** For a screenshot: every placed copy shows, however far off (tiles still limit what's placed). */
+	set unlimited(on: boolean) {
+		if (on === this.showAll) return;
+		this.showAll = on;
+		for (const entry of this.models.values()) entry.dirty = true;
+	}
+
+	/** Models and tiles' placements still to load. */
+	get pending(): number {
+		let n = this.queue.length + this.requests;
+		for (const tile of this.tiles.values()) if (!tile.placements && tile.level !== 'none') n++;
+		return n;
+	}
+
 	private isVisible(entry: ModelEntry, m: THREE.Matrix4): boolean {
 		// Buildings are already limited by tile distance.
-		if (entry.kind === 'wmo') return true;
+		if (entry.kind === 'wmo' || this.showAll) return true;
 		const e = m.elements;
 		const scale = Math.hypot(e[0], e[1], e[2]);
 		const dx = e[12] - this.camera.x, dy = e[13] - this.camera.y, dz = e[14] - this.camera.z;

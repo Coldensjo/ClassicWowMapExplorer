@@ -55,6 +55,8 @@ interface TileState {
 	/** AreaTable ID per chunk while the tile is detailed. */
 	areaIds: Uint32Array | null;
 	nearLoading: boolean;
+	/** Its full-detail files couldn't be read: not tried again. */
+	nearFailed: boolean;
 	distance: number;
 	objectLevel: ObjectLevel;
 }
@@ -179,6 +181,7 @@ export class TerrainManager {
 				nearHoles: null,
 				areaIds: null,
 				nearLoading: false,
+				nearFailed: false,
 				distance: Infinity,
 				objectLevel: 'none',
 			});
@@ -209,6 +212,7 @@ export class TerrainManager {
 				nearHoles: null,
 				areaIds: null,
 				nearLoading: false,
+				nearFailed: false,
 				distance: Infinity,
 				objectLevel: 'none',
 			});
@@ -355,6 +359,44 @@ export class TerrainManager {
 		return Math.hypot(dx, dz);
 	}
 
+	/** Tiles held at full detail for a screenshot, however far off (see holdInView). */
+	private held: Set<TileState> | null = null;
+
+	/**
+	 * For a screenshot: holds the tiles in the camera's view at full detail, with all their
+	 * objects, whatever their distance; the nearest `max` of them. Null lets them go again.
+	 * Returns how many tiles are held.
+	 */
+	holdInView(camera: THREE.Camera | null, max = Infinity): number {
+		if (!camera) {
+			this.held = null;
+			return 0;
+		}
+		const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+		const box = new THREE.Box3();
+		const at = camera.getWorldPosition(new THREE.Vector3());
+		const inView: TileState[] = [];
+		for (const t of this.tiles.values()) {
+			if (!t.hasAdt && t.far) continue;
+			// Heights below the lowest sea floor and above the highest peaks, where not known.
+			box.min.set(t.originX, -1000, t.originZ);
+			box.max.set(t.originX + TILE_SIZE, Math.min(t.maxHeight, 5000), t.originZ + TILE_SIZE);
+			if (!frustum.intersectsBox(box)) continue;
+			t.distance = Math.hypot(this.planarDistance(t, at), Math.max(0, at.y - t.maxHeight));
+			inView.push(t);
+		}
+		inView.sort((a, b) => a.distance - b.distance);
+		this.held = new Set(inView.slice(0, max));
+		return this.held.size;
+	}
+
+	/** Held tiles whose full detail is still to load. */
+	get heldPending(): number {
+		let n = 0;
+		for (const t of this.held ?? []) if (t.hasAdt && !t.near && !t.nearFailed) n++;
+		return n;
+	}
+
 	/** Chooses which tiles need full detail, loading nearest first and dropping distant ones. */
 	update(camera: THREE.Vector3): void {
 		const wanted: TileState[] = [];
@@ -363,11 +405,12 @@ export class TerrainManager {
 			if (!t.hasAdt && !objectsOnly) continue;
 			const dy = Math.max(0, camera.y - t.maxHeight);
 			t.distance = Math.hypot(this.planarDistance(t, camera), dy);
-			if (t.near && t.distance > NEAR_DROP_DISTANCE) this.dropNear(t);
-			else if (t.hasAdt && !t.near && !t.nearLoading && t.distance < NEAR_LOAD_DISTANCE) wanted.push(t);
+			const held = this.held?.has(t) ?? false;
+			if (t.near && t.distance > NEAR_DROP_DISTANCE && !held) this.dropNear(t);
+			else if (t.hasAdt && !t.near && !t.nearLoading && !t.nearFailed && (t.distance < NEAR_LOAD_DISTANCE || held)) wanted.push(t);
 			// Doodads wait for the detailed terrain so they sit on the right ground.
-			const detailed = t.hasAdt ? !!t.near : t.distance < NEAR_LOAD_DISTANCE;
-			const level: ObjectLevel = detailed ? 'all' : t.distance < WMO_DISTANCE ? 'wmo' : 'none';
+			const detailed = t.hasAdt ? !!t.near : t.distance < NEAR_LOAD_DISTANCE || held;
+			const level: ObjectLevel = detailed ? 'all' : t.distance < WMO_DISTANCE || held ? 'wmo' : 'none';
 			if (level !== t.objectLevel) {
 				t.objectLevel = level;
 				const offset = new THREE.Vector3(t.continent.offsetX * TILE_SIZE, 0, t.continent.offsetY * TILE_SIZE);
@@ -389,7 +432,7 @@ export class TerrainManager {
 			const sharedTextures = tile.terrain?.textures ?? [];
 			const textures = await this.layerTextures.acquire(sharedTextures);
 			// The camera may have moved on while this loaded.
-			if (t.distance > NEAR_DROP_DISTANCE) {
+			if (t.distance > NEAR_DROP_DISTANCE && !this.held?.has(t)) {
 				this.layerTextures.release(sharedTextures);
 				return;
 			}
@@ -405,6 +448,7 @@ export class TerrainManager {
 			if (t.far) t.far.visible = false;
 		} catch (e) {
 			console.warn(`Tile ${t.continent.name} ${t.x}_${t.y}:`, e);
+			t.nearFailed = true;
 		} finally {
 			t.nearLoading = false;
 			this.nearInFlight--;

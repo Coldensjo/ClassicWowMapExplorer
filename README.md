@@ -25,6 +25,14 @@ You need **World of Warcraft Classic** installed, and **[Node.js](https://nodejs
 
 The world opens by itself. Click to look around, fly with **W A S D**, and hold **Shift** to go faster.
 
+### Without Node.js: the portable version
+
+`npm run portable` builds `release/MapExplorer-portable.zip`: unzip it anywhere and double-click
+**MapExplorer.exe**. Map Explorer opens in a window of its own (Edge's app mode, or Chrome's),
+served from the `app` folder next to it to this computer only, and stops when you close the
+window; its browser data stays in a `data` folder beside it. Building it needs mingw-w64 (gcc,
+windres), ImageMagick and 7-Zip on the PATH; running it needs nothing.
+
 ## Features
 
 - The whole world at once: distant terrain for both continents, with full detail streamed in around you
@@ -96,6 +104,7 @@ This needs `sqlite3` on the PATH. NPC hair textures come from the community list
 - `npm run typecheck`: type-check only
 - `npm run probe`: inspect game data from Node
 - `npm run spawns`: rebuild the spawn files
+- `npm run portable`: build the portable version (`release/`); the launcher is `tools/portable/launcher.c`
 
 `inspector.html` is a small test page for browsing the storage and file formats.
 

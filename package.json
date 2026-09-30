@@ -8,7 +8,8 @@
 		"build": "tsc --noEmit && vite build",
 		"typecheck": "tsc --noEmit",
 		"probe": "tsx tools/probe.ts",
-		"spawns": "tsx tools/buildSpawns.ts"
+		"spawns": "tsx tools/buildSpawns.ts",
+		"portable": "tsx tools/buildPortable.ts"
 	},
 	"dependencies": {
 		"fflate": "^0.8.3",

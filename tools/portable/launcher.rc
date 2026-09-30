@@ -1,0 +1,27 @@
+// The launcher's icon (made from public/icon.svg by tools/buildPortable.ts) and version details.
+#include <winver.h>
+
+1 ICON "icon.ico"
+
+1 VERSIONINFO
+FILEVERSION 0,1,0,0
+PRODUCTVERSION 0,1,0,0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+	BLOCK "StringFileInfo"
+	BEGIN
+		BLOCK "040904B0"
+		BEGIN
+			VALUE "FileDescription", "Map Explorer"
+			VALUE "ProductName", "Map Explorer"
+			VALUE "FileVersion", "0.1.0"
+			VALUE "ProductVersion", "0.1.0"
+			VALUE "OriginalFilename", "MapExplorer.exe"
+		END
+	END
+	BLOCK "VarFileInfo"
+	BEGIN
+		VALUE "Translation", 0x409, 1200
+	END
+END

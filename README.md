@@ -1,37 +1,46 @@
 # MapExplorer
 
-Fly over the World of Warcraft world in your browser, drawn from your own game install. Everything is read straight from the game files on your computer; nothing is hosted, uploaded or downloaded.
+Fly over the World of Warcraft world, drawn from your own game install. Everything is read straight from the game files on your computer; nothing is hosted, uploaded or downloaded.
 
 Built for WoW Classic, with Eastern Kingdoms and Kalimdor loaded as one seamless world.
 
 ## Get started
 
-You need **World of Warcraft Classic** installed, and **[Node.js](https://nodejs.org)** (the LTS version).
+You need **Windows 10 or 11** and **World of Warcraft Classic** installed. Nothing else to install.
 
-1. Download this project: **Code → Download ZIP** on GitHub and unzip it, or
-   `git clone https://github.com/Coldensjo/ClassicWowMapExplorer.git`
-2. Open a terminal in the project folder and run:
-
-   ```sh
-   npm install
-   npm run dev
-   ```
-
-3. Open **http://localhost:5173** in Chrome or Edge.
-4. Click **Choose your World of Warcraft folder** (or drag the folder onto the page) and pick the
+1. Download **MapExplorer-portable.zip** from the
+   **[latest release](https://github.com/Coldensjo/ClassicWowMapExplorer/releases/latest)** and unzip
+   it anywhere.
+2. Double-click **MapExplorer.exe**. Map Explorer opens in a window of its own.
+   The first time, Windows may say *"Windows protected your PC"*, because the program isn't signed:
+   click **More info**, then **Run anyway**.
+3. Click **Choose your World of Warcraft folder** (or drag the folder onto the window) and pick the
    folder that contains `_classic_` or `_classic_beta_`, usually
-   `C:\Program Files (x86)\World of Warcraft`. The browser calls it an upload, but the files never
+   `C:\Program Files (x86)\World of Warcraft`. The window calls it an upload, but the files never
    leave your computer.
 
 The world opens by itself. Click to look around, fly with **W A S D**, and hold **Shift** to go faster.
+Close the window when you're done.
 
-### Without Node.js: the portable version
+### About the portable version
 
-`npm run portable` builds `release/MapExplorer-portable.zip`: unzip it anywhere and double-click
-**MapExplorer.exe**. Map Explorer opens in a window of its own (Edge's app mode, or Chrome's),
-served from the `app` folder next to it to this computer only, and stops when you close the
-window; its browser data stays in a `data` folder beside it. Building it needs mingw-w64 (gcc,
-windres), ImageMagick and 7-Zip on the PATH; running it needs nothing.
+- **It's portable**: no installer and no admin rights. Keep `MapExplorer.exe` next to its `app`
+  folder; to remove it, delete the folder.
+- **Its own window**: the window is Microsoft Edge (or Chrome, if Edge is missing) in app mode,
+  showing Map Explorer with no tabs or address bar. `MapExplorer.exe` serves the `app` folder to it
+  at `http://127.0.0.1:51730`, reachable from this computer only, and stops when you close the
+  window.
+- **Its own settings**: highlights and other settings are kept in a `data` folder beside it, apart
+  from your own browser (in `%LOCALAPPDATA%\MapExplorer` if its folder is read-only).
+- **Opening it again** while it's running opens another window onto the same Map Explorer.
+
+### Running from source
+
+On any system with Chrome or Edge, and **[Node.js](https://nodejs.org)** (the LTS version):
+
+1. `git clone https://github.com/Coldensjo/ClassicWowMapExplorer.git` (or **Code → Download ZIP**)
+2. In the project folder, run `npm install`, then `npm run dev`.
+3. Open **http://localhost:5173** in Chrome or Edge, and choose your World of Warcraft folder as above.
 
 ## Features
 
@@ -83,7 +92,13 @@ The camera position is kept in the URL, so a link brings you back to the same sp
   contains `_classic_` or `_classic_beta_`.
 - **Direct access** (under *More options*) opens faster, but Chrome and Edge refuse folders under
   `Program Files`; use the main button for those.
-- If nothing shows up, check that you're in Chrome or Edge with hardware acceleration on.
+- If nothing shows up, check that you're in Chrome or Edge with hardware acceleration on (for the
+  portable version: Edge's *Settings → System and performance*), and that your graphics driver is
+  up to date.
+- **The portable version opened in a normal browser tab**: neither Edge nor Chrome was found, so
+  your default browser is used. Press OK in the small Map Explorer message when you're done, to stop it.
+- **"No free port between 51730 and 51749"**: other programs are using those ports; close them or
+  restart your computer.
 
 ## For developers
 
@@ -104,7 +119,9 @@ This needs `sqlite3` on the PATH. NPC hair textures come from the community list
 - `npm run typecheck`: type-check only
 - `npm run probe`: inspect game data from Node
 - `npm run spawns`: rebuild the spawn files
-- `npm run portable`: build the portable version (`release/`); the launcher is `tools/portable/launcher.c`
+- `npm run portable`: build the portable version into `release/` (the zip for a GitHub release);
+  needs mingw-w64 (gcc, windres), ImageMagick and 7-Zip on the PATH. The launcher is
+  `tools/portable/launcher.c`, its icon `public/icon.svg`
 
 `inspector.html` is a small test page for browsing the storage and file formats.
 

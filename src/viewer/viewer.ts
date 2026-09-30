@@ -686,6 +686,7 @@ export class Viewer {
 		else if (e.code === 'KeyG') this.controls.ghost = !this.controls.ghost;
 		else if (e.code === 'KeyF') this.side = this.side === 'alliance' ? 'horde' : 'alliance';
 		else if (e.code === 'KeyM' && this.music) this.music.enabled = !this.music.enabled;
+		else if (e.code === 'KeyI' && this.mapLabels) this.mapLabels.enabled = !this.mapLabels.enabled;
 	}
 
 	private startPosition(): THREE.Vector3 {

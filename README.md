@@ -57,7 +57,7 @@ On any system with Chrome or Edge, and **[Node.js](https://nodejs.org)** (the LT
 - Creatures and objects from VMaNGOS: clickable, with Wowhead links, name plates, their gear and
   animations, walking their patrols
 - Every other map in the install (dungeons, raids, battlegrounds, unused and test maps) laid out in
-  the sea south of the continents, named from afar, to fly to or walk into through their entrances
+  the sea south of the continents, optionally named from afar, to fly to or walk into through their entrances
 - Highlights for chests, herbs, ore veins, fishing pools or anything by name, seen from afar
 
 ## Controls
@@ -78,11 +78,12 @@ On any system with Chrome or Edge, and **[Node.js](https://nodejs.org)** (the LT
 | L | Torch light on / off |
 | F | Switch name plate colours between Alliance and Horde |
 | M | Music and sound on / off |
+| I | Names of dungeons, raids and other maps in the sea on / off (off by default) |
 | H | Highlights on / off |
 | U or Alt+Z | Hide / show the interface |
 
 **Go to map…** (top right) jumps to any map, including ones nothing leads to. The other maps also sit
-in rows in the sea south of the continents, with their names floating over them, so you can fly there.
+in rows in the sea south of the continents, with their names floating over them (press I), so you can fly there.
 Maps that are a single building (most dungeons) lie under the sea until you fly over them.
 
 **Highlight** (bottom right) marks chests, herbs, ore and fishing pools within 1000 yards, through

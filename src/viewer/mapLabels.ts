@@ -20,6 +20,8 @@ export class MapLabels {
 	private readonly projected = new THREE.Vector3();
 	/** Off while the camera is somewhere enclosed (a cave, a building), where names would show through walls. */
 	visible = true;
+	/** Toggled by the user; off by default so the names don't clutter the view. */
+	enabled = false;
 
 	constructor(private readonly container: HTMLElement) {}
 
@@ -44,7 +46,7 @@ export class MapLabels {
 			const distance = label.position.distanceTo(camera.position);
 			const el = label.element;
 			this.projected.copy(label.position).project(camera);
-			const show = this.visible && distance > label.radius && distance < RANGE && this.projected.z < 1 && Math.abs(this.projected.x) < 1.1 && Math.abs(this.projected.y) < 1.1;
+			const show = this.enabled && this.visible && distance > label.radius && distance < RANGE && this.projected.z < 1 && Math.abs(this.projected.x) < 1.1 && Math.abs(this.projected.y) < 1.1;
 			if (!show) {
 				if (!el.hidden) el.hidden = true;
 				continue;

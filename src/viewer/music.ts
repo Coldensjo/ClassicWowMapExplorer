@@ -241,9 +241,10 @@ export class MusicPlayer {
 
 function readEnabled(): boolean {
 	try {
-		return localStorage.getItem(STORAGE_KEY) !== '0';
+		// Muted until turned on; after that the choice is remembered.
+		return localStorage.getItem(STORAGE_KEY) === '1';
 	} catch {
-		return true;
+		return false;
 	}
 }
 

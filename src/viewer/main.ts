@@ -639,7 +639,7 @@ function setUpHighlights(viewer: Viewer): void {
 /** The Sound panel's on/off box, which is greyed out until the music is read. */
 function syncSound(viewer: Viewer): void {
 	const box = $<HTMLInputElement>('sound-on');
-	box.checked = viewer.soundOn ?? true;
+	box.checked = viewer.soundOn ?? false;
 	box.disabled = viewer.soundOn === null;
 }
 

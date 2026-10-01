@@ -233,22 +233,15 @@ const fromBelow: THREE.IUniform<number> = { value: 0 };
 
 type WaterKind = Exclude<LiquidKind, 'magma'>;
 
-/** Shore to deep colours and foam, for liquid types that don't name their own (the older ones). */
+/**
+ * Shore to deep colours and the colour of light on the ripples, for liquid types that don't
+ * name their own (the older ones).
+ */
 const DEFAULT_LOOKS: Record<WaterKind, { colors: [number, number, number]; foam: number }> = {
 	water: { colors: [0x4f9fb0, 0x2f7390, 0x1b4d6a], foam: 0xc8eef0 },
 	ocean: { colors: [0x5fb5b5, 0x2f7c90, 0x163f5a], foam: 0xd0f0ee },
 	slime: { colors: [0x8cad48, 0x5a8a28, 0x2e4f10], foam: 0xc8dc90 },
 };
-
-/** A little animated foam pattern, 0-1. */
-const FOAM = /* glsl */ `
-float foamAt(vec2 p, float t) {
-	float a = sin(p.x * 1.7 + t * 0.9 + sin(p.y * 1.3 + t * 0.4) * 2.0);
-	float b = sin(p.y * 2.3 - t * 0.7 + sin(p.x * 1.1 - t * 0.5) * 2.0);
-	float c = sin((p.x + p.y) * 4.1 + t * 1.6);
-	return smoothstep(-0.1, 0.8, a * b + c * 0.25 + 0.35);
-}
-`;
 
 interface WaterUniforms {
 	uShallow: THREE.IUniform<THREE.Color>;
@@ -262,12 +255,13 @@ const waterUniforms = new WeakMap<THREE.Material, WaterUniforms>();
 
 /**
  * Water as the game draws it: light and clear where it's shallow, through to its deep colour
- * and nearly opaque further out, with foam at the shore, the sky mirrored at low angles and
- * rippling normals for moving sun glints. How deep it is under each pixel comes from the
- * ground distance pass.
+ * and nearly opaque further out, with the game's animated ripples on top (its lake and sea
+ * textures hold them in their alpha, as light caught on the crests), the sky mirrored at low
+ * angles and sun glints off the ripples. Slime's texture is its colour instead. How deep it is
+ * under each pixel comes from the ground distance pass.
  */
-function waterMaterial(opacity: number, sea = false): THREE.MeshPhongMaterial {
-	const material = new THREE.MeshPhongMaterial({ specular: 0x9ab4c8, shininess: 120, transparent: true, opacity, depthWrite: false });
+function waterMaterial(kind: WaterKind, opacity: number, sea = false): THREE.MeshPhongMaterial {
+	const material = new THREE.MeshPhongMaterial({ specular: 0x9ab4c8, shininess: 80, transparent: true, opacity, depthWrite: false });
 	const water: WaterUniforms = {
 		uShallow: { value: new THREE.Color() },
 		uMid: { value: new THREE.Color() },
@@ -275,11 +269,15 @@ function waterMaterial(opacity: number, sea = false): THREE.MeshPhongMaterial {
 		uFoam: { value: new THREE.Color() },
 	};
 	waterUniforms.set(material, water);
+	const book = kind === 'water' ? flipbooks.lake : flipbooks[kind];
+	const slime = kind === 'slime';
 	material.onBeforeCompile = (shader) => {
-		Object.assign(shader.uniforms, water, groundDistance, { uTime: liquidTime, uFromBelow: fromBelow });
+		Object.assign(shader.uniforms, water, book.uniforms, groundDistance, { uTime: liquidTime, uFromBelow: fromBelow });
 		shader.vertexShader = shader.vertexShader
-			.replace('#include <common>', `#include <common>\n${LIQUID_VERTEX_PARS}`)
-			.replace('#include <project_vertex>', `#include <project_vertex>\n${LIQUID_VERTEX_MAIN}`);
+			.replace('#include <common>', `#include <common>
+${LIQUID_VERTEX_PARS}`)
+			.replace('#include <project_vertex>', `#include <project_vertex>
+${LIQUID_VERTEX_MAIN}`);
 		if (sea) Object.assign(shader.uniforms, seaMask);
 		shader.fragmentShader = shader.fragmentShader
 			.replace('#include <common>', /* glsl */ `#include <common>
@@ -290,7 +288,7 @@ function waterMaterial(opacity: number, sea = false): THREE.MeshPhongMaterial {
 				uniform sampler2D uGroundDistance;
 				uniform vec2 uScreenSize;
 				uniform float uFromBelow;
-				${WAVES}${FOAM}${sea ? SEA_MASK : ''}`)
+				${WAVES}${FLIPBOOK}${sea ? SEA_MASK : ''}`)
 			.replace('#include <clipping_planes_fragment>', sea
 				// The sea plane: nothing where there's no open sea. Nor on the pixel row at its horizon,
 				// where antialiasing works out the depth at pixel centres just past the sea's edge and
@@ -313,60 +311,102 @@ function waterMaterial(opacity: number, sea = false): THREE.MeshPhongMaterial {
 				// The middle colour is a light tint that washes out under direct light; a touch of it only.
 				vec3 water = mix(uShallow, uDeep, smoothstep(0.0, 7.0, depth));
 				water = mix(water, uMid, 0.15 * (1.0 - smoothstep(0.0, 3.0, depth)));
-				float foam = uFromBelow < 0.5 ? foamAt(vLiquidPos.xz, uTime) * (1.0 - smoothstep(0.1, 0.9, depth)) : 0.0;
-				diffuseColor.rgb = mix(water, uFoam, foam * 0.85);
+				vec2 rippleUv = vLiquidPos.xz / ${book.repeat.toFixed(1)};
+				vec4 frame = uFramesLoaded > 0.5 ? flipbook(rippleUv) : vec4(0.0);
+				${slime
+					? /* glsl */ `if (uFramesLoaded > 0.5) water = frame.rgb * mix(1.0, 0.7, smoothstep(0.0, 7.0, depth));
+					float ripple = 0.0;`
+					: 'float ripple = uFromBelow < 0.5 ? frame.a : frame.a * 0.4;'}
+				// Far off the ripples blur to an even sheen, and their repeats would show.
+				ripple *= 1.0 - smoothstep(60.0, 250.0, length(vViewPosition)) * 0.7;
+				diffuseColor.rgb = mix(water, uFoam, ripple * 0.3);
 				// The ground shows through the shallows, with a soft edge where the water meets it.
 				diffuseColor.a = mix(0.2, diffuseColor.a, smoothstep(0.0, 8.0, depth));
-				diffuseColor.a = max(diffuseColor.a, foam * 0.8) * smoothstep(0.0, 0.12, depth);`)
+				diffuseColor.a = max(diffuseColor.a, ripple * 0.5) * smoothstep(0.0, 0.12, depth);`)
+			// The sun glints off the ripples, not the whole surface.
+			.replace('#include <specularmap_fragment>', /* glsl */ `#include <specularmap_fragment>
+				specularStrength = ${slime ? '0.3' : 'uFramesLoaded > 0.5 ? 0.15 + ripple * 1.6 : 1.0'};`)
 			.replace('#include <normal_fragment_maps>', /* glsl */ `#include <normal_fragment_maps>
-				vec2 slope = waveSlope(vLiquidPos.xz, uTime) + waveSlope(vLiquidPos.xz * 3.1, uTime * 1.7) * 0.5;
+				// Gentle swell, and the ripples' own slopes for glints that follow them.
+				vec2 slope = waveSlope(vLiquidPos.xz, uTime) * 0.35;
+				${slime ? '' : /* glsl */ `if (uFramesLoaded > 0.5) {
+					float texel = 1.5 / 256.0;
+					slope += vec2(flipbook(rippleUv + vec2(texel, 0.0)).a - frame.a, flipbook(rippleUv + vec2(0.0, texel)).a - frame.a) * 0.6;
+				}`}
 				normal = normalize((viewMatrix * vec4(-slope.x, 1.0, -slope.y, 0.0)).xyz);`)
 			.replace('#include <opaque_fragment>', /* glsl */ `
 				// More opaque, and mirroring the sky, at low angles.
 				diffuseColor.a = mix(0.97, diffuseColor.a, facing);
 				#ifdef USE_FOG
-					outgoingLight = mix(outgoingLight, fogColor, pow(1.0 - facing, 4.0) * 0.55 * (1.0 - foam) * (1.0 - uFromBelow));
+					outgoingLight = mix(outgoingLight, fogColor, pow(1.0 - facing, 4.0) * 0.55 * (1.0 - ripple) * (1.0 - uFromBelow));
 				#endif
 				#include <opaque_fragment>`);
 	};
-	material.customProgramCacheKey = () => (sea ? 'liquid-sea' : 'liquid-water');
+	material.customProgramCacheKey = () => (sea ? 'liquid-sea' : `liquid-${kind}`);
 	return material;
 }
 
-/** The game's lava animation: 30 frames (XTextures\lava\lava.1-30.blp), by file ID. */
-export const LAVA_FRAMES = [
-	219795, 219806, 219817, 219819, 219820, 219821, 219822, 219823, 219824, 219796,
-	219797, 219798, 219799, 219800, 219801, 219802, 219803, 219804, 219805, 219807,
-	219808, 219809, 219810, 219811, 219812, 219813, 219814, 219815, 219816, 219818,
-];
-/** Frames a second; neighbouring frames are blended so it flows rather than steps. */
-const LAVA_FPS = 8;
-/** Yards one repeat of the lava texture covers. */
-const LAVA_REPEAT = 12;
+/**
+ * One of the game's animated liquid textures (XTextures\<kind>\<name>.1-30.blp). Their file IDs
+ * were handed out in name order (1, 10, 11, … 19, 2, 20, …), so the first is enough to find
+ * them all; they're unnamed in this build.
+ */
+class Flipbook {
+	readonly ids: number[];
+	/** The two frames shown now and how far between them, set by animate. */
+	readonly uniforms = {
+		uFrameA: { value: white as THREE.Texture },
+		uFrameB: { value: white as THREE.Texture },
+		uFrameBlend: { value: 0 },
+		uFramesLoaded: { value: 0 },
+	};
+	private frames: THREE.Texture[] = [];
 
-/** The two frames shown now and how far between them, set by animateLava. */
-const lava = {
-	uLavaA: { value: white as THREE.Texture },
-	uLavaB: { value: white as THREE.Texture },
-	uLavaBlend: { value: 0 },
-	uLavaLoaded: { value: 0 },
-};
-let lavaFrames: THREE.Texture[] = [];
+	/** fps: neighbouring frames are blended, so it flows rather than steps. repeat: yards one repeat of the texture covers. */
+	constructor(firstId: number, count: number, private fps: number, readonly repeat: number) {
+		const names = Array.from({ length: count }, (_, i) => String(i + 1)).sort();
+		this.ids = Array.from({ length: count }, (_, i) => firstId + names.indexOf(String(i + 1)));
+	}
 
-/** Hands over the lava animation's frames once they're read. */
-export function setLavaFrames(frames: THREE.Texture[]): void {
-	lavaFrames = frames;
-	lava.uLavaLoaded.value = frames.length ? 1 : 0;
+	/** Hands over the frames once they're read. */
+	setFrames(frames: THREE.Texture[]): void {
+		this.frames = frames;
+		this.uniforms.uFramesLoaded.value = frames.length ? 1 : 0;
+	}
+
+	/** Picks the frames for a time in seconds. */
+	animate(seconds: number): void {
+		if (!this.frames.length) return;
+		const f = seconds * this.fps;
+		const i = Math.floor(f);
+		this.uniforms.uFrameA.value = this.frames[i % this.frames.length];
+		this.uniforms.uFrameB.value = this.frames[(i + 1) % this.frames.length];
+		this.uniforms.uFrameBlend.value = f - i;
+	}
 }
 
-/** Picks the lava frames for a time in seconds; call every frame. */
-export function animateLava(seconds: number): void {
-	if (!lavaFrames.length) return;
-	const f = seconds * LAVA_FPS;
-	const i = Math.floor(f);
-	lava.uLavaA.value = lavaFrames[i % lavaFrames.length];
-	lava.uLavaB.value = lavaFrames[(i + 1) % lavaFrames.length];
-	lava.uLavaBlend.value = f - i;
+/** The flipbook frame now, in a shader that has a Flipbook's uniforms. */
+const FLIPBOOK = /* glsl */ `
+uniform sampler2D uFrameA;
+uniform sampler2D uFrameB;
+uniform float uFrameBlend;
+uniform float uFramesLoaded;
+vec4 flipbook(vec2 uv) {
+	return mix(texture2D(uFrameA, uv), texture2D(uFrameB, uv), uFrameBlend);
+}
+`;
+
+/** The game's liquid animations: lakes and rivers, the sea, slime and lava. */
+export const flipbooks = {
+	lake: new Flipbook(219901, 30, 10, 8),
+	ocean: new Flipbook(219855, 30, 10, 14),
+	slime: new Flipbook(219991, 30, 8, 12),
+	lava: new Flipbook(219795, 30, 8, 12),
+};
+
+/** Moves every liquid animation on to a time in seconds; call every frame. */
+export function animateFlipbooks(seconds: number): void {
+	for (const book of Object.values(flipbooks)) book.animate(seconds);
 }
 
 /**
@@ -375,23 +415,20 @@ export function animateLava(seconds: number): void {
  */
 function magmaMaterial(color: number): THREE.MeshBasicMaterial {
 	const material = new THREE.MeshBasicMaterial({ color });
+	const lava = flipbooks.lava;
 	material.onBeforeCompile = (shader) => {
-		Object.assign(shader.uniforms, lava, { uTime: liquidTime });
+		Object.assign(shader.uniforms, lava.uniforms, { uTime: liquidTime });
 		shader.vertexShader = shader.vertexShader
 			.replace('#include <common>', `#include <common>\n${LIQUID_VERTEX_PARS}`)
 			.replace('#include <project_vertex>', `#include <project_vertex>\n${LIQUID_VERTEX_MAIN}`);
 		shader.fragmentShader = shader.fragmentShader
 			.replace('#include <common>', /* glsl */ `#include <common>
 				uniform float uTime;
-				uniform sampler2D uLavaA;
-				uniform sampler2D uLavaB;
-				uniform float uLavaBlend;
-				uniform float uLavaLoaded;
-				varying vec3 vLiquidPos;`)
+				varying vec3 vLiquidPos;
+				${FLIPBOOK}`)
 			.replace('#include <color_fragment>', /* glsl */ `#include <color_fragment>
-				if (uLavaLoaded > 0.5) {
-					vec2 uv = vLiquidPos.xz / ${LAVA_REPEAT.toFixed(1)};
-					diffuseColor.rgb = mix(texture2D(uLavaA, uv).rgb, texture2D(uLavaB, uv).rgb, uLavaBlend);
+				if (uFramesLoaded > 0.5) {
+					diffuseColor.rgb = flipbook(vLiquidPos.xz / ${lava.repeat.toFixed(1)}).rgb;
 				} else {
 					vec2 p = vLiquidPos.xz * 0.35;
 					float t = uTime * 0.25;
@@ -453,7 +490,7 @@ export function liquidMaterial(kind: LiquidKind, type: number): THREE.Material {
 	const key = `${kind}:${type}`;
 	let entry = byType.get(key);
 	if (!entry) {
-		const material = waterMaterial(OPACITY[kind]);
+		const material = waterMaterial(kind, OPACITY[kind]);
 		material.side = fromBelow.value ? THREE.BackSide : THREE.FrontSide;
 		applyLook(material, kind, type);
 		kinds.set(material, kind);
@@ -472,9 +509,9 @@ export function setLiquidLooks(value: LiquidLooks): void {
 
 /** The sea plane's material, lava's, and the defaults per kind. */
 export const liquidMaterials = {
-	water: waterMaterial(OPACITY.water),
-	ocean: waterMaterial(OPACITY.ocean, true),
-	slime: waterMaterial(OPACITY.slime),
+	water: waterMaterial('water', OPACITY.water),
+	ocean: waterMaterial('ocean', OPACITY.ocean, true),
+	slime: waterMaterial('slime', OPACITY.slime),
 	magma: magmaMaterial(0xff5b14),
 };
 for (const kind of ['water', 'ocean', 'slime'] as const) applyLook(liquidMaterials[kind], kind, 0);

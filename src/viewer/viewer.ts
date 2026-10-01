@@ -17,7 +17,7 @@ import { ObjectManager } from './objects';
 import { perf } from './perf';
 import { TerrainManager, type ContinentPlacement } from './terrain';
 import { GroundDistancePass } from './groundDistance';
-import { animateLava, LAVA_FRAMES, liquidKindOf, liquidMaterials, liquidTime, seaMask, setLavaFrames, setLiquidLooks, setLiquidsFromBelow } from './terrainMaterials';
+import { animateFlipbooks, flipbooks, liquidKindOf, liquidMaterials, liquidTime, seaMask, setLiquidLooks, setLiquidsFromBelow } from './terrainMaterials';
 import { UnderwaterAudio } from './underwater';
 import type { LiquidKind } from '../formats/mh2o';
 import type { LiquidLooks } from '../explorer/clientDb';
@@ -383,11 +383,13 @@ export class Viewer {
 		} catch (e) {
 			console.warn('Lighting unavailable, using defaults:', e);
 		}
-		// The lava animation's frames; lava churns without them meanwhile.
-		this.storage.loadTextures(LAVA_FRAMES, this.usesCompressedTextures).then(
-			(frames) => setLavaFrames(frames.every((f) => f.texture) ? frames.map((f) => createTexture(f.texture!, anisotropy, true)) : []),
-			(e) => console.warn('Lava textures unavailable:', e),
-		);
+		// The liquids' animation frames; until they're read, liquids are drawn without them.
+		for (const [name, book] of Object.entries(flipbooks)) {
+			this.storage.loadTextures(book.ids, this.usesCompressedTextures).then(
+				(frames) => book.setFrames(frames.every((f) => f.texture) ? frames.map((f) => createTexture(f.texture!, anisotropy, true)) : []),
+				(e) => console.warn(`${name} textures unavailable:`, e),
+			);
+		}
 		this.storage.loadLiquidLooks().then((looks) => {
 			this.liquidLooks = looks;
 			setLiquidLooks(looks);
@@ -760,7 +762,7 @@ export class Viewer {
 		// The camera holds still while a screenshot is prepared.
 		if (!this.shot) this.controls.update(dt, (x, z) => this.terrain.heightAt(x, z), (x, z) => this.terrain.surfaceAt(x, z));
 		liquidTime.value = now / 1000;
-		animateLava(now / 1000);
+		animateFlipbooks(now / 1000);
 		const pos = this.camera.position;
 
 		if (now - this.lastTriggerCheck > 100) {

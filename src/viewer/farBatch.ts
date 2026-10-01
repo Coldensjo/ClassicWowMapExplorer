@@ -10,6 +10,12 @@ import { COMPRESSED_FORMATS } from './textures';
 export const FAR_BATCH_LAYERS = 256;
 /** Texels across the per-tile info texture. */
 const INFO_WIDTH = 64;
+/**
+ * ms; tile textures that arrive are sent to the GPU together, at most this often. Each update
+ * of an array texture the GPU may still be drawing with can stall it; thousands of one-layer
+ * updates as the world's textures stream in made the first seconds crawl.
+ */
+const UPLOAD_INTERVAL = 500;
 
 /** A low-detail tile for a batch: its mesh, where it goes, its colour until textured, and whether it ever will be. */
 export interface FarEntry {
@@ -34,6 +40,8 @@ export class FarBatch {
 	private readonly layerOf = new Map<number, number>();
 	private readonly layers: number;
 	private maps: THREE.CompressedArrayTexture | THREE.DataArrayTexture | null = null;
+	/** Textures set since the last upload wait for this timer. */
+	private uploadTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(entries: FarEntry[], private readonly anisotropy: number) {
 		let vertices = 0;
@@ -84,12 +92,17 @@ export class FarBatch {
 			const image = maps.image as { data: Uint8Array };
 			image.data.set(data.mips[0].data, layer * data.width * data.height * 4);
 		}
-		maps.addLayerUpdate(layer);
-		maps.needsUpdate = true;
-		// Textured: the texture's own colours, untinted.
+		// Textured: the texture's own colours, untinted (shown once uploaded, with the array).
 		this.info.set([1, 1, 1, layer], id * 4);
-		this.uniforms.uFarInfo.value.needsUpdate = true;
+		this.uploadTimer ??= setTimeout(() => this.upload(), UPLOAD_INTERVAL);
 		return true;
+	}
+
+	/** Sends the array texture, every layer at once, and the tiles' info with it. */
+	private upload(): void {
+		this.uploadTimer = null;
+		if (this.maps) this.maps.needsUpdate = true;
+		this.uniforms.uFarInfo.value.needsUpdate = true;
 	}
 
 	/** The array texture, laid out after the first tile texture that arrives. */

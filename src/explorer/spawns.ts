@@ -113,7 +113,7 @@ export class SpawnSource {
 
 	static async load(mapId: number): Promise<SpawnSource | null> {
 		try {
-			const response = await fetch(`/spawns/map${mapId}.json`);
+			const response = await fetch(`spawns/map${mapId}.json`);
 			if (!response.ok) return null;
 			return new SpawnSource(await response.json());
 		} catch {
@@ -518,7 +518,7 @@ export class DisplayResolver {
 
 	/** SD hair textures by race and colour, from public/spawns/hair.json (built from the listfile). */
 	private hairTextures(): Promise<Record<number, number[]>> {
-		this.hair ??= fetch('/spawns/hair.json').then((r) => (r.ok ? r.json() : {}), () => ({}));
+		this.hair ??= fetch('spawns/hair.json').then((r) => (r.ok ? r.json() : {}), () => ({}));
 		return this.hair;
 	}
 

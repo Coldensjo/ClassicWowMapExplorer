@@ -163,7 +163,7 @@ export class Highlights {
 		const known = this.maps.get(mapId);
 		if (known !== undefined) return known === 'pending' ? null : known;
 		this.maps.set(mapId, 'pending');
-		fetch(`/spawns/map${mapId}.json`)
+		fetch(`spawns/map${mapId}.json`)
 			.then((r) => (r.ok ? (r.json() as Promise<SpawnFile>) : null))
 			.then((file) => {
 				// The lock types arrived meanwhile and cleared the cache: the next scan reads it again.

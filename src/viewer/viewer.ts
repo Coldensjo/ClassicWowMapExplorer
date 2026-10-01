@@ -204,7 +204,7 @@ type TriggerRow = [number, string, number, number, number, number, number, numbe
 async function loadTriggers(): Promise<Map<number, AreaTrigger[]>> {
 	const byMap = new Map<number, AreaTrigger[]>();
 	try {
-		const response = await fetch('/spawns/triggers.json');
+		const response = await fetch('spawns/triggers.json');
 		if (!response.ok) return byMap;
 		const file = (await response.json()) as { triggers: TriggerRow[] };
 		for (const [, name, map, x, y, z, radius, bx, by, bz, bo, tm, tx, ty, tz, to] of file.triggers) {

@@ -6,6 +6,7 @@ import type { SpawnInfo } from '../explorer/spawns';
 import type { MapCategory, MapListing } from '../explorer/world';
 import type { HighlightGroup, HighlightSettings } from './highlights';
 import { Minimap } from './minimap';
+import { canPose, POSES } from './spawnEditor';
 import { isTyping } from './typing';
 import { FLY_SPEED_RANGE, FLY_SPEED_STEP, Viewer, type HudInfo, type ViewSettings } from './viewer';
 import { setVolume, volumeSetting, type VolumeChannel } from './volume';
@@ -204,12 +205,15 @@ async function explore(): Promise<void> {
 		await font;
 		showProgress('Starting');
 		$('start').hidden = true;
-		$('hud').hidden = $('side').hidden = $('help-hint').hidden = false;
+		$('hud').hidden = $('side').hidden = $('menubar').hidden = false;
+		setUpMenus(viewer);
 		setUpView(viewer);
 		viewer.start();
 		setUpMinimap(viewer);
 		void setUpGoTo(viewer);
 		setUpHighlights(viewer);
+		setUpEditor(viewer);
+		setUpPlace(viewer);
 		setUpSound(viewer);
 		setUpHelp();
 	} catch (e) {
@@ -392,6 +396,7 @@ function setUpView(viewer: Viewer): void {
 			collision: () => (s.collision ? 'Collision on: walls and floors stop you' : 'Collision off: flying through walls'),
 			side: () => `Name colours as the ${s.side === 'alliance' ? 'Alliance' : 'Horde'} sees them`,
 			mapNames: () => `Dungeon and raid names ${onOff(s.mapNames)}`,
+			npcNames: () => `Names over NPCs ${onOff(s.npcNames)}`,
 			cinematic: () => (s.cinematic ? 'Cinematic camera: turning glides after the mouse' : 'Cinematic camera off'),
 			grading: () => `Colour grading ${onOff(s.grading)}`,
 			shadows: () => `Shadows ${onOff(s.shadows)}`,
@@ -406,14 +411,58 @@ function setUpView(viewer: Viewer): void {
 	};
 
 	// Clicking the coordinates copies a link that opens this view.
-	$('hud-coords').addEventListener('click', async () => {
-		try {
-			await navigator.clipboard.writeText(viewer.shareLink());
-			notify('Link to this view copied');
-		} catch {
-			notify('Couldn’t copy: the browser didn’t allow it');
+	$('hud-coords').addEventListener('click', () => void copyLink(viewer));
+}
+
+/** Copies a link that opens this view. */
+async function copyLink(viewer: Viewer): Promise<void> {
+	try {
+		await navigator.clipboard.writeText(viewer.shareLink());
+		notify('Link to this view copied');
+	} catch {
+		notify('Couldn’t copy: the browser didn’t allow it');
+	}
+}
+
+// --- The menus ---
+
+/**
+ * The menu bar: a click opens a menu, and while one is open, pointing at another opens that
+ * instead, as in a desktop app. Commands close the menu; switches and sliders keep it open.
+ * Clicking anywhere else or Esc closes it.
+ */
+function setUpMenus(viewer: Viewer): void {
+	const menus = [...document.querySelectorAll<HTMLElement>('#menubar .menu')];
+	let open: HTMLElement | null = null;
+	const setOpen = (menu: HTMLElement | null) => {
+		open = menu;
+		for (const m of menus) {
+			m.classList.toggle('open', m === menu);
+			m.querySelector('.menu-button')!.setAttribute('aria-expanded', String(m === menu));
+			m.querySelector<HTMLElement>('.menu-panel')!.hidden = m !== menu;
 		}
+		if (menu && document.pointerLockElement) document.exitPointerLock();
+	};
+	for (const m of menus) {
+		const button = m.querySelector('.menu-button')!;
+		button.addEventListener('click', () => setOpen(open === m ? null : m));
+		button.addEventListener('pointerenter', () => {
+			if (open && open !== m) setOpen(m);
+		});
+		m.querySelector('.menu-panel')!.addEventListener('click', (e) => {
+			if ((e.target as Element).closest('.menu-item')) setOpen(null);
+		});
+	}
+	document.addEventListener('pointerdown', (e) => {
+		if (open && !open.contains(e.target as Node)) setOpen(null);
 	});
+	window.addEventListener('keydown', (e) => {
+		if (e.code === 'Escape' && open) setOpen(null);
+	});
+
+	$('menu-link').addEventListener('click', () => void copyLink(viewer));
+	$('menu-shot').addEventListener('click', () => viewer.toggleShot());
+	$('menu-hide').addEventListener('click', toggleInterface);
 }
 
 function fillList(id: string, rows: [string, string][]): void {
@@ -608,6 +657,7 @@ function setUpHighlights(viewer: Viewer): void {
 			query: query.value,
 		};
 		panel.classList.toggle('off', !settings.on);
+		$('highlight-menu').classList.toggle('on', settings.on);
 		viewer.setHighlights(settings);
 		save(HIGHLIGHT_KEY, settings);
 	};
@@ -633,6 +683,229 @@ function setUpHighlights(viewer: Viewer): void {
 	});
 	apply();
 }
+
+// --- Editing NPCs and objects ---
+
+/** The spawn the info card shows, if any. */
+let shownSpawn: SpawnInfo | null = null;
+
+/** The Edit panel, F2, and the editing part of the info card. */
+function setUpEditor(viewer: Viewer): void {
+	const editor = viewer.editor;
+	const on = $<HTMLInputElement>('edit-on');
+	const fields = [...document.querySelectorAll<HTMLInputElement>('#info-edit [data-place]')];
+	const setActive = (active: boolean) => {
+		// Editing starts with whatever's open on the card.
+		const open = $('info').hidden ? null : shownSpawn;
+		editor.setActive(active);
+		if (active && open) editor.select(open);
+	};
+	editor.onState = (state) => {
+		on.checked = state.active;
+		$('edit-menu').classList.toggle('on', state.active);
+		$<HTMLButtonElement>('edit-undo').disabled = !state.canUndo;
+		$<HTMLButtonElement>('edit-redo').disabled = !state.canRedo;
+		$<HTMLButtonElement>('edit-export').disabled = $<HTMLButtonElement>('edit-clear').disabled = state.count === 0;
+		$('edit-count').textContent = state.count ? `${state.count} NPC${state.count === 1 ? ' or object' : 's and objects'} changed` : 'Nothing changed yet';
+		$('edit-status').textContent = state.active ? 'Click an NPC or object, then drag it. Right-drag to look around.' : '';
+		$('info-edit').hidden = !state.active;
+	};
+	const selection = (info: SpawnInfo | null, edited: boolean) => {
+		$<HTMLButtonElement>('menu-duplicate').disabled = $<HTMLButtonElement>('menu-delete').disabled = !info || !editor.active;
+		$<HTMLButtonElement>('menu-reset').disabled = !info || !editor.active || !edited || !!info.created;
+	};
+	// Poses, grouped; the ones the selected model can't show are greyed out once it has loaded.
+	const pose = $<HTMLSelectElement>('edit-pose');
+	for (const [group, poses] of POSES) {
+		const optgroup = document.createElement('optgroup');
+		optgroup.label = group;
+		for (const [id, name] of poses) optgroup.append(new Option(name, String(id)));
+		pose.append(optgroup);
+	}
+	const markPoses = () => {
+		const animations = editor.selectedAnimations();
+		for (const option of pose.options) option.disabled = !!animations && option.value !== '0' && !canPose(animations, Number(option.value));
+	};
+	pose.addEventListener('pointerdown', markPoses);
+	pose.addEventListener('focus', markPoses);
+	pose.addEventListener('change', () => {
+		const id = Number(pose.value);
+		editor.setPlace({ pose: id || undefined });
+	});
+	editor.onSelect = (info, edited) => {
+		selection(info, edited);
+		if (!info) {
+			$('info').hidden = true;
+			return;
+		}
+		showInfo(info);
+		const { x, y, z, o, scale } = info.place;
+		const values: Record<string, number> = { x, y, z, o: DEGREES_PER_RADIAN * o, scale };
+		for (const f of fields) f.value = String(Number(values[f.dataset.place!].toFixed(f.dataset.place === 'scale' ? 3 : 2)));
+		$<HTMLButtonElement>('edit-reset').disabled = !edited || !!info.created;
+		$('edit-pose').parentElement!.hidden = info.type !== 'npc';
+		pose.value = String(info.place.pose ?? 0);
+		markPoses();
+		$('edit-badge').textContent = info.created ? `A copy (spawn ${info.guid}), only here` : edited ? 'Changed here' : '';
+	};
+	for (const f of fields) {
+		f.addEventListener('change', () => {
+			const value = Number(f.value);
+			if (!Number.isFinite(value)) return;
+			const key = f.dataset.place as 'x' | 'y' | 'z' | 'o' | 'scale';
+			if (key === 'scale' && value <= 0) return;
+			editor.setPlace({ [key]: key === 'o' ? (((value % 360) + 360) % 360) / DEGREES_PER_RADIAN : value });
+		});
+		f.addEventListener('keydown', (e) => {
+			if (e.code === 'Enter') f.blur();
+		});
+	}
+	on.addEventListener('change', () => setActive(on.checked));
+	$('edit-duplicate').addEventListener('click', () => editor.duplicate());
+	$('edit-delete').addEventListener('click', () => editor.remove());
+	$('edit-reset').addEventListener('click', () => editor.reset());
+	$('menu-place').addEventListener('click', () => openPlace(true));
+	$<HTMLInputElement>('edit-props').addEventListener('change', (e) => (editor.props = (e.target as HTMLInputElement).checked));
+	$<HTMLInputElement>('edit-buildings').addEventListener('change', (e) => (editor.buildings = (e.target as HTMLInputElement).checked));
+	$('menu-duplicate').addEventListener('click', () => editor.duplicate());
+	$('menu-delete').addEventListener('click', () => editor.remove());
+	$('menu-reset').addEventListener('click', () => editor.reset());
+	$('edit-undo').addEventListener('click', () => editor.undo());
+	$('edit-redo').addEventListener('click', () => editor.redo());
+	$('edit-export').addEventListener('click', () => {
+		const link = document.createElement('a');
+		link.href = URL.createObjectURL(new Blob([editor.exportJson()], { type: 'application/json' }));
+		link.download = 'mapexplorer-edits.json';
+		link.click();
+		setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+	});
+	const file = $<HTMLInputElement>('edit-import-file');
+	$('edit-import').addEventListener('click', () => file.click());
+	file.addEventListener('change', async () => {
+		const chosen = file.files?.[0];
+		file.value = '';
+		if (!chosen) return;
+		try {
+			notify(`Imported ${editor.importJson(await chosen.text())} changes`);
+		} catch (e) {
+			notify(`Could not import: ${(e as Error).message}`);
+		}
+	});
+	$('edit-clear').addEventListener('click', () => {
+		if (confirm('Put every NPC and object back as the spawn data has it? This removes all your changes and copies.')) editor.clearAll();
+	});
+	window.addEventListener('keydown', (e) => {
+		if (e.code !== 'F2' || isTyping(e)) return;
+		e.preventDefault();
+		setActive(!editor.active);
+		notify(editor.active ? 'Editing on: click an NPC or object' : 'Editing off');
+	});
+	editor.onState(editor.state);
+	selection(null, false);
+}
+
+/** Opens or closes the Place panel; set up by setUpPlace. */
+let openPlace: (on: boolean) => void = () => {};
+
+/** Results shown at most in the Place panel. */
+const PLACE_LIMIT = 80;
+
+/**
+ * The Place panel: every creature and game object template (public/spawns/templates.json), by
+ * name or ID. Choosing one hands it to the editor, which carries it under the mouse until a click.
+ */
+function setUpPlace(viewer: Viewer): void {
+	const panel = $('place');
+	const query = $<HTMLInputElement>('place-query');
+	const list = $('place-results');
+	const tabs = [...panel.querySelectorAll<HTMLButtonElement>('[data-tab]')];
+	type Row = { entry: number; name: string; sub: string; key: string };
+	let rows: Record<'npc' | 'object', Row[]> | null = null;
+	let tab: 'npc' | 'object' = 'npc';
+	let loading: Promise<void> | null = null;
+
+	const load = () => {
+		loading ??= storage.listTemplates().then((t) => {
+			const keyed = (r: [number, string, string][]) => r.map(([entry, name, sub]) => ({ entry, name, sub, key: searchKey(name) }))
+				.sort((a, b) => a.name.localeCompare(b.name));
+			rows = { npc: keyed(t.npcs), object: keyed(t.objects) };
+		}, (e) => {
+			console.warn('Templates:', e);
+			rows = { npc: [], object: [] };
+		});
+		return loading;
+	};
+
+	const render = () => {
+		const item = (text: string, className = '') => {
+			const li = document.createElement('li');
+			li.className = className;
+			li.textContent = text;
+			return li;
+		};
+		if (!rows) {
+			list.replaceChildren(item('Reading the list…', 'empty'));
+			return;
+		}
+		const q = searchKey(query.value.trim());
+		const id = Number(q);
+		let found: Row[];
+		if (!q) found = rows[tab].slice(0, PLACE_LIMIT);
+		else if (Number.isInteger(id) && id > 0) found = rows[tab].filter((r) => r.entry === id);
+		else {
+			found = rows[tab].map((r) => ({ r, score: matchScore(r.key, q) }))
+				.filter((m) => m.score >= 0)
+				.sort((a, b) => a.score - b.score || a.r.name.length - b.r.name.length)
+				.slice(0, PLACE_LIMIT)
+				.map((m) => m.r);
+		}
+		if (!found.length) {
+			list.replaceChildren(item(rows[tab].length ? 'Nothing by that name' : 'No list: run npm run spawns', 'empty'));
+			return;
+		}
+		list.replaceChildren(...found.map((r) => {
+			const li = item(r.name);
+			const sub = document.createElement('span');
+			sub.className = 'sub';
+			sub.textContent = `${r.sub} · ${r.entry}`;
+			li.append(sub);
+			li.addEventListener('click', async () => {
+				for (const other of list.children) other.classList.remove('chosen');
+				li.classList.add('chosen');
+				// Keys back to the world, so Esc cancels and the camera flies.
+				query.blur();
+				if (!(await viewer.editor.place(tab, r.entry))) notify('Can’t place that here: point at the ground on a map');
+			});
+			return li;
+		}));
+	};
+
+	openPlace = (on: boolean) => {
+		panel.hidden = !on;
+		if (!on) return;
+		viewer.editor.setActive(true);
+		query.focus();
+		query.select();
+		render();
+		void load().then(render);
+	};
+	$('place-close').addEventListener('click', () => openPlace(false));
+	query.addEventListener('input', render);
+	query.addEventListener('keydown', (e) => {
+		if (e.code === 'Escape') openPlace(false);
+		else if (e.code === 'Enter') (list.querySelector('li:not(.empty)') as HTMLElement | null)?.click();
+	});
+	for (const button of tabs) {
+		button.addEventListener('click', () => {
+			tab = button.dataset.tab as 'npc' | 'object';
+			for (const b of tabs) b.setAttribute('aria-selected', String(b === button));
+			render();
+		});
+	}
+}
+
+/** Radians to degrees. */
+const DEGREES_PER_RADIAN = 180 / Math.PI;
 
 // --- Sound ---
 
@@ -706,9 +979,13 @@ window.addEventListener('keydown', (e) => {
 	const toggle = e.altKey ? e.code === 'KeyZ' : e.code === 'KeyU' && !e.ctrlKey && !e.metaKey;
 	if (!toggle || $('start').hidden === false || isTyping(e)) return;
 	e.preventDefault();
+	toggleInterface();
+});
+
+function toggleInterface(): void {
 	const hidden = document.body.classList.toggle('ui-hidden');
 	notify(hidden ? 'Interface hidden: U brings it back' : 'Interface shown');
-});
+}
 
 // --- Screenshots ---
 
@@ -739,13 +1016,17 @@ function pageText(text: string): string {
 }
 
 function showInfo(info: SpawnInfo): void {
+	shownSpawn = info;
 	const isNpc = info.type === 'npc';
-	$('info-kind').textContent = [isNpc ? 'NPC' : 'Object', info.kind, info.rank].filter(Boolean).join(' · ');
+	// The map's own props and buildings: no names, no Wowhead pages; their model file instead.
+	const isModel = info.type === 'm2' || info.type === 'wmo';
+	$('info-kind').textContent = isModel ? `${info.kind} · part of the map` : [isNpc ? 'NPC' : 'Object', info.kind, info.rank].filter(Boolean).join(' · ');
 	$('info-name').textContent = info.name;
 	$('info-sub').textContent = info.subname ? `<${info.subname}>` : '';
 	const facts: [string, string][] = [];
 	if (info.level) facts.push(['Level', info.level]);
-	facts.push([isNpc ? 'NPC ID' : 'Object ID', String(info.entry)], ['Spawn', String(info.guid)]);
+	if (isModel) facts.push(['Model file', String(info.entry)], ['Placement', String(info.guid)]);
+	else facts.push([isNpc ? 'NPC ID' : 'Object ID', String(info.entry)], ['Spawn', String(info.guid)]);
 	fillList('info-facts', facts);
 
 	const pages = $('info-pages');
@@ -768,7 +1049,8 @@ function showInfo(info: SpawnInfo): void {
 		a.textContent = label;
 		return a;
 	});
-	$('info-links').replaceChildren(...links);
+	$('info-links').replaceChildren(...(isModel ? [] : links));
+	$('info-source').hidden = isModel;
 	$('info').hidden = false;
 	$('info').scrollTop = 0;
 	(window as unknown as { $WowheadPower?: { refreshLinks?: () => void } }).$WowheadPower?.refreshLinks?.();

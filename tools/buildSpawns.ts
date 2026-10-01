@@ -72,6 +72,20 @@ for (const e of query<{ entry: number; mh: number; oh: number; ohType: number }>
 	weapons.set(e.entry, [e.mh, e.oh, e.ohType === 14 ? 1 : 0]);
 }
 
+/** A creature template as the spawn files store it. */
+function npcTemplate(t: CreatureTemplate): unknown[] {
+	const displays = [t.display_id1, t.display_id2, t.display_id3, t.display_id4];
+	const scales = [t.display_scale1, t.display_scale2, t.display_scale3, t.display_scale4];
+	return [t.name, t.subname ?? '', t.level_min, t.level_max, t.type, t.rank, t.npc_flags,
+		displays.filter((d) => d), scales.filter((_, i) => displays[i]).map((v) => round(v, 3)), t.faction,
+		weapons.get(t.equipment_id) ?? 0, round(t.speed_walk, 3)];
+}
+
+/** A game object template as the spawn files store it. */
+function objectTemplate(t: ObjectTemplate): unknown[] {
+	return [t.name, t.type, t.displayId, round(t.size, 3), t.data0];
+}
+
 const pageText = new Map(query<{ entry: number; text: string; next_page: number }>('select entry, text, next_page from page_text').map((p) => [p.entry, p]));
 
 mkdirSync('public/spawns', { recursive: true });
@@ -141,17 +155,13 @@ for (const map of MAPS) {
 	for (const s of creatures) {
 		const t = creatureTemplates.get(s.id);
 		if (!t || npcTemplates[t.entry]) continue;
-		const displays = [t.display_id1, t.display_id2, t.display_id3, t.display_id4];
-		const scales = [t.display_scale1, t.display_scale2, t.display_scale3, t.display_scale4];
-		npcTemplates[t.entry] = [t.name, t.subname ?? '', t.level_min, t.level_max, t.type, t.rank, t.npc_flags,
-			displays.filter((d) => d), scales.filter((_, i) => displays[i]).map((v) => round(v, 3)), t.faction,
-			weapons.get(t.equipment_id) ?? 0, round(t.speed_walk, 3)];
+		npcTemplates[t.entry] = npcTemplate(t);
 	}
 	const goTemplates: Record<number, unknown[]> = {};
 	for (const s of objects) {
 		const t = objectTemplates.get(s.id);
 		if (!t || goTemplates[t.entry]) continue;
-		goTemplates[t.entry] = [t.name, t.type, t.displayId, round(t.size, 3), t.data0];
+		goTemplates[t.entry] = objectTemplate(t);
 	}
 
 	// Readable objects (type 9, "text": books, plaques, notices) link to a chain of pages.
@@ -203,3 +213,11 @@ for (const map of MAPS) {
 	console.log(file, `${out.creatures.spawns.length} creatures (${Object.keys(npcTemplates).length} kinds),`,
 		`${out.objects.spawns.length} objects (${Object.keys(goTemplates).length} kinds)`);
 }
+
+// Every template with something to show, spawned anywhere or not, for placing new ones in the editor.
+const allNpcs: Record<number, unknown[]> = {};
+for (const t of creatureTemplates.values()) if (t.display_id1 || t.display_id2 || t.display_id3 || t.display_id4) allNpcs[t.entry] = npcTemplate(t);
+const allObjects: Record<number, unknown[]> = {};
+for (const t of objectTemplates.values()) if (t.displayId) allObjects[t.entry] = objectTemplate(t);
+writeFileSync('public/spawns/templates.json', JSON.stringify({ source: 'VMaNGOS world database (GPL-2.0), patch 1.12', creatures: allNpcs, objects: allObjects }));
+console.log('public/spawns/templates.json', Object.keys(allNpcs).length, 'creatures,', Object.keys(allObjects).length, 'objects');

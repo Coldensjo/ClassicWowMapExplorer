@@ -9,8 +9,15 @@ const ANIM_WALK = 4;
 /** M2CompQuat: int16 components mapped to [-1, 1]. */
 const compQuat = (v: number) => (v < 0 ? v + 32768 : v - 32767) / 32767;
 
-/** One of a model's sequences (Stand, Walk): where its bone tracks are, and how long it loops. */
-interface StandSequence {
+/** M2Sequence flags: keys in this file rather than a separate .anim; an alias of another sequence. */
+const SEQ_EMBEDDED = 0x20;
+const SEQ_ALIAS = 0x40;
+/** 'AFID' and 'MD21' as little-endian chunk ids. */
+const AFID = 0x44494641;
+const MD21 = 0x3132444d;
+
+/** One of a model's sequences (Stand, Walk, Sit...): where its bone tracks are, and how long it loops. */
+export interface Sequence {
 	view: DataView;
 	md20: number;
 	seq: number;
@@ -19,31 +26,99 @@ interface StandSequence {
 	boneOffset: number;
 	/** Durations (ms) of the model's global sequences, for tracks that loop on their own. */
 	globalLoops: number[];
+	/** For a sequence kept in its own .anim file: that file, which its track keys point into. */
+	anim: DataView | null;
 }
 
-function findStand(bytes: Uint8Array, md20: number, animation = ANIM_STAND): StandSequence | null {
+/** The index of a model's first variation (sub 0) of an animation, following aliases; -1 if none. */
+function sequenceIndex(view: DataView, md20: number, animation: number): number {
+	const seqCount = view.getUint32(md20 + 0x1c, true);
+	const seqOffset = view.getUint32(md20 + 0x20, true);
+	for (let i = 0; i < seqCount; i++) {
+		const o = md20 + seqOffset + i * SEQUENCE_SIZE;
+		if (view.getUint16(o, true) !== animation || view.getUint16(o + 2, true) !== 0) continue;
+		// An alias plays another sequence (aliasNext, at 0x3e); a few hops at most.
+		let at = i;
+		for (let hop = 0; hop < 4; hop++) {
+			const a = md20 + seqOffset + at * SEQUENCE_SIZE;
+			if (!(view.getUint32(a + 12, true) & SEQ_ALIAS)) return at;
+			const next = view.getUint16(a + 0x3e, true);
+			if (next >= seqCount || next === at) return -1;
+			at = next;
+		}
+		return -1;
+	}
+	return -1;
+}
+
+/**
+ * A sequence's bone tracks. One kept in a separate .anim file needs that file's bytes (see
+ * animationFile); without them, null.
+ */
+export function findSequence(bytes: Uint8Array, md20: number, animation: number, animFile?: Uint8Array | null): Sequence | null {
 	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	const u32 = (o: number) => view.getUint32(md20 + o, true);
 	const boneCount = u32(0x2c);
 	if (!boneCount) return null;
-	const seqCount = u32(0x1c);
-	const seqOffset = u32(0x20);
-	for (let i = 0; i < seqCount; i++) {
-		const o = md20 + seqOffset + i * SEQUENCE_SIZE;
-		// Flag 0x20: the sequence's keys are in this file rather than a separate .anim.
-		if (view.getUint16(o, true) === animation && view.getUint16(o + 2, true) === 0 && view.getUint32(o + 12, true) & 0x20) {
-			const loops = Array.from({ length: u32(0x14) }, (_, k) => view.getUint32(md20 + u32(0x18) + k * 4, true));
-			return { view, md20, seq: i, duration: view.getUint32(o + 4, true), boneCount, boneOffset: u32(0x30), globalLoops: loops };
-		}
-	}
-	return null;
+	const i = sequenceIndex(view, md20, animation);
+	if (i < 0) return null;
+	const o = md20 + u32(0x20) + i * SEQUENCE_SIZE;
+	const embedded = (view.getUint32(o + 12, true) & SEQ_EMBEDDED) !== 0;
+	if (!embedded && !animFile) return null;
+	const loops = Array.from({ length: u32(0x14) }, (_, k) => view.getUint32(md20 + u32(0x18) + k * 4, true));
+	return {
+		view, md20, seq: i, duration: view.getUint32(o + 4, true), boneCount, boneOffset: u32(0x30), globalLoops: loops,
+		anim: embedded ? null : new DataView(animFile!.buffer, animFile!.byteOffset, animFile!.byteLength),
+	};
 }
 
 /**
- * A track's value at time t (ms) in the Stand sequence (or its own global sequence), linearly
- * interpolated between keys. read(offset) decodes one value; lerp mixes two.
+ * The .anim file an animation's keys are kept in (from the AFID chunk), or 0 when they're in
+ * the model itself, or the model doesn't have the animation.
  */
-function sampleTrack<T>(s: StandSequence, track: number, t: number, size: number, read: (o: number) => T, lerp: (a: T, b: T, f: number) => T): T | null {
+export function animationFile(bytes: Uint8Array, md20: number, animation: number): number {
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const i = sequenceIndex(view, md20, animation);
+	if (i < 0) return 0;
+	const o = md20 + view.getUint32(md20 + 0x20, true) + i * SEQUENCE_SIZE;
+	if (view.getUint32(o + 12, true) & SEQ_EMBEDDED) return 0;
+	// An alias's target can be another animation: look up its own id and variation.
+	const id = view.getUint16(o, true);
+	const sub = view.getUint16(o + 2, true);
+	// Only chunked (MD21) files have the chunk; a plain MD20 has no chunk headers to walk.
+	if (view.getUint32(0, true) !== MD21) return 0;
+	for (let p = 0; p + 8 <= bytes.length;) {
+		const size = view.getUint32(p + 4, true);
+		if (view.getUint32(p, true) === AFID) {
+			for (let k = 0; k + 8 <= size; k += 8) {
+				if (view.getUint16(p + 8 + k, true) === id && view.getUint16(p + 10 + k, true) === sub) return view.getUint32(p + 12 + k, true);
+			}
+			return 0;
+		}
+		p += 8 + size;
+	}
+	return 0;
+}
+
+/** The animations (AnimationData IDs) a model has, embedded or in .anim files. */
+export function animationIds(bytes: Uint8Array, md20: number): number[] {
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const seqCount = view.getUint32(md20 + 0x1c, true);
+	const seqOffset = view.getUint32(md20 + 0x20, true);
+	const ids = new Set<number>();
+	for (let i = 0; i < seqCount; i++) ids.add(view.getUint16(md20 + seqOffset + i * SEQUENCE_SIZE, true));
+	return [...ids].sort((a, b) => a - b);
+}
+
+function findStand(bytes: Uint8Array, md20: number, animation = ANIM_STAND): Sequence | null {
+	return findSequence(bytes, md20, animation);
+}
+
+/**
+ * A track's value at time t (ms) in a sequence (or its own global sequence), linearly
+ * interpolated between keys. read(view, offset) decodes one value; lerp mixes two.
+ */
+function sampleTrack<T>(s: Sequence, track: number, t: number, size: number, read: (view: DataView, o: number) => T, lerp: (a: T, b: T, f: number) => T): T | null {
 	const { view, md20 } = s;
 	const globalSeq = view.getInt16(track + 2, true);
 	const index = globalSeq >= 0 ? 0 : s.seq;
@@ -54,8 +129,14 @@ function sampleTrack<T>(s: StandSequence, track: number, t: number, size: number
 	const valueArr = md20 + view.getUint32(track + 16, true) + index * 8;
 	const count = Math.min(view.getUint32(timeArr, true), view.getUint32(valueArr, true));
 	if (!count) return null;
-	const timeAt = (k: number) => view.getUint32(md20 + view.getUint32(timeArr + 4, true) + k * 4, true);
-	const valueAt = (k: number) => read(md20 + view.getUint32(valueArr + 4, true) + k * size);
+	// A sequence in a .anim file has its keys there, at offsets from the start of that file.
+	const keys = globalSeq < 0 && s.anim ? s.anim : view;
+	const base = keys === view ? md20 : 0;
+	const timeOffset = base + view.getUint32(timeArr + 4, true);
+	const valueOffset = base + view.getUint32(valueArr + 4, true);
+	if (timeOffset + count * 4 > keys.byteLength || valueOffset + count * size > keys.byteLength) return null;
+	const timeAt = (k: number) => keys.getUint32(timeOffset + k * 4, true);
+	const valueAt = (k: number) => read(keys, valueOffset + k * size);
 	if (count === 1) return valueAt(0);
 	if (globalSeq >= 0) {
 		const loop = s.globalLoops[globalSeq] || timeAt(count - 1) || 1;
@@ -81,19 +162,19 @@ const nlerp = (a: Quat, b: Quat, f: number): Quat => {
 	return q.map((v) => v / len) as Quat;
 };
 
-/** Bone matrices (bind space -> posed model space) at time t (ms) of the Stand sequence. */
-function poseAt(s: StandSequence, t: number): Mat4[] {
+const readVec = (view: DataView, o: number): Vec3 => [view.getFloat32(o, true), view.getFloat32(o + 4, true), view.getFloat32(o + 8, true)];
+const readQuat = (view: DataView, o: number): Quat => [0, 2, 4, 6].map((k) => compQuat(view.getInt16(o + k, true))) as Quat;
+
+/** Bone matrices (bind space -> posed model space) at time t (ms) of a sequence. */
+export function poseAt(s: Sequence, t: number): Mat4[] {
 	const { view } = s;
-	const f = (at: number) => view.getFloat32(at, true);
-	const readVec = (o: number): Vec3 => [f(o), f(o + 4), f(o + 8)];
-	const readQuat = (o: number): Quat => [0, 2, 4, 6].map((k) => compQuat(view.getInt16(o + k, true))) as Quat;
 
 	const local: Mat4[] = [];
 	const parents: number[] = [];
 	for (let b = 0; b < s.boneCount; b++) {
 		const o = s.md20 + s.boneOffset + b * BONE_SIZE;
 		parents.push(view.getInt16(o + 8, true));
-		const pivot = readVec(o + 76);
+		const pivot = readVec(view, o + 76);
 		const tr = sampleTrack(s, o + 16, t, 12, readVec, lerp3);
 		const rot = sampleTrack(s, o + 36, t, 8, readQuat, nlerp);
 		const sc = sampleTrack(s, o + 56, t, 12, readVec, lerp3);
@@ -166,9 +247,16 @@ const MAX_FRAMES = 64;
  */
 export function standAnimation(bytes: Uint8Array, md20: number, walk = false): BoneAnimation | null {
 	const stand = findStand(bytes, md20);
-	if (!stand || stand.duration < 50) return null;
+	return stand && loopAnimation(stand, walk ? findStand(bytes, md20, ANIM_WALK) : null);
+}
+
+/**
+ * Samples a loop (and a walk, for creatures that roam) for GPU skinning. Returns null when
+ * nothing would move (then the model is drawn in its static first-frame pose instead).
+ */
+export function loopAnimation(stand: Sequence, walkSeq: Sequence | null): BoneAnimation | null {
+	if (stand.duration < 50) return null;
 	const standLoop = sampleLoop(stand);
-	const walkSeq = walk ? findStand(bytes, md20, ANIM_WALK) : null;
 	const walkLoop = walkSeq && walkSeq.duration >= 50 ? sampleLoop(walkSeq) : null;
 	if (!standLoop.moving && !walkLoop) return null;
 	const standClip = { row: 0, frames: standLoop.frames, duration: stand.duration / 1000 };
@@ -180,7 +268,7 @@ export function standAnimation(bytes: Uint8Array, md20: number, walk = false): B
 }
 
 /** One loop's frames, and whether anything in it moves. */
-function sampleLoop(s: StandSequence): { frames: number; data: Float32Array; moving: boolean } {
+function sampleLoop(s: Sequence): { frames: number; data: Float32Array; moving: boolean } {
 	const frames = Math.max(2, Math.min(MAX_FRAMES, Math.round((s.duration / 1000) * SAMPLES_PER_SECOND)));
 	const data = new Float32Array(frames * s.boneCount * 12);
 	let moving = false;

@@ -89,7 +89,7 @@ interface PlacedObject {
 	/** Model entries and instance keys this object contributed. */
 	parts: { entry: ModelEntry; key: string }[];
 	/** WMO doodad instances, kept apart so they can come and go with detail. */
-	doodadParts: { entry: ModelEntry; key: string }[];
+	doodadParts: { entry: ModelEntry; key: string; local: THREE.Matrix4 }[];
 	/** Creatures that walk (waypoints or wandering); moves matrix in place. */
 	mover?: Mover;
 }
@@ -122,6 +122,11 @@ export class ObjectManager {
 	private readonly models = new Map<string, ModelEntry>();
 	private readonly objects = new Map<string, PlacedObject>();
 	private readonly tiles = new Map<string, TileRecord>();
+	/**
+	 * Spawns changed in the editor, by their tiles' key for them (wdt:kind:uid): the placement
+	 * to draw instead, or null when deleted. Tiles skip their own copies of these.
+	 */
+	private readonly edits = new Map<string, Placement | null>();
 	private readonly queue: ModelEntry[] = [];
 	private requests = 0;
 	private readonly textures: TextureCache;
@@ -173,7 +178,8 @@ export class ObjectManager {
 		const wanted = new Map<string, Placement>();
 		if (tile.placements && tile.level !== 'none') {
 			for (const p of tile.placements) {
-				if (detail || p.kind === 'wmo') wanted.set(`${tile.wdt}:${p.kind}:${p.uid}`, p);
+				const key = `${tile.wdt}:${p.kind}:${p.uid}`;
+				if ((detail || p.kind === 'wmo') && !this.edits.has(key)) wanted.set(key, p);
 			}
 		}
 		for (const [key, p] of wanted) {
@@ -191,6 +197,54 @@ export class ObjectManager {
 			this.release(key);
 		}
 		if (tile.level === 'none' && tile.placements) this.tiles.delete(tileKey);
+	}
+
+	/**
+	 * Draws an edited spawn from its new placement (null: not at all), in place of the tile's
+	 * copy, or (undefined) hands it back to its tile. offset moves continent space into the world.
+	 */
+	setEdit(wdt: number, offset: THREE.Vector3, kind: Kind, uid: number, placement: Placement | null | undefined): void {
+		const key = `${wdt}:${kind}:${uid}`;
+		const editKey = `edit:${key}`;
+		const before = this.edits.get(key);
+		const object = this.objects.get(editKey);
+		const toWorld = new THREE.Matrix4().makeTranslation(offset.x, offset.y, offset.z);
+		const part = object?.parts[0];
+		if (object && part && placement && part.entry === this.models.get(`${kind}:${placement.fdid}:${placement.variant ?? ''}`)) {
+			// The same model: just move it (every frame while it's dragged).
+			object.placement = placement;
+			object.matrix.copy(toWorld).multiply(new THREE.Matrix4().fromArray(placement.matrix));
+			part.entry.dirty = true;
+			// A building's furniture goes with it.
+			for (const d of object.doodadParts) {
+				d.entry.instances.get(d.key)?.copy(object.matrix).multiply(d.local);
+				d.entry.dirty = true;
+			}
+			this.edits.set(key, placement);
+			return;
+		}
+		if (object) this.release(editKey);
+		if (placement === undefined) this.edits.delete(key);
+		else this.edits.set(key, placement);
+		if (placement) {
+			this.acquire(editKey, placement, toWorld);
+			// Edited buildings always show their furniture, however far their tile is.
+			if (kind === 'wmo') this.changeDetail(editKey, 1);
+		}
+		// Tiles drop or take back their own copy.
+		if ((before === undefined) !== (placement === undefined)) {
+			for (const [tileKey, tile] of this.tiles) if (tile.wdt === wdt) this.apply(tileKey, tile);
+		}
+	}
+
+	/** Where an NPC, object or model is drawn (edited or not) and its model's radius and height, if it's placed. */
+	spawnAt(wdt: number, kind: Kind, uid: number): { matrix: THREE.Matrix4; radius: number; height: number; animations?: number[] } | null {
+		const key = `${wdt}:${kind}:${uid}`;
+		const object = this.objects.get(`edit:${key}`) ?? this.objects.get(key);
+		const entry = object?.parts[0]?.entry;
+		if (!object || !entry) return null;
+		const ready = entry.state === 'ready' && entry.data;
+		return { matrix: object.matrix, radius: ready ? entry.radius : 1, height: ready ? entry.data!.height : 2, animations: ready ? entry.data!.animations : undefined };
 	}
 
 	private acquire(key: string, p: Placement, toWorld: THREE.Matrix4): void {
@@ -241,8 +295,9 @@ export class ObjectManager {
 		let i = 0;
 		for (const s of chosen) {
 			for (const d of sets[s]?.doodads ?? []) {
-				const matrix = object.matrix.clone().multiply(new THREE.Matrix4().fromArray(d.matrix));
-				object.doodadParts.push(this.addInstance('m2', d.fdid, `${key}:${i++}`, matrix));
+				const local = new THREE.Matrix4().fromArray(d.matrix);
+				const matrix = object.matrix.clone().multiply(local);
+				object.doodadParts.push({ ...this.addInstance('m2', d.fdid, `${key}:${i++}`, matrix), local });
 			}
 		}
 	}
@@ -256,6 +311,8 @@ export class ObjectManager {
 
 	private removeInstance(part: { entry: ModelEntry; key: string }): void {
 		part.entry.instances.delete(part.key);
+		// Until the next flush, collision and the movers walk the visible set: it mustn't name it.
+		part.entry.visible.delete(part.key);
 		part.entry.dirty = true;
 	}
 	private entry(kind: Kind, fdid: number, variant?: string): ModelEntry {
@@ -813,18 +870,41 @@ export class ObjectManager {
 		return offset;
 	}
 
+	/** How far along a ray it first meets a building (WMO), or null. */
+	raycastBuildings(from: THREE.Vector3, direction: THREE.Vector3, far: number): number | null {
+		return this.castBuildings(from, direction, far)?.distance ?? null;
+	}
+
 	/** The creature or game object spawn nearest along a ray, if any. */
 	pick(raycaster: THREE.Raycaster): { info: SpawnInfo; distance: number } | null {
-		let best: { info: SpawnInfo; distance: number } | null = null;
+		const hit = this.pickPlaced(raycaster);
+		return hit?.placement.spawn ? { info: hit.placement.spawn, distance: hit.distance } : null;
+	}
+
+	/**
+	 * The placed thing nearest along a ray: NPCs and game objects, and with props the map's own
+	 * models (closer than propRange), with buildings its buildings too. A building's furniture
+	 * isn't placed on its own, so it can't be picked.
+	 */
+	pickPlaced(raycaster: THREE.Raycaster, props = false, buildings = false, propRange = Infinity): { placement: Placement; wdt: number; distance: number } | null {
+		let best: { placement: Placement; wdt: number; distance: number } | null = null;
+		const far = raycaster.far;
 		for (const entry of this.models.values()) {
-			if (!entry.mesh?.visible || (entry.kind !== 'creature' && entry.kind !== 'object')) continue;
+			if (!entry.mesh?.visible) continue;
+			const spawn = entry.kind === 'creature' || entry.kind === 'object';
+			if (!spawn && !(entry.kind === 'm2' ? props : buildings)) continue;
+			raycaster.far = spawn ? far : Math.min(far, propRange);
 			for (const hit of raycaster.intersectObject(entry.mesh, false)) {
-				if (hit.instanceId === undefined) continue;
-				const info = this.objects.get(entry.drawnKeys[hit.instanceId])?.placement.spawn;
-				if (info && (!best || hit.distance < best.distance)) best = { info, distance: hit.distance };
-				break; // hits are sorted; the first is this model's nearest
+				if (hit.instanceId === undefined || (best && hit.distance >= best.distance)) break;
+				const key = entry.drawnKeys[hit.instanceId];
+				const object = this.objects.get(key);
+				if (!object || (spawn && !object.placement.spawn)) continue;
+				// Keys are wdt:kind:uid, or edit:wdt:kind:uid.
+				best = { placement: object.placement, wdt: Number(key.replace(/^edit:/, '').split(':')[0]), distance: hit.distance };
+				break; // hits are sorted; the first placed one is this model's nearest
 			}
 		}
+		raycaster.far = far;
 		return best;
 	}
 

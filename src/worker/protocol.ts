@@ -6,7 +6,8 @@ import type { LiquidLooks, LockKind } from '../explorer/clientDb';
 import type { MusicData, WmoArea } from '../explorer/music';
 import type { Place } from '../explorer/places';
 import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
-import type { FarTile, InstanceMap, LoadedTexture, MapListing, NearTile, TileTexture } from '../explorer/world';
+import type { FarTile, InstanceMap, LoadedTexture, MapListing, NearTile, TemplateListing, TileTexture } from '../explorer/world';
+import type { SpawnInfo } from '../explorer/spawns';
 import type { Image } from '../formats/blp';
 
 export type SourceInit =
@@ -41,6 +42,10 @@ export interface StorageApi {
 	wmoArea(wmoId: number, nameSet: number, groupId: number): WmoArea | null;
 	loadSound(fdid: number): Uint8Array;
 	loadFont(fdid: number): Uint8Array;
+	/** Every creature and game object template, for placing new ones. */
+	listTemplates(): TemplateListing;
+	/** A new spawn of a template on a map (positioned at the origin). */
+	templateSpawn(type: 'npc' | 'object', entry: number, mapId: number, guid: number): SpawnInfo | null;
 }
 
 export type AsyncStorageApi = {

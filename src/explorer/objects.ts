@@ -3,7 +3,10 @@ import { MeshBVH } from 'three-mesh-bvh';
 import type { CascStorage } from '../casc/storage';
 import { chunks } from '../formats/chunks';
 import { Blend, M2_MATERIAL_TWO_SIDED, M2_MATERIAL_UNFOGGED, M2_MATERIAL_UNLIT, parseM2, parseSkin, type M2File, type M2Skin } from '../formats/m2';
-import { attachmentPoints, skinVertex, standAnimation, standPose, type AnimationClip, type AttachmentPoint, type BoneAnimation } from '../formats/m2Pose';
+import {
+	animationFile, animationIds, attachmentPoints, findSequence, loopAnimation, poseAt, skinVertex, standAnimation, standPose,
+	type AnimationClip, type AttachmentPoint, type BoneAnimation, type Sequence,
+} from '../formats/m2Pose';
 import { parseParticleEmitters, type ParticleEmitter } from '../formats/m2Particles';
 import {
 	parseWmoGroup, parseWmoRoot, WMO_GROUP_INTERIOR, WMO_LIQUID_CELL, type WmoGroup, visibleWmoGroups, WMO_MATERIAL_TWO_SIDED, WMO_MATERIAL_UNFOGGED, WMO_MATERIAL_UNLIT,
@@ -82,6 +85,8 @@ export interface ModelData {
 	areas?: WmoAreas;
 	/** M2 particle emitters (fire, smoke, sparks), including those of worn gear. */
 	emitters?: ParticleEmitter[];
+	/** Creatures: the animations (AnimationData IDs) the model has, for choosing a pose. */
+	animations?: number[];
 	/** WMOs only: a serialised ray-cast acceleration structure (three-mesh-bvh, indirect), for line of sight. */
 	bvh?: { version: number; roots: ArrayBuffer[]; indirectBuffer: Uint32Array | Uint16Array | null };
 }
@@ -196,6 +201,8 @@ export interface M2Options {
 	geosets?: number[];
 	/** Pose the mesh with the first frame of its Stand animation instead of the bind pose. */
 	stand?: boolean;
+	/** With stand: another animation to play in place of Stand (sitting, sleeping, an emote...). */
+	pose?: number;
 	/** Gear models to draw at the model's attachment points. */
 	attachments?: GearAttachment[];
 }
@@ -225,6 +232,46 @@ interface PreparedM2 {
 	boneIndex: Uint16Array | null;
 	boneWeight: Uint8Array | null;
 	emitters: ParticleEmitter[];
+	/** Animations the model has (stood models only). */
+	animations: number[] | undefined;
+}
+
+/** AnimationData IDs for poses that need special handling. */
+const ANIM_DEATH = 1;
+const ANIM_DEAD = 6;
+/** Poses a model may lack, and what to show instead: chairs of other heights, then the ground. */
+const POSE_FALLBACKS: Record<number, number[]> = {
+	102: [103, 97], // sit in a low chair
+	104: [103, 97], // high chair
+	103: [102, 104, 97], // medium chair
+	115: [75], // kneel: the kneel emote
+	122: [61], // eating loop: the eat emote
+	123: [63], // using something: the emote
+};
+
+/**
+ * The sequence for a pose, reading its .anim file when it has one. Lying dead falls back to
+ * the end of Death (falling over), held. Null when the model has none of them: then it stands.
+ */
+async function poseSequence(storage: CascStorage, bytes: Uint8Array, md20: number, pose: number): Promise<{ seq: Sequence; hold?: number } | null> {
+	const find = async (id: number) => {
+		const file = animationFile(bytes, md20, id);
+		if (file && storage.status(file) !== 'ok') return null;
+		try {
+			return findSequence(bytes, md20, id, file ? await storage.readFile(file) : null);
+		} catch {
+			return null;
+		}
+	};
+	for (const id of [pose, ...(POSE_FALLBACKS[pose] ?? [])]) {
+		const seq = await find(id);
+		if (seq) return { seq };
+	}
+	if (pose === ANIM_DEAD) {
+		const death = await find(ANIM_DEATH);
+		if (death) return { seq: death, hold: Math.max(0, death.duration - 1) };
+	}
+	return null;
 }
 
 /**
@@ -235,8 +282,8 @@ const preparedM2 = new Map<string, Promise<PreparedM2>>();
 const PREPARED_M2_LIMIT = 600;
 
 /** file: the M2's bytes, when the caller has already read them. */
-function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Uint8Array): Promise<PreparedM2> {
-	const key = `${fdid}:${stand ? 1 : 0}`;
+function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Uint8Array, pose = 0): Promise<PreparedM2> {
+	const key = `${fdid}:${stand ? 1 : 0}:${pose}`;
 	let entry = preparedM2.get(key);
 	if (entry) {
 		// Refresh its place in the least-recently-used order.
@@ -256,9 +303,11 @@ function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Ui
 		const uvs = new Float32Array(n * 2);
 		const v = new DataView(vertices.buffer, vertices.byteOffset, vertices.byteLength);
 		// Moving models are skinned on the GPU from bind space; still ones are posed here once.
-		// Creatures (posed standing) also get their walk, for those that roam.
-		const animation = standAnimation(bytes, m2.md20, stand);
-		const bones = !animation && stand ? standPose(bytes, m2.md20) : null;
+		// Creatures (posed standing) also get their walk, for those that roam; or another pose.
+		const posed = stand && pose ? await poseSequence(storage, bytes, m2.md20, pose) : null;
+		const animation = posed ? (posed.hold === undefined ? loopAnimation(posed.seq, null) : null) : standAnimation(bytes, m2.md20, stand);
+		const firstFrame = () => (posed ? poseAt(posed.seq, posed.hold ?? 0) : standPose(bytes, m2.md20));
+		const bones = !animation && stand ? firstFrame() : null;
 		const boneIndex = animation ? new Uint16Array(n * 4) : null;
 		const boneWeight = animation ? new Uint8Array(n * 4) : null;
 		for (let i = 0; i < n; i++) {
@@ -284,8 +333,12 @@ function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Ui
 		return {
 			m2, skin, positions, normals, uvs, indices: Uint32Array.from(skin.indices),
 			// Animated bodies still need the resting frames, for held items' particles.
-			attachments: attachmentPoints(bytes, m2.md20, bones ?? (animation ? standPose(bytes, m2.md20) : null)), animation, boneIndex, boneWeight,
+			attachments: attachmentPoints(bytes, m2.md20, bones ?? (animation ? firstFrame() : null)), animation, boneIndex, boneWeight,
 			emitters: parseParticleEmitters(bytes, m2.md20, m2.textures.map((t) => t.fdid)),
+			animations: stand ? animationIds(bytes, m2.md20).filter((id) => {
+				const f = animationFile(bytes, m2.md20, id);
+				return !f || storage.status(f) === 'ok';
+			}) : undefined,
 		};
 	})();
 	entry.catch(() => preparedM2.delete(key));
@@ -339,7 +392,7 @@ function dressM2(prepared: PreparedM2, options: M2Options) {
 const brokenGear = new Set<number>();
 
 export async function loadM2(storage: CascStorage, fdid: number, options: M2Options = {}, file?: Uint8Array): Promise<ModelData> {
-	const prepared = await prepareM2(storage, fdid, !!options.stand, file);
+	const prepared = await prepareM2(storage, fdid, !!options.stand, file, options.stand ? options.pose ?? 0 : 0);
 	const animated = prepared.animation !== null;
 	// rest: where the part sits in the resting pose, for its particle emitters.
 	const parts: { prepared: PreparedM2; batches: ModelBatch[]; transform: Mat4 | null; rest: Mat4 | null; bone: number }[] = [
@@ -428,12 +481,15 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 	})));
 	return {
 		fdid, positions, normals, uvs, baked: null, indices: packed.indices, batches: mergeBatches(packed.batches),
-		radius: prepared.m2.bounds.radius || boundingRadius(positions), height: topOf(positions, packed.indices, packed.batches),
+		radius: prepared.m2.bounds.radius || boundingRadius(positions), height: anim && boneIndex && boneWeight
+			? posedTop(positions, packed.indices, packed.batches, boneIndex, boneWeight, anim.data)
+			: topOf(positions, packed.indices, packed.batches),
 		// The bone data is shared by every look of this model, so it's keyed for reuse on the GPU.
 		animation: anim && boneIndex && boneWeight
-			? { key: `m2:${fdid}`, bones: anim.bones, clips: anim.clips, data: anim.data.slice(), boneIndex, boneWeight }
+			? { key: `m2:${fdid}:${options.pose ?? 0}`, bones: anim.bones, clips: anim.clips, data: anim.data.slice(), boneIndex, boneWeight }
 			: undefined,
 		emitters: emitters.length ? emitters : undefined,
+		animations: prepared.animations?.slice(),
 	};
 }
 /** file: the root file's bytes, when the caller has already read them. */
@@ -542,6 +598,31 @@ function topOf(positions: Float32Array, indices?: Uint32Array, batches?: ModelBa
 	}
 	for (const b of batches) {
 		for (let i = b.start; i < b.start + b.count; i++) top = Math.max(top, positions[indices[i] * 3 + 2]);
+	}
+	return top;
+}
+
+/**
+ * Top of an animated model in the first frame of its loop, where the vertices are in bind space:
+ * a sitting or sleeping NPC is lower than its bind pose. data rows are 3x4 bone matrices.
+ */
+function posedTop(positions: Float32Array, indices: Uint32Array, batches: ModelBatch[], boneIndex: Uint16Array, boneWeight: Uint8Array, data: Float32Array): number {
+	let top = 0;
+	for (const b of batches) {
+		for (let i = b.start; i < b.start + b.count; i++) {
+			const v = indices[i];
+			const x = positions[v * 3], y = positions[v * 3 + 1], z = positions[v * 3 + 2];
+			let pz = 0, total = 0;
+			for (let k = 0; k < 4; k++) {
+				const w = boneWeight[v * 4 + k] / 255;
+				if (!w) continue;
+				// Row 2 (z) of the bone's matrix, in frame 0.
+				const o = boneIndex[v * 4 + k] * 12 + 8;
+				pz += w * (data[o] * x + data[o + 1] * y + data[o + 2] * z + data[o + 3]);
+				total += w;
+			}
+			top = Math.max(top, total ? pz / total : z);
+		}
 	}
 	return top;
 }

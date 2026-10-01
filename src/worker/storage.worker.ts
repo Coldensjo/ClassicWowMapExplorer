@@ -100,6 +100,12 @@ const api: AsyncStorageApi = {
 	async loadSound(fdid) {
 		return requireWorld().loadSound(fdid);
 	},
+	async listTemplates() {
+		return requireWorld().listTemplates();
+	},
+	async templateSpawn(type, entry, mapId, guid) {
+		return requireWorld().templateSpawn(type, entry, mapId, guid);
+	},
 };
 
 /** Collects typed-array buffers in a result so they move to the main thread instead of being copied. */

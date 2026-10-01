@@ -8,6 +8,7 @@ import type { AreaInfo } from '../explorer/lighting';
 import type { WmoArea } from '../explorer/music';
 import type { Place } from '../explorer/places';
 import type { SpawnInfo } from '../explorer/spawns';
+import { SpawnEditor } from './spawnEditor';
 import { FlyControls } from './flyControls';
 import { Highlights, type HighlightSettings } from './highlights';
 import { MapLabels } from './mapLabels';
@@ -161,6 +162,8 @@ export interface ViewSettings {
 	side: Side;
 	/** Names over the dungeons and other maps laid out in the sea (I). */
 	mapNames: boolean;
+	/** Names over NPCs' heads. */
+	npcNames: boolean;
 	/** Turning glides after the mouse rather than following it at once (J). */
 	cinematic: boolean;
 	/** The game's colour grading for each zone and time of day (B). */
@@ -261,6 +264,8 @@ export class Viewer {
 	private readonly controls: FlyControls;
 	private terrain!: TerrainManager;
 	private objects!: ObjectManager;
+	/** Moving, copying and deleting NPCs and objects; there once load() has run. */
+	editor!: SpawnEditor;
 	/** Grass, flowers and pebbles near the camera (V toggles). */
 	private clutter!: ClutterManager;
 	private readonly fog = new THREE.Fog(SKY, 1000, 8000);
@@ -420,6 +425,7 @@ export class Viewer {
 
 	/** Clicking a creature or object opens its info (releasing the mouse); elsewhere captures the mouse. */
 	private onClick(e: MouseEvent): void {
+		if (this.editor?.active) return; // the editor has the mouse
 		const hit = this.pickAt(e);
 		if (hit) {
 			if (this.controls.locked) document.exitPointerLock();
@@ -430,7 +436,7 @@ export class Viewer {
 	}
 
 	private onHover(e: MouseEvent): void {
-		if (this.controls.locked || performance.now() - this.lastHover < 80) return;
+		if (this.controls.locked || this.editor?.active || performance.now() - this.lastHover < 80) return;
 		this.lastHover = performance.now();
 		this.canvas.style.cursor = this.pickAt(e) ? 'pointer' : '';
 	}
@@ -460,6 +466,7 @@ export class Viewer {
 			collision: !this.controls.ghost,
 			side: this.side,
 			mapNames: this.mapLabels?.enabled ?? false,
+			npcNames: this.npcNamesOn,
 			cinematic: this.controls.cinematic,
 			grading: this.post.gradingOn,
 			shadows: this.sun.castShadow,
@@ -478,6 +485,7 @@ export class Viewer {
 		if (next.collision !== undefined) this.controls.ghost = !next.collision;
 		if (next.side) this.side = next.side;
 		if (next.mapNames !== undefined && this.mapLabels) this.mapLabels.enabled = next.mapNames;
+		if (next.npcNames !== undefined) this.npcNamesOn = next.npcNames;
 		if (next.cinematic !== undefined) this.controls.cinematic = next.cinematic;
 		if (next.grading !== undefined) this.post.gradingOn = next.grading;
 		if (next.shadows !== undefined) this.sun.castShadow = next.shadows;
@@ -549,6 +557,18 @@ export class Viewer {
 		this.clutter = new ClutterManager(this.storage, this.usesCompressedTextures, anisotropy, prepare);
 		this.terrain.clutter = this.clutter;
 		this.scene.add(this.terrain.group, this.objects.group, this.clutter.group);
+		this.editor = new SpawnEditor({
+			canvas: this.canvas,
+			camera: this.camera,
+			scene: this.scene,
+			objects: this.objects,
+			mapPlacement: (mapId) => this.continents.find((c) => c.mapId === mapId) ?? this.loadedInstances.get(mapId) ?? null,
+			mapAt: (x, z) => this.terrain.locate(x, z)?.continent ?? null,
+			mapOfWdt: (wdt) => this.continents.find((c) => c.wdt === wdt) ?? [...this.loadedInstances.values()].find((c) => c.wdt === wdt) ?? null,
+			templateSpawn: (type, entry, mapId, guid) => this.storage.templateSpawn(type, entry, mapId, guid),
+			heightAt: (x, z) => this.terrain.heightAt(x, z),
+			lockLook: () => this.controls.lock(),
+		});
 
 		const loaded: { map: (typeof KNOWN_MAPS)[number]; tiles: FarTile[] }[] = [];
 		for (const map of KNOWN_MAPS) {
@@ -559,6 +579,8 @@ export class Viewer {
 		loaded.forEach(({ tiles }, i) => this.terrain.addContinent(this.continents[i], tiles));
 		onStatus('Placing dungeons and other maps');
 		await this.placeMaps();
+		// Saved edits, now that every map has its place.
+		void this.editor.load();
 		this.terrain.buildSeaMask();
 		this.addOcean();
 
@@ -874,10 +896,8 @@ export class Viewer {
 
 	private onKey(e: KeyboardEvent): void {
 		if (isTyping(e) || !this.terrain) return;
-		if (e.code === 'KeyP') {
-			if (this.shot) this.endShot();
-			else this.startShot();
-		} else if (e.code === 'Escape' && this.shot) this.endShot();
+		if (e.code === 'KeyP') this.toggleShot();
+		else if (e.code === 'Escape' && this.shot) this.endShot();
 		else if (e.code === 'KeyO') this.overview();
 		else if (e.code === 'KeyR') this.controls.flyTo(this.startPosition(), 0, -0.3, 2.5);
 		else if (e.code.startsWith('Digit')) this.goToContinent(Number(e.code.slice(5)) - 1);
@@ -969,10 +989,16 @@ export class Viewer {
 
 	private plates: Plate[] = [];
 	private lastPlateScan = 0;
+	private npcNamesOn = true;
 
 	/** Rescans nearby NPCs a few times a second; re-projects their names every frame. */
 	private updateNameplates(now: number): void {
 		if (!this.nameplates) return;
+		if (!this.npcNamesOn) {
+			this.plates.length = 0;
+			this.nameplates.update(this.plates, this.camera, this.canvas.clientWidth, this.canvas.clientHeight, this.side, NAMEPLATE_RANGE);
+			return;
+		}
 		if (now - this.lastPlateScan > 150) {
 			this.lastPlateScan = now;
 			this.objects.nameplates(this.camera.position, NAMEPLATE_RANGE, this.plates);
@@ -1048,6 +1074,7 @@ export class Viewer {
 			this.lastLodUpdate = now;
 			perf.time('lod.update', () => this.terrain.update(pos));
 		}
+		this.editor.update();
 		perf.time('objects.update', () => this.objects.update(now, pos));
 		this.clutter.update(now, pos, this.terrain.surfaceAt(pos.x, pos.z));
 		// Under water the surface is seen from below, where its depth isn't used.
@@ -1092,6 +1119,12 @@ export class Viewer {
 	 * Starts a screenshot of the current view: the tiles in it load in full, with every tree, prop,
 	 * tuft of grass and particle effect on them however far off, and once they have the picture is saved (see updateShot).
 	 */
+	/** Starts a screenshot (P), or stops the one being prepared. */
+	toggleShot(): void {
+		if (this.shot) this.endShot();
+		else this.startShot();
+	}
+
 	private startShot(): void {
 		if (this.controls.locked) document.exitPointerLock();
 		const tiles = this.terrain.holdInView(this.camera, SHOT_TILES);

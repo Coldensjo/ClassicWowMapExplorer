@@ -52,7 +52,125 @@
 	<div id="nameplates" aria-hidden="true"></div>
 	<div id="crosshair" hidden></div>
 
-	<!-- Right: the minimap and Go to, what was clicked, then the settings at the bottom. -->
+	<!-- Top left: the menus. Each opens a panel; switches and sliders keep it open, commands close it. -->
+	<nav id="menubar" hidden aria-label="Menus">
+		<div class="menu">
+			<button class="menu-button" aria-haspopup="true" aria-expanded="false">File</button>
+			<div class="menu-panel" hidden>
+				<div class="menu-heading">Edits to NPCs and objects</div>
+				<button class="menu-item" id="edit-export"><span>Export edits…</span></button>
+				<button class="menu-item" id="edit-import"><span>Import edits…</span></button>
+				<button class="menu-item" id="edit-clear"><span>Clear all edits…</span></button>
+				<input type="file" id="edit-import-file" accept=".json,application/json" hidden>
+				<hr>
+				<button class="menu-item" id="menu-link"><span>Copy link to this view</span></button>
+				<button class="menu-item" id="menu-shot"><span>Screenshot, full detail</span><kbd>P</kbd></button>
+				<button class="menu-item" id="menu-hide"><span>Hide the interface</span><kbd>U</kbd></button>
+			</div>
+		</div>
+		<div class="menu" id="edit-menu">
+			<button class="menu-button" aria-haspopup="true" aria-expanded="false">Edit</button>
+			<div class="menu-panel" id="edit" hidden>
+				<label class="menu-check"><input type="checkbox" id="edit-on"> <span>Edit NPCs and objects</span><kbd>F2</kbd></label>
+				<button class="menu-item" id="menu-place"><span>Place an NPC or object…</span></button>
+				<div class="menu-heading">Clicks pick</div>
+				<label class="menu-check"><input type="checkbox" id="edit-props" checked> <span>The map's props too (trees, crates, fences…)</span></label>
+				<label class="menu-check"><input type="checkbox" id="edit-buildings"> <span>Buildings too</span></label>
+				<hr>
+				<button class="menu-item" id="edit-undo"><span>Undo</span><kbd>Ctrl+Z</kbd></button>
+				<button class="menu-item" id="edit-redo"><span>Redo</span><kbd>Ctrl+Y</kbd></button>
+				<hr>
+				<button class="menu-item" id="menu-duplicate"><span>Duplicate</span><kbd>Ctrl+D</kbd></button>
+				<button class="menu-item" id="menu-delete"><span>Delete</span><kbd>Del</kbd></button>
+				<button class="menu-item" id="menu-reset"><span>Back to the original</span></button>
+				<hr>
+				<div id="edit-count" class="menu-note muted small"></div>
+				<div id="edit-status" class="menu-note muted small"></div>
+			</div>
+		</div>
+		<div class="menu">
+			<button class="menu-button" aria-haspopup="true" aria-expanded="false">View</button>
+			<div class="menu-panel" id="view-panel" hidden>
+				<div class="time-row">
+					<span>Time</span>
+					<input type="range" id="time" min="0" max="1425" step="15" aria-label="Time of day">
+					<output id="time-out"></output>
+					<button id="time-now" title="Back to local time (N)">Now</button>
+				</div>
+				<div class="time-row">
+					<span>Speed</span>
+					<input type="range" id="fly-speed" aria-label="Flying speed" title="Faster: Y · Slower: Shift+Y">
+					<output id="fly-speed-out"></output>
+					<button id="fly-speed-reset" title="Back to normal flying speed">Reset</button>
+				</div>
+				<div class="menu-heading">Camera</div>
+				<label class="menu-check"><input type="checkbox" data-setting="collision"> <span>Collision with walls</span><kbd>G</kbd></label>
+				<label class="menu-check"><input type="checkbox" data-setting="cinematic"> <span>Cinematic camera</span><kbd>J</kbd></label>
+				<label class="menu-check"><input type="checkbox" data-setting="torch"> <span>Torch</span><kbd>L</kbd></label>
+				<div class="menu-heading">Look</div>
+				<label class="menu-check"><input type="checkbox" data-setting="grading"> <span>Colour grading</span><kbd>B</kbd></label>
+				<label class="menu-check"><input type="checkbox" data-setting="shadows"> <span>Shadows</span><kbd>X</kbd></label>
+				<label class="menu-check"><input type="checkbox" data-setting="fog"> <span>Fog and sun shafts</span><kbd>Z</kbd></label>
+				<label class="menu-check"><input type="checkbox" data-setting="clutter"> <span>Grass and flowers</span><kbd>V</kbd></label>
+				<div class="menu-heading">Show</div>
+				<label class="menu-check"><input type="checkbox" data-setting="creatures"> <span>NPCs and monsters</span></label>
+				<label class="menu-check"><input type="checkbox" data-setting="spiritHealers"> <span>Spirit healers</span></label>
+				<label class="menu-check"><input type="checkbox" data-setting="gameObjects"> <span>Objects (chests, herbs, ore, doors…)</span></label>
+				<label class="menu-check"><input type="checkbox" data-setting="npcNames"> <span>Names over NPCs</span></label>
+				<label class="menu-check"><input type="checkbox" data-setting="mapNames"> <span>Dungeon and raid names</span><kbd>I</kbd></label>
+				<label class="menu-check"><span class="menu-check-gap"></span><span>Name colours for <select data-setting="side"><option value="alliance">Alliance</option><option value="horde">Horde</option></select></span><kbd>F</kbd></label>
+				<label class="menu-check"><input type="checkbox" id="stats-on"> <span>Performance stats</span><kbd>K</kbd></label>
+			</div>
+		</div>
+		<div class="menu" id="highlight-menu">
+			<button class="menu-button" aria-haspopup="true" aria-expanded="false">Highlight</button>
+			<div class="menu-panel" id="highlight" hidden>
+				<label class="highlight-on"><input type="checkbox" id="highlight-on"> Highlight <kbd>H</kbd></label>
+				<div id="highlight-groups">
+					<label data-group="chest"><input type="checkbox" value="chest"> Chests</label>
+					<label data-group="herb"><input type="checkbox" value="herb"> Herbs</label>
+					<label data-group="ore"><input type="checkbox" value="ore"> Ore</label>
+					<label data-group="fishing"><input type="checkbox" value="fishing"> Fishing</label>
+				</div>
+				<input id="highlight-query" type="search" placeholder="Find anything by name…" autocomplete="off" spellcheck="false" aria-label="Highlight by name">
+				<div id="highlight-status" class="muted small" aria-live="polite"></div>
+			</div>
+		</div>
+		<div class="menu">
+			<button class="menu-button" aria-haspopup="true" aria-expanded="false">Sound</button>
+			<div class="menu-panel" id="sound" hidden>
+				<label class="check"><input type="checkbox" id="sound-on"> Music and sound <kbd>M</kbd></label>
+				<label>Master <input type="range" min="0" max="100" step="1" data-channel="master"><output></output></label>
+				<label>Music <input type="range" min="0" max="100" step="1" data-channel="music"><output></output></label>
+				<label>Under water <input type="range" min="0" max="100" step="1" data-channel="ambience"><output></output></label>
+				<label>Splashes <input type="range" min="0" max="100" step="1" data-channel="effects"><output></output></label>
+			</div>
+		</div>
+		<div class="menu">
+			<button class="menu-button" aria-haspopup="true" aria-expanded="false">Help</button>
+			<div class="menu-panel" hidden>
+				<button class="menu-item" id="help-hint"><span>Controls</span><kbd>?</kbd></button>
+				<a class="menu-item" href="inspector.html" target="_blank" rel="noopener"><span>Storage inspector</span></a>
+			</div>
+		</div>
+	</nav>
+
+	<!-- Top left, under the menus: finding an NPC or object to place. -->
+	<section id="place" hidden aria-labelledby="place-title">
+		<div class="place-head">
+			<h2 id="place-title">Place</h2>
+			<button id="place-close" class="plain" title="Close" aria-label="Close">×</button>
+		</div>
+		<div class="place-tabs" role="tablist">
+			<button role="tab" data-tab="npc" aria-selected="true">NPCs</button>
+			<button role="tab" data-tab="object" aria-selected="false">Objects</button>
+		</div>
+		<input id="place-query" type="search" placeholder="Find by name or ID…" autocomplete="off" spellcheck="false" aria-label="Find by name or ID">
+		<ul id="place-results"></ul>
+		<p class="muted small">Pick one, then click in the world to put it down. Esc cancels.</p>
+	</section>
+
+	<!-- Right: the minimap and Go to, then what was clicked. -->
 	<div id="side" hidden>
 		<div id="minimap-wrap">
 			<canvas id="minimap" title="Click to fly there · wheel to zoom"></canvas>
@@ -76,61 +194,26 @@
 			<div id="info-sub"></div>
 			<dl id="info-facts"></dl>
 			<div id="info-pages"></div>
+			<div id="info-edit" hidden>
+				<label class="edit-pose">Pose <select id="edit-pose" title="What the NPC is doing: sitting, sleeping, an emote…"></select></label>
+				<div class="edit-fields">
+					<label>X <input type="number" step="0.5" data-place="x"></label>
+					<label>Y <input type="number" step="0.5" data-place="y"></label>
+					<label>Z <input type="number" step="0.1" data-place="z"></label>
+					<label>Facing <input type="number" step="5" data-place="o" title="Degrees, anticlockwise from north"></label>
+					<label>Scale <input type="number" step="0.05" min="0.05" data-place="scale"></label>
+				</div>
+				<div class="edit-buttons">
+					<button id="edit-duplicate" title="Copy it, then click to put the copy down (Ctrl+D)">Duplicate</button>
+					<button id="edit-delete" title="Delete">Delete</button>
+					<button id="edit-reset" title="Back to how the spawn data has it">Reset</button>
+				</div>
+				<div id="edit-badge" class="muted small"></div>
+			</div>
 			<div id="info-links"></div>
-			<p class="small muted">Spawns: VMaNGOS world database (patch 1.12)</p>
+			<p id="info-source" class="small muted">Spawns: VMaNGOS world database (patch 1.12)</p>
 		</aside>
 
-		<div class="spacer"></div>
-
-		<details id="view-panel" class="panel">
-			<summary>View</summary>
-			<div class="time-row">
-				<span>Time</span>
-				<input type="range" id="time" min="0" max="1425" step="15" aria-label="Time of day">
-				<output id="time-out"></output>
-				<button id="time-now" title="Back to local time (N)">Now</button>
-			</div>
-			<div class="time-row">
-				<span>Speed</span>
-				<input type="range" id="fly-speed" aria-label="Flying speed" title="Faster: Y · Slower: Shift+Y">
-				<output id="fly-speed-out"></output>
-				<button id="fly-speed-reset" title="Back to normal flying speed">Reset</button>
-			</div>
-			<label><input type="checkbox" data-setting="torch"> Torch <kbd>L</kbd></label>
-			<label><input type="checkbox" data-setting="clutter"> Grass and flowers <kbd>V</kbd></label>
-			<label><input type="checkbox" data-setting="collision"> Collision with walls <kbd>G</kbd></label>
-			<label><input type="checkbox" data-setting="cinematic"> Cinematic camera <kbd>J</kbd></label>
-			<label><input type="checkbox" data-setting="grading"> Colour grading <kbd>B</kbd></label>
-			<label><input type="checkbox" data-setting="shadows"> Shadows <kbd>X</kbd></label>
-			<label><input type="checkbox" data-setting="fog"> Fog and sun shafts <kbd>Z</kbd></label>
-			<label><input type="checkbox" data-setting="creatures"> NPCs and monsters</label>
-			<label><input type="checkbox" data-setting="spiritHealers"> Spirit healers</label>
-			<label><input type="checkbox" data-setting="gameObjects"> Objects (chests, herbs, ore, doors…)</label>
-			<label><input type="checkbox" data-setting="mapNames"> Dungeon and raid names <kbd>I</kbd></label>
-			<label>Name colours for <select data-setting="side"><option value="alliance">Alliance</option><option value="horde">Horde</option></select> <kbd>F</kbd></label>
-			<label><input type="checkbox" id="stats-on"> Performance stats <kbd>K</kbd></label>
-		</details>
-
-		<details id="sound" class="panel">
-			<summary>Sound</summary>
-			<label class="check"><input type="checkbox" id="sound-on"> Music and sound <kbd>M</kbd></label>
-			<label>Master <input type="range" min="0" max="100" step="1" data-channel="master"><output></output></label>
-			<label>Music <input type="range" min="0" max="100" step="1" data-channel="music"><output></output></label>
-			<label>Under water <input type="range" min="0" max="100" step="1" data-channel="ambience"><output></output></label>
-			<label>Splashes <input type="range" min="0" max="100" step="1" data-channel="effects"><output></output></label>
-		</details>
-
-		<div id="highlight" class="panel">
-			<label class="highlight-on"><input type="checkbox" id="highlight-on"> Highlight <kbd>H</kbd></label>
-			<div id="highlight-groups">
-				<label data-group="chest"><input type="checkbox" value="chest"> Chests</label>
-				<label data-group="herb"><input type="checkbox" value="herb"> Herbs</label>
-				<label data-group="ore"><input type="checkbox" value="ore"> Ore</label>
-				<label data-group="fishing"><input type="checkbox" value="fishing"> Fishing</label>
-			</div>
-			<input id="highlight-query" type="search" placeholder="Find anything by name…" autocomplete="off" spellcheck="false" aria-label="Highlight by name">
-			<div id="highlight-status" class="muted small" aria-live="polite"></div>
-		</div>
 	</div>
 
 	<div id="shot-status" hidden aria-live="polite"></div>
@@ -138,8 +221,6 @@
 	<div id="zone-banner" aria-live="polite"><div id="zone-name"></div><div id="subzone-name"></div></div>
 
 	<div id="notice" role="status" aria-live="polite"></div>
-
-	<button id="help-hint" class="plain" hidden><kbd>?</kbd> Controls</button>
 
 	<div id="help" hidden>
 		<div class="help-card" role="dialog" aria-labelledby="help-title">
@@ -173,6 +254,14 @@
 					<div><kbd>H</kbd> highlight chests, herbs, ore, fishing pools or anything by name</div>
 				</section>
 				<section>
+					<h3>Editing</h3>
+					<div><kbd>F2</kbd> edit NPCs and objects · <kbd>Right</kbd>-drag look around</div>
+					<div>Drag to move · <kbd>Shift</kbd>+drag or <kbd>PgUp</kbd> / <kbd>PgDn</kbd> up and down</div>
+					<div><kbd>Wheel</kbd> while dragging, or <kbd>Alt</kbd>+<kbd>Wheel</kbd>, turn (<kbd>Ctrl</kbd> finer)</div>
+					<div><kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate · <kbd>Del</kbd> delete</div>
+					<div><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd> undo / redo</div>
+				</section>
+				<section>
 					<h3>Screen</h3>
 					<div>Click creatures and objects for their details</div>
 					<div><kbd>P</kbd> screenshot, everything in view in full detail</div>
@@ -180,7 +269,7 @@
 					<div><kbd>?</kbd> or <kbd>F1</kbd> this list</div>
 				</section>
 			</div>
-			<p class="muted small">Everything here is also under View, Sound and Highlight at the bottom right.</p>
+			<p class="muted small">Everything here is also in the menus at the top left.</p>
 		</div>
 	</div>
 

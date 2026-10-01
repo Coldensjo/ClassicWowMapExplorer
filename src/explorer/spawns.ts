@@ -3,7 +3,7 @@ import { TILE_SIZE } from '../formats/adt';
 import type { Db2 } from '../formats/db2';
 import { loadTable } from './clientDb';
 import { compose, fromQuaternion, identity, rotationZ, scaling, translation, type Mat4 } from './mat4';
-import type { GearAttachment, M2Options, Placement } from './objects';
+import type { GearAttachment, M2Options, ObjectKind, Placement } from './objects';
 import { ATTACH_HAND_LEFT, ATTACH_HAND_RIGHT, ATTACH_HELM, ATTACH_SHIELD, ATTACH_SHOULDER_LEFT, ATTACH_SHOULDER_RIGHT } from '../formats/m2Pose';
 
 const MAP_ORIGIN = 32 * TILE_SIZE;
@@ -13,7 +13,8 @@ const NPC_FLAG_SPIRIT_GUIDE = 0x40;
 
 /** Shown when a spawn is clicked. */
 export interface SpawnInfo {
-	type: 'npc' | 'object';
+	/** NPC, VMaNGOS game object, or one of the map's own models (a prop, or a building) placed by the ADT. */
+	type: SpawnType;
 	guid: number;
 	/** creature_template / gameobject_template entry: the ID Wowhead uses. */
 	entry: number;
@@ -29,9 +30,43 @@ export interface SpawnInfo {
 	reaction?: { alliance: Reaction; horde: Reaction };
 	/** Spirit healers and battleground spirit guides, which can be hidden on their own. */
 	spiritHealer?: true;
+	/** Made in the editor (a copy), not in the spawn data. */
+	created?: true;
+	/** Where and how it stands, for the editor; an edited spawn is drawn from this alone. */
+	place: SpawnPlace;
+}
+
+/** A spawn's position and look, close to VMaNGOS's creature and gameobject rows. */
+export interface SpawnPlace {
+	/** Map.db2 ID. */
+	map: number;
+	/** WoW world coordinates: x north, y west, z up. */
+	x: number;
+	y: number;
+	z: number;
+	/** Facing, radians anticlockwise from north. */
+	o: number;
+	/** Game objects that are tilted: their full rotation (x, y, z, w) about world axes. */
+	rotation?: [number, number, number, number];
+	/** Final model scale (template and display scale together). */
+	scale: number;
+	/** Creature or game object display ID; for the map's own models, the model file. */
+	display: number;
+	/** Held weapons, as for Placement.variant. */
+	variant?: string;
+	/** NPCs: the animation (AnimationData ID) they hold in place of Stand: sitting, sleeping, an emote. */
+	pose?: number;
+	/** Buildings: the doodad set (furniture) shown besides the default one, and the name set. */
+	doodadSet?: number;
+	nameSet?: number;
 }
 
 export type Reaction = 'hostile' | 'neutral' | 'friendly';
+
+export type SpawnType = 'npc' | 'object' | 'm2' | 'wmo';
+
+/** The object manager's kind for a spawn type. */
+export const spawnKind = (type: SpawnType): ObjectKind => (type === 'npc' ? 'creature' : type);
 
 /** public/spawns/map<id>.json, written by tools/buildSpawns.ts. */
 export interface SpawnFile {
@@ -82,6 +117,69 @@ export function spawnMatrix(x: number, y: number, z: number, rotation: Mat4, sca
 	return compose(translation(MAP_ORIGIN - y, z, MAP_ORIGIN - x), WORLD_BASIS, rotation, scaling(scale));
 }
 
+/** A spawn placed as its info says, standing still (edited spawns don't walk their old paths). */
+export function spawnPlacement(info: SpawnInfo): Placement {
+	const { x, y, z, o, rotation, scale, display, variant, pose, doodadSet = 0, nameSet } = info.place;
+	const turn = rotation ? fromQuaternion(...rotation) : rotationZ((o * 180) / Math.PI);
+	return {
+		kind: spawnKind(info.type),
+		uid: info.guid,
+		fdid: display,
+		matrix: spawnMatrix(x, y, z, turn, scale),
+		doodadSet,
+		nameSet,
+		// The pose loads as its own look, so it goes in the variant too.
+		variant: pose ? `${variant ?? ''}@${pose}` : variant,
+		spawn: info,
+	};
+}
+
+type CreatureRow = SpawnFile['creatures']['templates'][number];
+type ObjectRow = SpawnFile['objects']['templates'][number];
+
+/** Lookups a creature's look and name colour need, from the client's tables. */
+export interface SpawnLookups {
+	scaleOf: (displayId: number) => number;
+	reactionOf: ReactionLookup;
+}
+
+/** An NPC from its template, at a place (WoW world coordinates); null without a look. */
+export function creatureSpawn(map: number, guid: number, entry: number, t: CreatureRow, x: number, y: number, z: number, o: number, lookups: SpawnLookups): SpawnInfo | null {
+	const [name, subname, levelMin, levelMax, type, rank, npcFlags, displays, scales, faction, weapons] = t;
+	if (!displays.length) return null;
+	// Templates with several looks pick one per spawn; keep it stable per guid.
+	const pick = guid % displays.length;
+	const displayId = displays[pick];
+	return {
+		type: 'npc', guid, entry, name,
+		subname: subname || undefined,
+		level: levelMin === levelMax ? `${levelMin}` : `${levelMin}-${levelMax}`,
+		kind: CREATURE_TYPES[type] || undefined,
+		rank: RANKS[rank] || undefined,
+		reaction: lookups.reactionOf(faction),
+		spiritHealer: npcFlags & (NPC_FLAG_SPIRIT_HEALER | NPC_FLAG_SPIRIT_GUIDE) ? true : undefined,
+		place: { map, x, y, z, o, scale: (scales[pick] || 1) * lookups.scaleOf(displayId), display: displayId, variant: weapons ? weapons.join('_') : undefined },
+	};
+}
+
+/** A game object from its template; null without a model. */
+export function objectSpawn(
+	map: number, guid: number, entry: number, t: ObjectRow, x: number, y: number, z: number, o: number,
+	rotation?: [number, number, number, number], pages?: Record<number, string[]>,
+): SpawnInfo | null {
+	const [name, type, displayId, size, data0] = t;
+	if (!displayId) return null;
+	return {
+		type: 'object', guid, entry, name,
+		kind: OBJECT_TYPES[type],
+		pages: type === 9 && data0 ? pages?.[data0] : undefined,
+		place: { map, x, y, z, o, rotation, scale: size || 1, display: displayId },
+	};
+}
+
+/** The type label the info card shows for a game object template's type. */
+export const objectTypeName = (type: number) => OBJECT_TYPES[type];
+
 /** Base walking speed (yd/s); creature templates scale it. */
 const WALK_SPEED = 2.5;
 
@@ -125,25 +223,25 @@ export const tileOf = (x: number, y: number) => ({ tx: Math.floor(32 - y / TILE_
 export class SpawnSource {
 	private readonly byTile = new Map<string, Placement[]>();
 
-	private constructor(private readonly file: SpawnFile) {}
+	private constructor(private readonly mapId: number, private readonly file: SpawnFile) {}
 
 	static async load(mapId: number): Promise<SpawnSource | null> {
 		try {
 			const response = await fetch(spawnFile(`map${mapId}.json`));
 			if (!response.ok) return null;
-			return new SpawnSource(await response.json());
+			return new SpawnSource(mapId, await response.json());
 		} catch {
 			return null;
 		}
 	}
 
 	/** Placements for one tile, built on first use. kind 'creature' and 'object' carry display IDs. */
-	placements(x: number, y: number, scaleOf: (displayId: number) => number, reactionOf: ReactionLookup): Placement[] {
-		if (this.byTile.size === 0) this.index(scaleOf, reactionOf);
+	placements(x: number, y: number, lookups: SpawnLookups): Placement[] {
+		if (this.byTile.size === 0) this.index(lookups);
 		return this.byTile.get(`${x}_${y}`) ?? [];
 	}
 
-	private index(scaleOf: (displayId: number) => number, reactionOf: ReactionLookup): void {
+	private index(lookups: SpawnLookups): void {
 		const add = (x: number, y: number, p: Placement) => {
 			const { tx, ty } = tileOf(x, y);
 			const key = `${tx}_${ty}`;
@@ -155,53 +253,18 @@ export class SpawnSource {
 		for (const [guid, entry, x, y, z, o, move = 0] of creatures.spawns) {
 			const t = creatures.templates[entry];
 			if (!t) continue;
-			const [name, subname, levelMin, levelMax, type, rank, npcFlags, displays, scales, faction, weapons, walk = 1] = t;
+			const walk = t[11] ?? 1;
 			const points = move === -1 ? creatures.paths?.[guid] : move === -2 ? creatures.templatePaths?.[entry] : undefined;
 			const movement: SpawnMovement | undefined = move > 0 || (points && points.length >= 8)
 				? { speed: WALK_SPEED * (walk || 1), orientation: o, wander: Math.max(0, move), path: points ? continentPath(points) : [] }
 				: undefined;
-			if (!displays.length) continue;
-			// Templates with several looks pick one per spawn; keep it stable per guid.
-			const pick = guid % displays.length;
-			const displayId = displays[pick];
-			const scale = (scales[pick] || 1) * scaleOf(displayId);
-			add(x, y, {
-				kind: 'creature',
-				uid: guid,
-				fdid: displayId,
-				matrix: spawnMatrix(x, y, z, rotationZ((o * 180) / Math.PI), scale),
-				doodadSet: 0,
-				variant: weapons ? weapons.join('_') : undefined,
-				movement,
-				spawn: {
-					type: 'npc', guid, entry, name,
-					subname: subname || undefined,
-					level: levelMin === levelMax ? `${levelMin}` : `${levelMin}-${levelMax}`,
-					kind: CREATURE_TYPES[type] || undefined,
-					rank: RANKS[rank] || undefined,
-					reaction: reactionOf(faction),
-					spiritHealer: npcFlags & (NPC_FLAG_SPIRIT_HEALER | NPC_FLAG_SPIRIT_GUIDE) ? true : undefined,
-				},
-			});
+			const spawn = creatureSpawn(this.mapId, guid, entry, t, x, y, z, o, lookups);
+			if (spawn) add(x, y, { ...spawnPlacement(spawn), movement });
 		}
 		for (const [guid, entry, x, y, z, o, qx, qy, qz, qw] of objects.spawns) {
 			const t = objects.templates[entry];
-			if (!t) continue;
-			const [name, type, displayId, size, data0] = t;
-			if (!displayId) continue;
-			const rotation = qx || qy || qz || qw ? fromQuaternion(qx, qy, qz, qw) : rotationZ((o * 180) / Math.PI);
-			add(x, y, {
-				kind: 'object',
-				uid: guid,
-				fdid: displayId,
-				matrix: spawnMatrix(x, y, z, rotation, size || 1),
-				doodadSet: 0,
-				spawn: {
-					type: 'object', guid, entry, name,
-					kind: OBJECT_TYPES[type],
-					pages: type === 9 && data0 ? pages[data0] : undefined,
-				},
-			});
+			const spawn = t && objectSpawn(this.mapId, guid, entry, t, x, y, z, o, qx || qy || qz || qw ? [qx, qy, qz, qw] : undefined, pages);
+			if (spawn) add(x, y, spawnPlacement(spawn));
 		}
 	}
 }
@@ -607,10 +670,15 @@ const HELMET_RULE = 15;
 /** [main hand, off hand, off hand is a shield] as item display IDs. */
 export type Weapons = [number, number, number];
 
-/** The weapons encoded in a placement variant (see SpawnSource). */
+/** The weapons encoded in a placement variant (see SpawnSource and spawnPlacement). */
 export function parseWeapons(variant: string | undefined): Weapons | null {
-	const parts = variant?.split('_').map(Number);
+	const parts = variant?.split('@')[0].split('_').map(Number);
 	return parts?.length === 3 && parts.every(Number.isFinite) ? (parts as Weapons) : null;
+}
+
+/** The pose encoded in a placement variant (weapons@pose), or 0 for Stand. */
+export function parsePose(variant: string | undefined): number {
+	return Number(variant?.split('@')[1]) || 0;
 }
 
 const FACTION_PLAYER = 1;

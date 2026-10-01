@@ -13,7 +13,22 @@ import { KNOWN_MAPS } from './maps';
 import { globalWmoPlacement, globalWmoTiles, loadM2, loadWmo, parsePlacements, type ModelData, type ObjectKind, type Placement } from './objects';
 import { GroundEffects, type ClutterSource } from './groundEffects';
 import { PortalSource } from './portals';
-import { DisplayResolver, parseWeapons, SpawnSource } from './spawns';
+import {
+	creatureSpawn, DisplayResolver, objectSpawn, objectTypeName, parsePose, parseWeapons, spawnFile, SpawnSource,
+	type SpawnFile, type SpawnInfo, type SpawnLookups,
+} from './spawns';
+
+/** public/spawns/templates.json (see tools/buildSpawns.ts). */
+interface TemplateFile {
+	creatures: SpawnFile['creatures']['templates'];
+	objects: SpawnFile['objects']['templates'];
+}
+
+/** Templates to choose from when placing: [entry, name, what it is]. */
+export interface TemplateListing {
+	npcs: [number, string, string][];
+	objects: [number, string, string][];
+}
 import { buildSplatTerrain, type SplatTerrain } from './splatMesh';
 import { buildTerrainMesh, type TerrainGeometry } from './terrainMesh';
 
@@ -268,6 +283,46 @@ export class WorldLoader {
 		return this.displayResolver;
 	}
 
+	private lookups: Promise<SpawnLookups> | null = null;
+
+	/** Display scales and faction reactions, from the client's tables. */
+	private spawnLookups(): Promise<SpawnLookups> {
+		this.lookups ??= Promise.all([this.displays.scaleLookup(), this.displays.reactionLookup()]).then(([scaleOf, reactionOf]) => ({ scaleOf, reactionOf }));
+		this.lookups.catch(() => (this.lookups = null));
+		return this.lookups;
+	}
+
+	private templates: Promise<TemplateFile | null> | null = null;
+
+	/** public/spawns/templates.json: every creature and game object template, read on first use. */
+	private templateFile(): Promise<TemplateFile | null> {
+		this.templates ??= fetch(spawnFile('templates.json')).then((r) => (r.ok ? (r.json() as Promise<TemplateFile>) : null), () => null);
+		return this.templates;
+	}
+
+	/** Every template, for finding one to place: [entry, name, what it is] for NPCs and for objects. */
+	async listTemplates(): Promise<TemplateListing> {
+		const file = await this.templateFile();
+		if (!file) return { npcs: [], objects: [] };
+		const npcs: TemplateListing['npcs'] = Object.entries(file.creatures).map(([entry, t]) => {
+			const level = t[2] === t[3] ? `${t[2]}` : `${t[2]}-${t[3]}`;
+			return [Number(entry), t[0], [t[1] && `<${t[1]}>`, `level ${level}`].filter(Boolean).join(' · ')];
+		});
+		const objects: TemplateListing['objects'] = Object.entries(file.objects).map(([entry, t]) => [Number(entry), t[0], objectTypeName(t[1]) ?? 'Object']);
+		return { npcs, objects };
+	}
+
+	/** A new spawn of a template on a map, at the origin (the editor puts it down); null if unknown. */
+	async templateSpawn(type: 'npc' | 'object', entry: number, mapId: number, guid: number): Promise<SpawnInfo | null> {
+		const file = await this.templateFile();
+		if (type === 'npc') {
+			const t = file?.creatures[entry];
+			return t ? creatureSpawn(mapId, guid, entry, t, 0, 0, 0, 0, await this.spawnLookups()) : null;
+		}
+		const t = file?.objects[entry];
+		return t ? objectSpawn(mapId, guid, entry, t, 0, 0, 0, 0) : null;
+	}
+
 	/** Creatures and game objects on a tile, from public/spawns (empty if that data is absent). */
 	private async tileSpawns(wdtFdid: number, x: number, y: number): Promise<Placement[]> {
 		const mapId = await this.mapIdOf(wdtFdid);
@@ -280,8 +335,7 @@ export class WorldLoader {
 		const spawns = await source;
 		if (!spawns) return [];
 		try {
-			const [scale, reaction] = await Promise.all([this.displays.scaleLookup(), this.displays.reactionLookup()]);
-			return spawns.placements(x, y, scale, reaction);
+			return spawns.placements(x, y, await this.spawnLookups());
 		} catch (e) {
 			console.warn('Display tables unavailable; skipping spawns', e);
 			return [];
@@ -295,7 +349,7 @@ export class WorldLoader {
 				if (kind === 'wmo') return await loadWmo(this.storage, fdid, await this.liquidKind());
 				if (kind === 'creature') {
 					const creature = await this.displays.creature(fdid, parseWeapons(variant));
-					return creature ? { ...(await loadM2(this.storage, creature.fdid, creature.options)), fdid } : null;
+					return creature ? { ...(await loadM2(this.storage, creature.fdid, { ...creature.options, pose: parsePose(variant) })), fdid } : null;
 				}
 				if (kind === 'object') {
 					// Game objects are either M2 or WMO; the file's first chunk says which.

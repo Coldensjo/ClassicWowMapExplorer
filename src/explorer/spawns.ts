@@ -283,16 +283,25 @@ export class DisplayResolver {
 		return { fdid, options: { textures: { 11: skins[0], 12: skins[1], 13: skins[2] }, attachments: held, defaultGeosets: true, stand: true } };
 	}
 
-	private itemTables: Promise<{ items: Db2; byResource: Map<number, number[]>; components: Db2; materials: Map<number, number> }> | null = null;
+	private itemTables: Promise<{ items: Db2; byResource: Map<number, number[]>; components: Db2; materials: Map<number, number>; helmetHides: Map<number, [number, number][]> }> | null = null;
 
 	private loadItems() {
 		this.itemTables ??= (async () => {
-			const [items, modelFiles, components, base] = await Promise.all([
+			const [items, modelFiles, components, helmetData, base] = await Promise.all([
 				loadTable(this.storage, DISPLAY_FILES.ItemDisplayInfo),
 				loadTable(this.storage, DISPLAY_FILES.ModelFileData),
 				loadTable(this.storage, DISPLAY_FILES.ComponentModelFileData),
+				loadTable(this.storage, DISPLAY_FILES.HelmetGeosetData),
 				this.load(),
 			]);
+			// HelmetGeosetData (parent = a helmet's hide rule, ItemDisplayInfo field 15): [race, geoset group it hides].
+			const helmetHides = new Map<number, [number, number][]>();
+			for (const id of helmetData.ids()) {
+				const rule = helmetData.getParent(id) ?? 0;
+				const list = helmetHides.get(rule) ?? [];
+				list.push([helmetData.getInt(id, 0) ?? 0, helmetData.getInt(id, 1) ?? 0]);
+				helmetHides.set(rule, list);
+			}
 			// ModelFileData: model resources ID (field 4) -> the files that implement it.
 			const byResource = new Map<number, number[]>();
 			for (const file of modelFiles.ids()) {
@@ -301,7 +310,7 @@ export class DisplayResolver {
 				list.push(file);
 				byResource.set(resource, list);
 			}
-			return { items, byResource, components, materials: base.materials };
+			return { items, byResource, components, materials: base.materials, helmetHides };
 		})();
 		return this.itemTables;
 	}
@@ -348,10 +357,11 @@ export class DisplayResolver {
 	/**
 	 * A humanoid NPC's armour (NPCModelItemSlotDisplayInfo, parent = display extra): helmet and
 	 * shoulder models at their attachment points, and the geosets other gear switches on
-	 * (ItemDisplayInfo.GeosetGroup, field 13). A helmet hides the hair beneath it.
+	 * (ItemDisplayInfo.GeosetGroup, field 13). A helmet hides what its own rule says for the
+	 * race (HelmetGeosetData): a hood the hair, a mask only the beard, a bandana nothing.
 	 */
 	private async armor(extra: number, race: number, sex: number): Promise<{ attachments: GearAttachment[]; geosets: number[]; cape: number }> {
-		const { items, materials } = await this.loadItems();
+		const { items, materials, helmetHides } = await this.loadItems();
 		const slots = await this.itemSlots();
 		const attachments: GearAttachment[] = [];
 		const geosets: number[] = [];
@@ -368,7 +378,12 @@ export class DisplayResolver {
 					const fdid = await this.itemModel(items.getInt(display, 10, 0) ?? 0, race, sex);
 					if (fdid) {
 						attachments.push({ point: ATTACH_HELM, fdid, texture: texture(0) });
-						geosets.push(HIDE_HAIR);
+						// Field 15: the hide rule for each sex. Hidden, a group shows its bare default
+						// (variant 1: no beard, no ears); the hair has none, so it gets no variant at all.
+						const rule = items.getInt(display, HELMET_RULE, sex) ?? 0;
+						for (const [r, group] of helmetHides.get(rule) ?? []) {
+							if (r === race) geosets.push(group === 0 ? HIDE_HAIR : group * 100 + 1);
+						}
 					}
 					break;
 				}
@@ -551,6 +566,7 @@ export const DISPLAY_FILES = {
 	ChrCustomizationMaterial: 3459652,
 	NPCModelItemSlotDisplayInfo: 1340661,
 	ItemDisplayInfo: 1266429,
+	HelmetGeosetData: 2821752,
 	ModelFileData: 1337833,
 	ComponentModelFileData: 1349053,
 } as const;
@@ -566,8 +582,10 @@ const SLOT_FEET = 6;
 const SLOT_HANDS = 8;
 const SLOT_TABARD = 9;
 const SLOT_BACK = 10;
-/** A group-0 geoset no model has: choosing it hides every hairstyle (under a helmet). */
+/** A group-0 geoset no model has: choosing it hides every hairstyle (under a hood or helm). */
 const HIDE_HAIR = 99;
+/** ItemDisplayInfo field 15: a helmet's HelmetGeosetData rule for male and female wearers. */
+const HELMET_RULE = 15;
 
 /** [main hand, off hand, off hand is a shield] as item display IDs. */
 export type Weapons = [number, number, number];

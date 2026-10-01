@@ -141,6 +141,8 @@ export interface ViewSettings {
 	side: Side;
 	/** Names over the dungeons and other maps laid out in the sea (I). */
 	mapNames: boolean;
+	/** Turning glides after the mouse rather than following it at once (J). */
+	cinematic: boolean;
 }
 
 /** A setting, or the time of day or the sound, changed by its key. */
@@ -370,6 +372,7 @@ export class Viewer {
 			collision: !this.controls.ghost,
 			side: this.side,
 			mapNames: this.mapLabels?.enabled ?? false,
+			cinematic: this.controls.cinematic,
 		};
 	}
 
@@ -380,6 +383,7 @@ export class Viewer {
 		if (next.collision !== undefined) this.controls.ghost = !next.collision;
 		if (next.side) this.side = next.side;
 		if (next.mapNames !== undefined && this.mapLabels) this.mapLabels.enabled = next.mapNames;
+		if (next.cinematic !== undefined) this.controls.cinematic = next.cinematic;
 	}
 
 	/** Music and sound on, or null until the music tables are read. */
@@ -782,6 +786,7 @@ export class Viewer {
 				KeyG: { collision: !s.collision },
 				KeyF: { side: s.side === 'alliance' ? 'horde' : 'alliance' },
 				KeyV: { clutter: !s.clutter },
+				KeyJ: { cinematic: !s.cinematic },
 			};
 			if (this.mapLabels) toggles.KeyI = { mapNames: !s.mapNames };
 			const change = toggles[e.code];

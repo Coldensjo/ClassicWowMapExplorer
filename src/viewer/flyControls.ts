@@ -4,6 +4,8 @@ import { isTyping } from './typing';
 const LOOK_SENSITIVITY = 0.0022;
 const MAX_PITCH = THREE.MathUtils.degToRad(89.5);
 const MIN_CLEARANCE = 2;
+/** How quickly the cinematic camera catches up with the mouse: about 1/e of the way left after 1/rate seconds. */
+const CINEMATIC_TURN_RATE = 3;
 
 interface Flight {
 	from: THREE.Vector3;
@@ -22,8 +24,12 @@ interface Flight {
  * above the ground, so the same controls work from treetop level to the whole continent.
  */
 export class FlyControls {
+	/** Where the camera looks now. */
 	yaw = 0;
 	pitch = 0;
+	/** Where the mouse has asked it to look; the view follows at once, or glides there when cinematic. */
+	private lookYaw = 0;
+	private lookPitch = 0;
 	private readonly keys = new Set<string>();
 	private zoomVelocity = 0;
 	private flight: Flight | null = null;
@@ -46,8 +52,8 @@ export class FlyControls {
 			// would snap the view; no real flick covers a third of the window in one event.
 			if (Math.abs(e.movementX) > window.innerWidth / 3 || Math.abs(e.movementY) > window.innerHeight / 3) return;
 			this.flight = null;
-			this.yaw -= e.movementX * LOOK_SENSITIVITY;
-			this.pitch = THREE.MathUtils.clamp(this.pitch - e.movementY * LOOK_SENSITIVITY, -MAX_PITCH, MAX_PITCH);
+			this.lookYaw -= e.movementX * LOOK_SENSITIVITY;
+			this.lookPitch = THREE.MathUtils.clamp(this.lookPitch - e.movementY * LOOK_SENSITIVITY, -MAX_PITCH, MAX_PITCH);
 		});
 		element.addEventListener('wheel', (e) => {
 			e.preventDefault();
@@ -69,6 +75,9 @@ export class FlyControls {
 
 	/** Passing through everything: walls, floors and the ground (G toggles, in the viewer). */
 	ghost = false;
+
+	/** Turning glides after the mouse instead of following it at once (J toggles, in the viewer). */
+	cinematic = false;
 
 	lock(): void {
 		if (this.locked) return;
@@ -97,8 +106,8 @@ export class FlyControls {
 
 	set(position: THREE.Vector3, yaw: number, pitch: number): void {
 		this.camera.position.copy(position);
-		this.yaw = yaw;
-		this.pitch = pitch;
+		this.yaw = this.lookYaw = yaw;
+		this.pitch = this.lookPitch = pitch;
 		this.flight = null;
 		this.lastGround = -Infinity;
 		this.groundEase = 0;
@@ -132,8 +141,19 @@ export class FlyControls {
 			pos.lerpVectors(f.from, f.to, e);
 			this.yaw = f.fromYaw + (f.toYaw - f.fromYaw) * e;
 			this.pitch = f.fromPitch + (f.toPitch - f.fromPitch) * e;
+			this.lookYaw = this.yaw;
+			this.lookPitch = this.pitch;
 			if (f.t >= 1) this.flight = null;
 		} else {
+			if (this.cinematic) {
+				const ease = 1 - Math.exp(-dt * CINEMATIC_TURN_RATE);
+				this.yaw += (this.lookYaw - this.yaw) * ease;
+				this.pitch += (this.lookPitch - this.pitch) * ease;
+			} else {
+				this.yaw = this.lookYaw;
+				this.pitch = this.lookPitch;
+			}
+
 			const k = this.keys;
 			const boost = k.has('ShiftLeft') || k.has('ShiftRight') ? 5 : 1;
 			this.speed = THREE.MathUtils.clamp(this.altitude * 0.8, 25, 25000) * boost;

@@ -4,9 +4,10 @@ Fly over the World of Warcraft world, drawn from your own game install. Everythi
 
 Built for WoW Classic, with Eastern Kingdoms and Kalimdor loaded as one seamless world.
 
-## Get started
+## Get started on Windows
 
 You need **Windows 10 or 11** and **World of Warcraft Classic** installed. Nothing else to install.
+On Linux, see **[Get started on Linux](#get-started-on-linux)**.
 
 1. Download **MapExplorer-portable.zip** from the
    **[latest release](https://github.com/Coldensjo/ClassicWowMapExplorer/releases/latest)** and unzip
@@ -45,8 +46,59 @@ On any system with Chrome or Edge, and **[Node.js](https://nodejs.org)** (the LT
 1. `git clone https://github.com/Coldensjo/ClassicWowMapExplorer.git` (or **Code → Download ZIP**)
 2. In the project folder, run `npm install`, then `npm run dev`.
 3. Open **http://localhost:5173** in Chrome or Edge. The dev server finds World of Warcraft as the
-   portable version does, and on Linux in the Wine prefixes of Lutris, Bottles, Steam (Proton),
-   Heroic and `~/.wine` (set `WOW_DIR` to point it elsewhere); if it can't, choose the folder as above.
+   portable version does (set `WOW_DIR` to point it elsewhere); if it can't, choose the folder as above.
+
+## Get started on Linux
+
+There's no portable version for Linux; Map Explorer runs from source instead. You need
+**World of Warcraft Classic** installed through Wine, Lutris, Bottles, Steam (Proton) or Heroic,
+a Chromium-based browser (**Chrome**, **Chromium**, **Edge** or **Brave**), **git**, and
+**[Node.js](https://nodejs.org)** 22.12 or newer.
+
+1. Install git and Node.js. Many distributions ship an older Node.js, so check with `node -v`; if
+   it's older than 22.12, install the current LTS from [nodejs.org](https://nodejs.org/en/download) or with
+   [nvm](https://github.com/nvm-sh/nvm):
+
+   ```sh
+   # Debian / Ubuntu
+   sudo apt install git nodejs npm
+   # Fedora
+   sudo dnf install git nodejs npm
+   # Arch
+   sudo pacman -S git nodejs npm
+   ```
+
+2. Download Map Explorer and its packages:
+
+   ```sh
+   git clone https://github.com/Coldensjo/ClassicWowMapExplorer.git
+   cd ClassicWowMapExplorer
+   npm install
+   ```
+
+3. Start it:
+
+   ```sh
+   npm run dev
+   ```
+
+   It looks for World of Warcraft in your Wine prefixes: `$WINEPREFIX`, `~/.wine`, `~/Games`
+   (Lutris), the prefixes in Lutris's game files, Heroic's prefixes, Bottles and Steam's Proton
+   prefixes, including their Flatpak versions. It prints where it found the game, or
+   *World of Warcraft not found*.
+
+4. Open **http://localhost:5173** in your browser and the world opens.
+
+If it doesn't find the game, point it at the folder that contains `_classic_` or `_classic_beta_`:
+
+```sh
+WOW_DIR="$HOME/Games/battlenet/drive_c/Program Files (x86)/World of Warcraft" npm run dev
+```
+
+or click **Choose your World of Warcraft folder** in the page and pick it there.
+
+Press **Ctrl+C** in the terminal to stop it. To update later, run `git pull` and `npm install` in the
+`ClassicWowMapExplorer` folder.
 
 ## Features
 

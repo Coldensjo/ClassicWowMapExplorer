@@ -12,7 +12,9 @@
 		"portable": "tsx tools/buildPortable.ts"
 	},
 	"dependencies": {
+		"@preact/signals": "^2.11.3",
 		"fflate": "^0.8.3",
+		"preact": "^11.0.0",
 		"three": "^0.186.1",
 		"three-mesh-bvh": "^0.9.15"
 	},

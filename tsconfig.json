@@ -10,7 +10,9 @@
 		"skipLibCheck": true,
 		"isolatedModules": true,
 		"noUnusedLocals": true,
-		"noFallthroughCasesInSwitch": false
+		"noFallthroughCasesInSwitch": false,
+		"jsx": "react-jsx",
+		"jsxImportSource": "preact"
 	},
 	"include": ["src", "tools"]
 }

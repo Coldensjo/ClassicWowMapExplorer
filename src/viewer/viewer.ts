@@ -8,7 +8,7 @@ import type { AreaInfo } from '../explorer/lighting';
 import type { WmoArea } from '../explorer/music';
 import type { Place } from '../explorer/places';
 import type { SpawnInfo } from '../explorer/spawns';
-import { SpawnEditor } from './spawnEditor';
+import type { EditorHost } from '../editor/viewport';
 import { FlyControls } from './flyControls';
 import { Highlights, type HighlightSettings } from './highlights';
 import { MapLabels } from './mapLabels';
@@ -28,7 +28,6 @@ import { UnderwaterAudio } from './underwater';
 import type { LiquidKind } from '../formats/mh2o';
 import type { LiquidLooks } from '../explorer/clientDb';
 import { createTexture, supportsCompressedTextures } from './textures';
-import { isTyping } from './typing';
 
 /** A dungeon view in the URL hash: #d<map ID>/... */
 const HASH_INSTANCE = /^#d(\d+)\//;
@@ -264,8 +263,10 @@ export class Viewer {
 	private readonly controls: FlyControls;
 	private terrain!: TerrainManager;
 	private objects!: ObjectManager;
-	/** Moving, copying and deleting NPCs and objects; there once load() has run. */
-	editor!: SpawnEditor;
+	/** Whether clicking the world shows what was clicked (the explorer); the editor turns it off. */
+	clicksSelect = true;
+	/** Called every frame, before the world updates (the editor's selection circles). */
+	readonly onFrame: (() => void)[] = [];
 	/** Grass, flowers and pebbles near the camera (V toggles). */
 	private clutter!: ClutterManager;
 	private readonly fog = new THREE.Fog(SKY, 1000, 8000);
@@ -403,7 +404,8 @@ export class Viewer {
 		this.scene.add(this.camera);
 
 		window.addEventListener('resize', () => this.resize());
-		window.addEventListener('keydown', (e) => this.onKey(e));
+		// The canvas also changes size without the window doing so (the editor's panels).
+		new ResizeObserver(() => this.resize()).observe(canvas);
 		canvas.addEventListener('click', (e) => this.onClick(e));
 		canvas.addEventListener('mousemove', (e) => this.onHover(e));
 		this.resize();
@@ -425,7 +427,7 @@ export class Viewer {
 
 	/** Clicking a creature or object opens its info (releasing the mouse); elsewhere captures the mouse. */
 	private onClick(e: MouseEvent): void {
-		if (this.editor?.active) return; // the editor has the mouse
+		if (!this.clicksSelect) return; // the editor has the mouse
 		const hit = this.pickAt(e);
 		if (hit) {
 			if (this.controls.locked) document.exitPointerLock();
@@ -436,7 +438,7 @@ export class Viewer {
 	}
 
 	private onHover(e: MouseEvent): void {
-		if (this.controls.locked || this.editor?.active || performance.now() - this.lastHover < 80) return;
+		if (this.controls.locked || !this.clicksSelect || performance.now() - this.lastHover < 80) return;
 		this.lastHover = performance.now();
 		this.canvas.style.cursor = this.pickAt(e) ? 'pointer' : '';
 	}
@@ -557,18 +559,6 @@ export class Viewer {
 		this.clutter = new ClutterManager(this.storage, this.usesCompressedTextures, anisotropy, prepare);
 		this.terrain.clutter = this.clutter;
 		this.scene.add(this.terrain.group, this.objects.group, this.clutter.group);
-		this.editor = new SpawnEditor({
-			canvas: this.canvas,
-			camera: this.camera,
-			scene: this.scene,
-			objects: this.objects,
-			mapPlacement: (mapId) => this.continents.find((c) => c.mapId === mapId) ?? this.loadedInstances.get(mapId) ?? null,
-			mapAt: (x, z) => this.terrain.locate(x, z)?.continent ?? null,
-			mapOfWdt: (wdt) => this.continents.find((c) => c.wdt === wdt) ?? [...this.loadedInstances.values()].find((c) => c.wdt === wdt) ?? null,
-			templateSpawn: (type, entry, mapId, guid) => this.storage.templateSpawn(type, entry, mapId, guid),
-			heightAt: (x, z) => this.terrain.heightAt(x, z),
-			lockLook: () => this.controls.lock(),
-		});
 
 		const loaded: { map: (typeof KNOWN_MAPS)[number]; tiles: FarTile[] }[] = [];
 		for (const map of KNOWN_MAPS) {
@@ -579,8 +569,6 @@ export class Viewer {
 		loaded.forEach(({ tiles }, i) => this.terrain.addContinent(this.continents[i], tiles));
 		onStatus('Placing dungeons and other maps');
 		await this.placeMaps();
-		// Saved edits, now that every map has its place.
-		void this.editor.load();
 		this.terrain.buildSeaMask();
 		this.addOcean();
 
@@ -894,8 +882,43 @@ export class Viewer {
 		this.controls.flyTo(position, 0, pitch, 2.5);
 	}
 
-	private onKey(e: KeyboardEvent): void {
-		if (isTyping(e) || !this.terrain) return;
+	/**
+	 * What the world editor works with: the scene, camera and objects, where maps lie, the
+	 * ground, and the camera's controls. Call once load() has run.
+	 */
+	editorHost(): EditorHost {
+		const controls = this.controls;
+		return {
+			canvas: this.canvas,
+			camera: this.camera,
+			scene: this.scene,
+			objects: this.objects,
+			mapPlacement: (mapId) => this.continents.find((c) => c.mapId === mapId) ?? this.loadedInstances.get(mapId) ?? null,
+			mapAt: (x, z) => this.terrain.locate(x, z)?.continent ?? null,
+			mapOfWdt: (wdt) => this.continents.find((c) => c.wdt === wdt) ?? [...this.loadedInstances.values()].find((c) => c.wdt === wdt) ?? null,
+			templateSpawn: (type, entry, mapId, guid) => this.storage.templateSpawn(type, entry, mapId, guid),
+			heightAt: (x, z) => this.terrain.heightAt(x, z),
+			lockLook: () => controls.lock(),
+			get looking() {
+				return controls.locked;
+			},
+			focus: (point, distance) => {
+				// From the south-east and a little above, looking at it.
+				const from = point.clone().add(new THREE.Vector3(0.55, 0.45, 0.7).normalize().multiplyScalar(distance));
+				const d = point.clone().sub(from);
+				controls.flyTo(from, Math.atan2(-d.x, -d.z), Math.atan2(d.y, Math.hypot(d.x, d.z)), 0.8);
+			},
+		};
+	}
+
+	/** In edit mode, the camera only flies while the right mouse button is held (looking around). */
+	set flyOnlyWhileLooking(on: boolean) {
+		this.controls.holdToFly = on;
+	}
+
+	/** The explorer's keys (time, settings, places, screenshots); true when the key was one. */
+	handleKey(e: KeyboardEvent): boolean {
+		if (!this.terrain || e.ctrlKey || e.metaKey || e.altKey) return false;
 		if (e.code === 'KeyP') this.toggleShot();
 		else if (e.code === 'Escape' && this.shot) this.endShot();
 		else if (e.code === 'KeyO') this.overview();
@@ -928,10 +951,11 @@ export class Viewer {
 			};
 			if (this.mapLabels) toggles.KeyI = { mapNames: !s.mapNames };
 			const change = toggles[e.code];
-			if (!change) return;
+			if (!change) return false;
 			this.settings = change;
 			this.onChange(Object.keys(change)[0] as keyof ViewSettings);
-		}
+		} else return false;
+		return true;
 	}
 
 	/** Where in which map's tile grid the camera is, for the minimap; null over the open sea. */
@@ -1074,7 +1098,7 @@ export class Viewer {
 			this.lastLodUpdate = now;
 			perf.time('lod.update', () => this.terrain.update(pos));
 		}
-		this.editor.update();
+		for (const fn of this.onFrame) fn();
 		perf.time('objects.update', () => this.objects.update(now, pos));
 		this.clutter.update(now, pos, this.terrain.surfaceAt(pos.x, pos.z));
 		// Under water the surface is seen from below, where its depth isn't used.

@@ -1,6 +1,6 @@
 import { parseAdtRoot, TILE_CELLS, TILE_SIZE, tileGrids } from '../formats/adt';
 import { parseAdtTex } from '../formats/adtTex';
-import { blpTexture, type TextureData } from '../formats/blp';
+import { blpTexture, decodeBlp, type Image, type TextureData } from '../formats/blp';
 import type { LiquidKind } from '../formats/mh2o';
 import { parseWdl, WDL_CELLS } from '../formats/wdl';
 import { DB2_FILES, liquidKinds, liquidLooks, loadTable, lockKinds, type LiquidLooks, type LockKind } from './clientDb';
@@ -14,7 +14,7 @@ import { globalWmoPlacement, globalWmoTiles, loadM2, loadWmo, parsePlacements, t
 import { GroundEffects, type ClutterSource } from './groundEffects';
 import { PortalSource } from './portals';
 import {
-	creatureSpawn, DisplayResolver, objectSpawn, objectTypeName, parsePose, parseWeapons, spawnFile, SpawnSource,
+	creatureSpawn, creatureTypeName, DisplayResolver, objectSpawn, objectTypeName, parsePose, parseWeapons, spawnFile, SpawnSource,
 	type SpawnFile, type SpawnInfo, type SpawnLookups,
 } from './spawns';
 
@@ -26,7 +26,8 @@ interface TemplateFile {
 
 /** Templates to choose from when placing: [entry, name, what it is]. */
 export interface TemplateListing {
-	npcs: [number, string, string][];
+	/** [entry, name, what it is, creature type name] */
+	npcs: [number, string, string, string][];
 	objects: [number, string, string][];
 }
 import { buildSplatTerrain, type SplatTerrain } from './splatMesh';
@@ -306,7 +307,7 @@ export class WorldLoader {
 		if (!file) return { npcs: [], objects: [] };
 		const npcs: TemplateListing['npcs'] = Object.entries(file.creatures).map(([entry, t]) => {
 			const level = t[2] === t[3] ? `${t[2]}` : `${t[2]}-${t[3]}`;
-			return [Number(entry), t[0], [t[1] && `<${t[1]}>`, `level ${level}`].filter(Boolean).join(' · ')];
+			return [Number(entry), t[0], [t[1] && `<${t[1]}>`, `level ${level}`].filter(Boolean).join(' · '), creatureTypeName(t[4]) ?? ''];
 		});
 		const objects: TemplateListing['objects'] = Object.entries(file.objects).map(([entry, t]) => [Number(entry), t[0], objectTypeName(t[1]) ?? 'Object']);
 		return { npcs, objects };
@@ -406,6 +407,18 @@ export class WorldLoader {
 
 	/** A sound file's bytes (the music tracks are MP3s). */
 	/** A font file from the game (Fonts\*.ttf), as it is. */
+	/** Interface textures (frames, buttons, icons, cursors) decoded to RGBA; null where missing. */
+	async loadImages(fdids: number[]): Promise<(Image | null)[]> {
+		return Promise.all(fdids.map(async (fdid) => {
+			if (this.storage.status(fdid) !== 'ok') return null;
+			try {
+				return decodeBlp(await this.storage.readFile(fdid));
+			} catch {
+				return null;
+			}
+		}));
+	}
+
 	async loadFont(fdid: number): Promise<Uint8Array> {
 		return (await this.storage.readFile(fdid)).slice();
 	}

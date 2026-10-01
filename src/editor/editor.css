@@ -1,0 +1,545 @@
+/* The world editor's layout: menus and tools on top, palette left, view between, panels right. */
+:root {
+	--ed-top: 84px;
+	--ed-left: 300px;
+	--ed-right: 310px;
+	--ed-bottom: 28px;
+}
+
+/* The page's canvas (and what's drawn over it) fills the gap between the panels while editing. */
+body.ws-edit :is(#view, #nameplates) {
+	top: var(--ed-top);
+	left: var(--ed-left);
+	right: auto;
+	bottom: auto;
+	/* A canvas doesn't stretch between its edges as a box does: it needs its size. */
+	width: calc(100vw - var(--ed-left) - var(--ed-right));
+	height: calc(100vh - var(--ed-top) - var(--ed-bottom));
+}
+
+/* The explorer's own interface steps aside. */
+body.ws-edit :is(#hud, #side, #menubar, #place, #help-hint, #zone-banner, #crosshair, #info) {
+	display: none !important;
+}
+
+body.ws-edit {
+	background: #050506;
+}
+
+.ed {
+	position: fixed;
+	inset: 0;
+	display: grid;
+	grid-template:
+		'menu menu menu' 36px
+		'tools tools tools' calc(var(--ed-top) - 36px)
+		'palette view side' 1fr
+		'status status status' var(--ed-bottom)
+		/ var(--ed-left) 1fr var(--ed-right);
+	pointer-events: none;
+	z-index: 2;
+}
+
+.ed > * {
+	pointer-events: auto;
+	min-height: 0;
+	min-width: 0;
+}
+
+.ed-view {
+	grid-area: view;
+	pointer-events: none !important;
+}
+
+/* --- Menu bar --- */
+
+.ed-menubar {
+	grid-area: menu;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding: 0 6px;
+}
+
+.ed-menu {
+	position: relative;
+}
+
+.ed-menu-button {
+	background: none;
+	border: none;
+	padding: 3px 10px;
+	font-size: 13px;
+	border-radius: 3px;
+}
+
+.ed-menu-button:hover, .ed-menu.open .ed-menu-button {
+	color: var(--wow-white);
+	background: rgba(255, 255, 255, 0.08);
+}
+
+.ed-menu-panel {
+	position: absolute;
+	top: calc(100% + 6px);
+	left: -4px;
+	min-width: 250px;
+	padding: 6px;
+	z-index: 3;
+	display: flex;
+	flex-direction: column;
+}
+
+.ed-menu-panel hr {
+	border: none;
+	border-top: 1px solid rgba(255, 255, 255, 0.12);
+	margin: 5px 2px;
+	width: auto;
+}
+
+.ed-menu-heading {
+	font-size: 11px;
+	margin: 6px 6px 2px;
+}
+
+.ed-item {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+	padding: 4px 8px;
+	background: none;
+	border: none;
+	border-radius: 3px;
+	text-align: left;
+	font: 13px var(--wow-text);
+	color: var(--wow-white);
+}
+
+.ed-item > span {
+	flex: 1;
+}
+
+.ed-item:hover:not(:disabled) {
+	background: rgba(255, 209, 0, 0.14);
+}
+
+.ed-item:disabled {
+	color: var(--wow-grey);
+	opacity: 0.6;
+}
+
+.ed-menubar-title {
+	margin-left: auto;
+	margin-right: 12px;
+	font-size: 17px;
+	letter-spacing: 0.03em;
+}
+
+.ed-exit {
+	margin-right: 4px;
+}
+
+.ed-check {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 3px 6px;
+	user-select: none;
+	white-space: nowrap;
+}
+
+.ed-view-menu {
+	display: flex;
+	flex-direction: column;
+	min-width: 260px;
+}
+
+.ed-time {
+	display: grid;
+	grid-template-columns: auto 1fr auto;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 6px 6px;
+}
+
+.ed-time input {
+	accent-color: var(--wow-yellow);
+}
+
+/* --- Toolbar --- */
+
+.ed-toolbar {
+	grid-area: tools;
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	padding: 0 12px;
+}
+
+.ed-slots {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.ed-slot {
+	width: 34px;
+	height: 34px;
+}
+
+.ed-slot-key {
+	position: absolute;
+	top: 1px;
+	right: 3px;
+	font: 11px/1 var(--wow-text);
+	color: #c8c8c8;
+	text-shadow: 1px 1px 0 #000, -1px -1px 0 #000;
+	pointer-events: none;
+	z-index: 1;
+}
+
+.ed-gap {
+	width: 10px;
+}
+
+.ed-toolbar-options {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-left: auto;
+}
+
+.ed-placing {
+	margin-right: 8px;
+	max-width: 260px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* --- Panels --- */
+
+.ed-panel {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	padding: 4px 8px 8px;
+}
+
+.ed-panel-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 2px 2px 6px;
+}
+
+.ed-panel-head h2 {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 400;
+}
+
+.ed-palette {
+	grid-area: palette;
+}
+
+.ed-side {
+	grid-area: side;
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	min-height: 0;
+}
+
+.ed-inspector {
+	flex: none;
+	max-height: 55%;
+	overflow-y: auto;
+}
+
+.ed-outliner {
+	flex: 1 1 0;
+}
+
+.ed-hint {
+	margin: 2px 4px;
+}
+
+.ed-tabs {
+	display: flex;
+	gap: 4px;
+	margin-bottom: 6px;
+}
+
+.ed-tab {
+	flex: 1;
+	padding: 3px 6px;
+	font: 12px var(--wow-label);
+	color: var(--wow-grey);
+	background: rgba(0, 0, 0, 0.35);
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	border-radius: 3px;
+}
+
+.ed-tab.on {
+	color: var(--wow-yellow);
+	border-color: rgba(255, 209, 0, 0.5);
+	background: rgba(255, 209, 0, 0.08);
+}
+
+.ed-search {
+	width: 100%;
+	margin-bottom: 6px;
+}
+
+.ed-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	overflow-y: auto;
+	min-height: 0;
+	flex: 1 1 auto;
+}
+
+.ed-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 3px 4px;
+}
+
+.ed-row-text {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.ed-row-name {
+	font: 13px var(--wow-label);
+	color: var(--wow-yellow);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ed-row-sub {
+	font-size: 12px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ed-empty {
+	padding: 6px 4px;
+}
+
+.ed-icon {
+	flex: none;
+	border-radius: 3px;
+	box-shadow: 0 0 0 1px #000;
+}
+
+.ed-icon-blank {
+	display: inline-block;
+	background: #2a2f37;
+}
+
+/* Inspector */
+
+.ed-ident {
+	display: flex;
+	gap: 10px;
+	align-items: flex-start;
+	margin-bottom: 8px;
+}
+
+.ed-name {
+	margin: 0;
+	font-size: 19px;
+	line-height: 1.1;
+}
+
+.ed-subname {
+	font-size: 12px;
+}
+
+.ed-desc {
+	font-size: 12px;
+	margin-top: 2px;
+}
+
+.ed-fields {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 6px 10px;
+}
+
+.ed-field {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.ed-field .wow-label {
+	flex: none;
+	font-size: 12px;
+	min-width: 14px;
+}
+
+.ed-field input, .ed-field select {
+	flex: 1;
+	width: 0;
+}
+
+.ed-pose {
+	margin-top: 8px;
+}
+
+.ed-buttons {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 10px;
+}
+
+/* Outliner */
+
+.ed-change {
+	gap: 6px;
+}
+
+.ed-change .ed-row-name {
+	flex: 1;
+}
+
+.ed-change.deleted .ed-row-name {
+	color: var(--wow-grey);
+	text-decoration: line-through;
+}
+
+.ed-mark {
+	flex: none;
+	width: 12px;
+	text-align: center;
+	font-weight: 700;
+}
+
+.ed-mark.added {
+	color: var(--wow-green);
+}
+
+.ed-mark.changed {
+	color: var(--wow-yellow);
+}
+
+.ed-mark.deleted {
+	color: var(--wow-red);
+}
+
+.wow-button.ed-small {
+	height: 20px;
+	min-width: 0;
+	font-size: 11px;
+	line-height: 19px;
+}
+
+/* Minimap, in the game's ring */
+
+.ed-minimap {
+	position: relative;
+	flex: none;
+	align-self: center;
+	width: 196px;
+	height: 196px;
+	margin: 4px 0 2px;
+}
+
+.ed-minimap #minimap-wrap {
+	position: absolute;
+	inset: 8px;
+	width: auto;
+	height: auto;
+}
+
+.wow-skin .ed-minimap::after {
+	content: '';
+	position: absolute;
+	inset: 1px;
+	background: var(--wow-minimap-ring) center / contain no-repeat;
+	pointer-events: none;
+}
+
+/* Status line */
+
+.ed-status {
+	grid-area: status;
+	display: flex;
+	align-items: center;
+	gap: 18px;
+	padding: 0 10px;
+	font-size: 12px;
+	white-space: nowrap;
+	overflow: hidden;
+}
+
+.wow-skin .ed-status {
+	border-image-width: 12px;
+}
+
+.ed-status-hint {
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Box selection */
+
+.ed-marquee {
+	position: fixed;
+	z-index: 3;
+	border: 1px solid var(--wow-yellow);
+	background: rgba(255, 209, 0, 0.08);
+	pointer-events: none;
+}
+
+/* Controls list */
+
+.ed-help-backdrop {
+	position: fixed;
+	inset: 0;
+	display: grid;
+	place-items: center;
+	background: rgba(0, 0, 0, 0.4);
+	z-index: 4;
+}
+
+.ed-help {
+	width: min(560px, calc(100vw - 32px));
+	padding: 10px 18px 16px;
+}
+
+.ed-help-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.ed-help-head h2 {
+	margin: 4px 0 10px;
+	font-size: 24px;
+}
+
+.ed-help dl {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: 6px 16px;
+	margin: 0;
+}
+
+.ed-help dt {
+	font-size: 12px;
+}
+
+.ed-help dd {
+	margin: 0;
+}

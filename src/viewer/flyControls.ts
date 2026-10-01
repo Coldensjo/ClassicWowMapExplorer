@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { isTyping } from './typing';
 
 const LOOK_SENSITIVITY = 0.0022;
+const NO_KEYS: ReadonlySet<string> = new Set();
 const MAX_PITCH = THREE.MathUtils.degToRad(89.5);
 const MIN_CLEARANCE = 2;
 /** How quickly the cinematic camera catches up with the mouse: about 1/e of the way left after 1/rate seconds. */
@@ -75,6 +76,9 @@ export class FlyControls {
 
 	/** Passing through everything: walls, floors and the ground (G toggles, in the viewer). */
 	ghost = false;
+
+	/** Moving keys only work while the mouse is captured (the editor: hold the right button to fly). */
+	holdToFly = false;
 
 	/** Turning glides after the mouse instead of following it at once (J toggles, in the viewer). */
 	cinematic = false;
@@ -157,7 +161,7 @@ export class FlyControls {
 				this.pitch = this.lookPitch;
 			}
 
-			const k = this.keys;
+			const k = this.holdToFly && !this.locked ? NO_KEYS : this.keys;
 			const boost = k.has('ShiftLeft') || k.has('ShiftRight') ? 5 : 1;
 			this.speed = THREE.MathUtils.clamp(this.altitude * 0.8, 25, 25000) * boost * this.speedScale;
 

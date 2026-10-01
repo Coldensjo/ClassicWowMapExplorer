@@ -32,6 +32,8 @@ export interface SpawnInfo {
 	spiritHealer?: true;
 	/** Made in the editor (a copy), not in the spawn data. */
 	created?: true;
+	/** Deleted in the editor (kept so it can still be named and restored). */
+	deleted?: true;
 	/** Where and how it stands, for the editor; an edited spawn is drawn from this alone. */
 	place: SpawnPlace;
 }
@@ -176,6 +178,9 @@ export function objectSpawn(
 		place: { map, x, y, z, o, rotation, scale: size || 1, display: displayId },
 	};
 }
+
+/** A creature template's type, as a label (Beast, Humanoid...). */
+export const creatureTypeName = (type: number): string | undefined => CREATURE_TYPES[type] || undefined;
 
 /** The type label the info card shows for a game object template's type. */
 export const objectTypeName = (type: number) => OBJECT_TYPES[type];

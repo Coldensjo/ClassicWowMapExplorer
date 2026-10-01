@@ -57,35 +57,9 @@
 		<div class="menu">
 			<button class="menu-button" aria-haspopup="true" aria-expanded="false">File</button>
 			<div class="menu-panel" hidden>
-				<div class="menu-heading">Edits to NPCs and objects</div>
-				<button class="menu-item" id="edit-export"><span>Export edits…</span></button>
-				<button class="menu-item" id="edit-import"><span>Import edits…</span></button>
-				<button class="menu-item" id="edit-clear"><span>Clear all edits…</span></button>
-				<input type="file" id="edit-import-file" accept=".json,application/json" hidden>
-				<hr>
 				<button class="menu-item" id="menu-link"><span>Copy link to this view</span></button>
 				<button class="menu-item" id="menu-shot"><span>Screenshot, full detail</span><kbd>P</kbd></button>
 				<button class="menu-item" id="menu-hide"><span>Hide the interface</span><kbd>U</kbd></button>
-			</div>
-		</div>
-		<div class="menu" id="edit-menu">
-			<button class="menu-button" aria-haspopup="true" aria-expanded="false">Edit</button>
-			<div class="menu-panel" id="edit" hidden>
-				<label class="menu-check"><input type="checkbox" id="edit-on"> <span>Edit NPCs and objects</span><kbd>F2</kbd></label>
-				<button class="menu-item" id="menu-place"><span>Place an NPC or object…</span></button>
-				<div class="menu-heading">Clicks pick</div>
-				<label class="menu-check"><input type="checkbox" id="edit-props" checked> <span>The map's props too (trees, crates, fences…)</span></label>
-				<label class="menu-check"><input type="checkbox" id="edit-buildings"> <span>Buildings too</span></label>
-				<hr>
-				<button class="menu-item" id="edit-undo"><span>Undo</span><kbd>Ctrl+Z</kbd></button>
-				<button class="menu-item" id="edit-redo"><span>Redo</span><kbd>Ctrl+Y</kbd></button>
-				<hr>
-				<button class="menu-item" id="menu-duplicate"><span>Duplicate</span><kbd>Ctrl+D</kbd></button>
-				<button class="menu-item" id="menu-delete"><span>Delete</span><kbd>Del</kbd></button>
-				<button class="menu-item" id="menu-reset"><span>Back to the original</span></button>
-				<hr>
-				<div id="edit-count" class="menu-note muted small"></div>
-				<div id="edit-status" class="menu-note muted small"></div>
 			</div>
 		</div>
 		<div class="menu">
@@ -153,22 +127,8 @@
 				<a class="menu-item" href="inspector.html" target="_blank" rel="noopener"><span>Storage inspector</span></a>
 			</div>
 		</div>
+		<button id="menu-edit-world" class="menu-button menu-edit-world" title="Open the world editor (Tab)">Edit world</button>
 	</nav>
-
-	<!-- Top left, under the menus: finding an NPC or object to place. -->
-	<section id="place" hidden aria-labelledby="place-title">
-		<div class="place-head">
-			<h2 id="place-title">Place</h2>
-			<button id="place-close" class="plain" title="Close" aria-label="Close">×</button>
-		</div>
-		<div class="place-tabs" role="tablist">
-			<button role="tab" data-tab="npc" aria-selected="true">NPCs</button>
-			<button role="tab" data-tab="object" aria-selected="false">Objects</button>
-		</div>
-		<input id="place-query" type="search" placeholder="Find by name or ID…" autocomplete="off" spellcheck="false" aria-label="Find by name or ID">
-		<ul id="place-results"></ul>
-		<p class="muted small">Pick one, then click in the world to put it down. Esc cancels.</p>
-	</section>
 
 	<!-- Right: the minimap and Go to, then what was clicked. -->
 	<div id="side" hidden>
@@ -194,22 +154,6 @@
 			<div id="info-sub"></div>
 			<dl id="info-facts"></dl>
 			<div id="info-pages"></div>
-			<div id="info-edit" hidden>
-				<label class="edit-pose">Pose <select id="edit-pose" title="What the NPC is doing: sitting, sleeping, an emote…"></select></label>
-				<div class="edit-fields">
-					<label>X <input type="number" step="0.5" data-place="x"></label>
-					<label>Y <input type="number" step="0.5" data-place="y"></label>
-					<label>Z <input type="number" step="0.1" data-place="z"></label>
-					<label>Facing <input type="number" step="5" data-place="o" title="Degrees, anticlockwise from north"></label>
-					<label>Scale <input type="number" step="0.05" min="0.05" data-place="scale"></label>
-				</div>
-				<div class="edit-buttons">
-					<button id="edit-duplicate" title="Copy it, then click to put the copy down (Ctrl+D)">Duplicate</button>
-					<button id="edit-delete" title="Delete">Delete</button>
-					<button id="edit-reset" title="Back to how the spawn data has it">Reset</button>
-				</div>
-				<div id="edit-badge" class="muted small"></div>
-			</div>
 			<div id="info-links"></div>
 			<p id="info-source" class="small muted">Spawns: VMaNGOS world database (patch 1.12)</p>
 		</aside>
@@ -254,12 +198,10 @@
 					<div><kbd>H</kbd> highlight chests, herbs, ore, fishing pools or anything by name</div>
 				</section>
 				<section>
-					<h3>Editing</h3>
-					<div><kbd>F2</kbd> edit NPCs and objects · <kbd>Right</kbd>-drag look around</div>
-					<div>Drag to move · <kbd>Shift</kbd>+drag or <kbd>PgUp</kbd> / <kbd>PgDn</kbd> up and down</div>
-					<div><kbd>Wheel</kbd> while dragging, or <kbd>Alt</kbd>+<kbd>Wheel</kbd>, turn (<kbd>Ctrl</kbd> finer)</div>
-					<div><kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate · <kbd>Del</kbd> delete</div>
-					<div><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd> undo / redo</div>
+					<h3>World editor</h3>
+					<div><kbd>Tab</kbd> or <kbd>F2</kbd> open the editor (and back)</div>
+					<div>Move, place and delete NPCs, objects and props</div>
+					<div><kbd>F1</kbd> in the editor lists its controls</div>
 				</section>
 				<section>
 					<h3>Screen</h3>

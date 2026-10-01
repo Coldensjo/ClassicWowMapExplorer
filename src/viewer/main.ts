@@ -5,10 +5,16 @@ import type { Place } from '../explorer/places';
 import type { SpawnInfo } from '../explorer/spawns';
 import type { MapCategory, MapListing } from '../explorer/world';
 import type { HighlightGroup, HighlightSettings } from './highlights';
+import { matchScore, searchKey } from '../app/search';
 import { Minimap } from './minimap';
-import { canPose, POSES } from './spawnEditor';
 import { isTyping } from './typing';
-import { FLY_SPEED_RANGE, FLY_SPEED_STEP, Viewer, type HudInfo, type ViewSettings } from './viewer';
+import { signal } from '@preact/signals';
+import { bindKeys, workspace } from '../app/input';
+import { EditDocument } from '../editor/document';
+import { mountEditor } from '../editor/index';
+import { toggleHelp } from '../editor/ui/app';
+import { EditorViewport } from '../editor/viewport';
+import { loadWowSkin } from '../ui/wowSkin';import { FLY_SPEED_RANGE, FLY_SPEED_STEP, Viewer, type HudInfo, type ViewSettings } from './viewer';
 import { setVolume, volumeSetting, type VolumeChannel } from './volume';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -197,12 +203,14 @@ async function explore(): Promise<void> {
 	try {
 		await storage.open($<HTMLSelectElement>('product').value);
 		const font = loadGameFont();
+		// The game's interface art for the editor, read alongside the world.
+		const skin = loadWowSkin(storage).catch((e) => console.warn('Interface art unavailable:', e));
 		const viewer = new Viewer($('view'), storage, showHud, showInfo, $('nameplates'));
 		// For poking at the scene from the console (and test scripts) while developing.
 		if (import.meta.env.DEV) (globalThis as unknown as { mapExplorerViewer: Viewer }).mapExplorerViewer = viewer;
 		viewer.onShotStatus = showShotStatus;
 		await viewer.load((text) => showProgress(text));
-		await font;
+		await Promise.all([font, skin]);
 		showProgress('Starting');
 		$('start').hidden = true;
 		$('hud').hidden = $('side').hidden = $('menubar').hidden = false;
@@ -212,10 +220,9 @@ async function explore(): Promise<void> {
 		setUpMinimap(viewer);
 		void setUpGoTo(viewer);
 		setUpHighlights(viewer);
-		setUpEditor(viewer);
-		setUpPlace(viewer);
 		setUpSound(viewer);
 		setUpHelp();
+		await setUpWorkspaces(viewer);
 	} catch (e) {
 		setStatus(`Could not start: ${(e as Error).message}`, true);
 		button.disabled = false;
@@ -293,6 +300,9 @@ type SavedView = Partial<ViewSettings> & { stats: boolean };
 const hudFollowers: (() => void)[] = [];
 
 /** The View panel: every setting the keys toggle, the time of day and the HUD's stats; remembered between visits. */
+/** Sets View settings from elsewhere (the editor's View menu): applied, shown and remembered. */
+let applyView: (next: Partial<ViewSettings>) => void = () => {};
+
 function setUpView(viewer: Viewer): void {
 	const panel = $('view-panel');
 	const { stats = false, ...settings } = readSaved<SavedView>(VIEW_KEY);
@@ -307,6 +317,11 @@ function setUpView(viewer: Viewer): void {
 			if (c instanceof HTMLInputElement) c.checked = value as boolean;
 			else c.value = String(value);
 		}
+	};
+	applyView = (next) => {
+		viewer.settings = next;
+		sync();
+		remember();
 	};
 	const setStats = (on: boolean) => {
 		statsBox.checked = on;
@@ -324,11 +339,12 @@ function setUpView(viewer: Viewer): void {
 		setStats(statsBox.checked);
 		remember();
 	});
-	window.addEventListener('keydown', (e) => {
-		if (e.code !== 'KeyK' || isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+	bindKeys('explore', (e) => {
+		if (e.code !== 'KeyK' || e.ctrlKey || e.metaKey || e.altKey) return;
 		setStats(!statsBox.checked);
 		remember();
 		notify(`Performance stats ${onOff(statsBox.checked)}`);
+		return true;
 	});
 
 	// The time of day: the slider follows the clock unless it's being dragged.
@@ -508,15 +524,6 @@ interface Destination {
 	go: () => Promise<boolean>;
 }
 
-const searchKey = (text: string) => text.toLowerCase().normalize('NFD').replace(/[̀-ͯ'’]/g, '');
-
-/** How well a name matches: the start of it, the start of a word in it, anywhere in it, or not at all (-1). */
-function matchScore(key: string, query: string): number {
-	if (key.startsWith(query)) return 0;
-	if (key.split(/[\s-]+/).some((word) => word.startsWith(query))) return 1;
-	return key.includes(query) ? 2 : -1;
-}
-
 /**
  * Go to: a search over every zone, town and landmark, and every map in the install (many have
  * no way in from the world). Empty, it lists the maps by kind, as a way in to all of them.
@@ -627,11 +634,11 @@ async function setUpGoTo(viewer: Viewer): Promise<void> {
 			if (d) void pick(d);
 		}
 	});
-	window.addEventListener('keydown', (e) => {
-		if (e.key !== '/' || isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
-		e.preventDefault();
+	bindKeys('explore', (e) => {
+		if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
 		if (document.pointerLockElement) document.exitPointerLock();
 		input.focus();
+		return true;
 	});
 }
 
@@ -675,237 +682,64 @@ function setUpHighlights(viewer: Viewer): void {
 	query.addEventListener('keydown', (e) => {
 		if (e.code === 'Enter') query.blur();
 	});
-	window.addEventListener('keydown', (e) => {
-		if (e.code !== 'KeyH' || isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+	bindKeys('explore', (e) => {
+		if (e.code !== 'KeyH' || e.ctrlKey || e.metaKey || e.altKey) return;
 		on.checked = !on.checked;
 		apply();
 		notify(`Highlights ${onOff(on.checked)}`);
+		return true;
 	});
 	apply();
 }
 
-// --- Editing NPCs and objects ---
-
-/** The spawn the info card shows, if any. */
-let shownSpawn: SpawnInfo | null = null;
-
-/** The Edit panel, F2, and the editing part of the info card. */
-function setUpEditor(viewer: Viewer): void {
-	const editor = viewer.editor;
-	const on = $<HTMLInputElement>('edit-on');
-	const fields = [...document.querySelectorAll<HTMLInputElement>('#info-edit [data-place]')];
-	const setActive = (active: boolean) => {
-		// Editing starts with whatever's open on the card.
-		const open = $('info').hidden ? null : shownSpawn;
-		editor.setActive(active);
-		if (active && open) editor.select(open);
-	};
-	editor.onState = (state) => {
-		on.checked = state.active;
-		$('edit-menu').classList.toggle('on', state.active);
-		$<HTMLButtonElement>('edit-undo').disabled = !state.canUndo;
-		$<HTMLButtonElement>('edit-redo').disabled = !state.canRedo;
-		$<HTMLButtonElement>('edit-export').disabled = $<HTMLButtonElement>('edit-clear').disabled = state.count === 0;
-		$('edit-count').textContent = state.count ? `${state.count} NPC${state.count === 1 ? ' or object' : 's and objects'} changed` : 'Nothing changed yet';
-		$('edit-status').textContent = state.active ? 'Click an NPC or object, then drag it. Right-drag to look around.' : '';
-		$('info-edit').hidden = !state.active;
-	};
-	const selection = (info: SpawnInfo | null, edited: boolean) => {
-		$<HTMLButtonElement>('menu-duplicate').disabled = $<HTMLButtonElement>('menu-delete').disabled = !info || !editor.active;
-		$<HTMLButtonElement>('menu-reset').disabled = !info || !editor.active || !edited || !!info.created;
-	};
-	// Poses, grouped; the ones the selected model can't show are greyed out once it has loaded.
-	const pose = $<HTMLSelectElement>('edit-pose');
-	for (const [group, poses] of POSES) {
-		const optgroup = document.createElement('optgroup');
-		optgroup.label = group;
-		for (const [id, name] of poses) optgroup.append(new Option(name, String(id)));
-		pose.append(optgroup);
-	}
-	const markPoses = () => {
-		const animations = editor.selectedAnimations();
-		for (const option of pose.options) option.disabled = !!animations && option.value !== '0' && !canPose(animations, Number(option.value));
-	};
-	pose.addEventListener('pointerdown', markPoses);
-	pose.addEventListener('focus', markPoses);
-	pose.addEventListener('change', () => {
-		const id = Number(pose.value);
-		editor.setPlace({ pose: id || undefined });
-	});
-	editor.onSelect = (info, edited) => {
-		selection(info, edited);
-		if (!info) {
-			$('info').hidden = true;
-			return;
-		}
-		showInfo(info);
-		const { x, y, z, o, scale } = info.place;
-		const values: Record<string, number> = { x, y, z, o: DEGREES_PER_RADIAN * o, scale };
-		for (const f of fields) f.value = String(Number(values[f.dataset.place!].toFixed(f.dataset.place === 'scale' ? 3 : 2)));
-		$<HTMLButtonElement>('edit-reset').disabled = !edited || !!info.created;
-		$('edit-pose').parentElement!.hidden = info.type !== 'npc';
-		pose.value = String(info.place.pose ?? 0);
-		markPoses();
-		$('edit-badge').textContent = info.created ? `A copy (spawn ${info.guid}), only here` : edited ? 'Changed here' : '';
-	};
-	for (const f of fields) {
-		f.addEventListener('change', () => {
-			const value = Number(f.value);
-			if (!Number.isFinite(value)) return;
-			const key = f.dataset.place as 'x' | 'y' | 'z' | 'o' | 'scale';
-			if (key === 'scale' && value <= 0) return;
-			editor.setPlace({ [key]: key === 'o' ? (((value % 360) + 360) % 360) / DEGREES_PER_RADIAN : value });
-		});
-		f.addEventListener('keydown', (e) => {
-			if (e.code === 'Enter') f.blur();
-		});
-	}
-	on.addEventListener('change', () => setActive(on.checked));
-	$('edit-duplicate').addEventListener('click', () => editor.duplicate());
-	$('edit-delete').addEventListener('click', () => editor.remove());
-	$('edit-reset').addEventListener('click', () => editor.reset());
-	$('menu-place').addEventListener('click', () => openPlace(true));
-	$<HTMLInputElement>('edit-props').addEventListener('change', (e) => (editor.props = (e.target as HTMLInputElement).checked));
-	$<HTMLInputElement>('edit-buildings').addEventListener('change', (e) => (editor.buildings = (e.target as HTMLInputElement).checked));
-	$('menu-duplicate').addEventListener('click', () => editor.duplicate());
-	$('menu-delete').addEventListener('click', () => editor.remove());
-	$('menu-reset').addEventListener('click', () => editor.reset());
-	$('edit-undo').addEventListener('click', () => editor.undo());
-	$('edit-redo').addEventListener('click', () => editor.redo());
-	$('edit-export').addEventListener('click', () => {
-		const link = document.createElement('a');
-		link.href = URL.createObjectURL(new Blob([editor.exportJson()], { type: 'application/json' }));
-		link.download = 'mapexplorer-edits.json';
-		link.click();
-		setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-	});
-	const file = $<HTMLInputElement>('edit-import-file');
-	$('edit-import').addEventListener('click', () => file.click());
-	file.addEventListener('change', async () => {
-		const chosen = file.files?.[0];
-		file.value = '';
-		if (!chosen) return;
-		try {
-			notify(`Imported ${editor.importJson(await chosen.text())} changes`);
-		} catch (e) {
-			notify(`Could not import: ${(e as Error).message}`);
-		}
-	});
-	$('edit-clear').addEventListener('click', () => {
-		if (confirm('Put every NPC and object back as the spawn data has it? This removes all your changes and copies.')) editor.clearAll();
-	});
-	window.addEventListener('keydown', (e) => {
-		if (e.code !== 'F2' || isTyping(e)) return;
-		e.preventDefault();
-		setActive(!editor.active);
-		notify(editor.active ? 'Editing on: click an NPC or object' : 'Editing off');
-	});
-	editor.onState(editor.state);
-	selection(null, false);
-}
-
-/** Opens or closes the Place panel; set up by setUpPlace. */
-let openPlace: (on: boolean) => void = () => {};
-
-/** Results shown at most in the Place panel. */
-const PLACE_LIMIT = 80;
+// --- Explore and edit ---
 
 /**
- * The Place panel: every creature and game object template (public/spawns/templates.json), by
- * name or ID. Choosing one hands it to the editor, which carries it under the mouse until a click.
+ * The two workspaces: the explorer, and the world editor (its own panels, tools and keys,
+ * flying only while the right mouse button is held). Tab or F2 switches; the edits show in both.
  */
-function setUpPlace(viewer: Viewer): void {
-	const panel = $('place');
-	const query = $<HTMLInputElement>('place-query');
-	const list = $('place-results');
-	const tabs = [...panel.querySelectorAll<HTMLButtonElement>('[data-tab]')];
-	type Row = { entry: number; name: string; sub: string; key: string };
-	let rows: Record<'npc' | 'object', Row[]> | null = null;
-	let tab: 'npc' | 'object' = 'npc';
-	let loading: Promise<void> | null = null;
-
-	const load = () => {
-		loading ??= storage.listTemplates().then((t) => {
-			const keyed = (r: [number, string, string][]) => r.map(([entry, name, sub]) => ({ entry, name, sub, key: searchKey(name) }))
-				.sort((a, b) => a.name.localeCompare(b.name));
-			rows = { npc: keyed(t.npcs), object: keyed(t.objects) };
-		}, (e) => {
-			console.warn('Templates:', e);
-			rows = { npc: [], object: [] };
-		});
-		return loading;
-	};
-
-	const render = () => {
-		const item = (text: string, className = '') => {
-			const li = document.createElement('li');
-			li.className = className;
-			li.textContent = text;
-			return li;
-		};
-		if (!rows) {
-			list.replaceChildren(item('Reading the list…', 'empty'));
-			return;
-		}
-		const q = searchKey(query.value.trim());
-		const id = Number(q);
-		let found: Row[];
-		if (!q) found = rows[tab].slice(0, PLACE_LIMIT);
-		else if (Number.isInteger(id) && id > 0) found = rows[tab].filter((r) => r.entry === id);
-		else {
-			found = rows[tab].map((r) => ({ r, score: matchScore(r.key, q) }))
-				.filter((m) => m.score >= 0)
-				.sort((a, b) => a.score - b.score || a.r.name.length - b.r.name.length)
-				.slice(0, PLACE_LIMIT)
-				.map((m) => m.r);
-		}
-		if (!found.length) {
-			list.replaceChildren(item(rows[tab].length ? 'Nothing by that name' : 'No list: run npm run spawns', 'empty'));
-			return;
-		}
-		list.replaceChildren(...found.map((r) => {
-			const li = item(r.name);
-			const sub = document.createElement('span');
-			sub.className = 'sub';
-			sub.textContent = `${r.sub} · ${r.entry}`;
-			li.append(sub);
-			li.addEventListener('click', async () => {
-				for (const other of list.children) other.classList.remove('chosen');
-				li.classList.add('chosen');
-				// Keys back to the world, so Esc cancels and the camera flies.
-				query.blur();
-				if (!(await viewer.editor.place(tab, r.entry))) notify('Can’t place that here: point at the ground on a map');
-			});
-			return li;
-		}));
-	};
-
-	openPlace = (on: boolean) => {
-		panel.hidden = !on;
-		if (!on) return;
-		viewer.editor.setActive(true);
-		query.focus();
-		query.select();
-		render();
-		void load().then(render);
-	};
-	$('place-close').addEventListener('click', () => openPlace(false));
-	query.addEventListener('input', render);
-	query.addEventListener('keydown', (e) => {
-		if (e.code === 'Escape') openPlace(false);
-		else if (e.code === 'Enter') (list.querySelector('li:not(.empty)') as HTMLElement | null)?.click();
+async function setUpWorkspaces(viewer: Viewer): Promise<void> {
+	const host = viewer.editorHost();
+	const doc = new EditDocument(host);
+	const viewport = new EditorViewport(host, doc);
+	viewer.onFrame.push(() => viewport.update());
+	// For test scripts and the console while developing.
+	if (import.meta.env.DEV) Object.assign(globalThis, { mapExplorerEditor: { doc, viewport } });
+	mountEditor({
+		viewer, doc, viewport, storage,
+		hud: hudInfo,
+		settings: { get: () => viewer.settings, set: (next) => applyView(next) },
+		minimap: $('minimap-wrap'),
+		notify,
+		copyLink: () => void copyLink(viewer),
+		screenshot: () => viewer.toggleShot(),
+		exit: () => (workspace.value = 'explore'),
 	});
-	for (const button of tabs) {
-		button.addEventListener('click', () => {
-			tab = button.dataset.tab as 'npc' | 'object';
-			for (const b of tabs) b.setAttribute('aria-selected', String(b === button));
-			render();
-		});
-	}
+	workspace.subscribe((w) => {
+		const editing = w === 'edit';
+		viewer.clicksSelect = !editing;
+		viewer.flyOnlyWhileLooking = editing;
+		if (document.pointerLockElement) document.exitPointerLock();
+		if (editing) $('info').hidden = true;
+	});
+	const toggle = () => {
+		workspace.value = workspace.value === 'edit' ? 'explore' : 'edit';
+		notify(workspace.value === 'edit' ? 'World editor: hold the right mouse button to fly' : 'Exploring');
+	};
+	bindKeys('both', (e) => {
+		if ((e.code !== 'Tab' && e.code !== 'F2') || e.ctrlKey || e.metaKey || e.altKey) return;
+		toggle();
+		return true;
+	});
+	bindKeys('explore', (e) => viewer.handleKey(e));
+	bindKeys('edit', (e) => {
+		if (e.code !== 'F1' && e.key !== '?') return;
+		toggleHelp();
+		return true;
+	});
+	$('menu-edit-world').addEventListener('click', toggle);
+	await doc.load();
 }
-
-/** Radians to degrees. */
-const DEGREES_PER_RADIAN = 180 / Math.PI;
 
 // --- Sound ---
 
@@ -952,13 +786,14 @@ function setUpHelp(): void {
 	help.addEventListener('click', (e) => {
 		if (e.target === help) show(false);
 	});
-	window.addEventListener('keydown', (e) => {
-		if (isTyping(e)) return;
+	bindKeys('explore', (e) => {
 		if (e.key === '?' || e.code === 'F1') {
-			e.preventDefault();
 			show(Boolean(help.hidden));
-		} else if (e.code === 'Escape') {
+			return true;
+		}
+		if (e.code === 'Escape' && !help.hidden) {
 			show(false);
+			return true;
 		}
 	});
 	let seen = true;
@@ -975,11 +810,11 @@ function setUpHelp(): void {
 
 // U, or Alt+Z as in the game: everything drawn over the world goes, for a clear view or
 // screenshots. The NVIDIA overlay takes Alt+Z for itself where it's installed, hence U too.
-window.addEventListener('keydown', (e) => {
+bindKeys('explore', (e) => {
 	const toggle = e.altKey ? e.code === 'KeyZ' : e.code === 'KeyU' && !e.ctrlKey && !e.metaKey;
-	if (!toggle || $('start').hidden === false || isTyping(e)) return;
-	e.preventDefault();
+	if (!toggle || $('start').hidden === false) return;
 	toggleInterface();
+	return true;
 });
 
 function toggleInterface(): void {
@@ -1006,8 +841,10 @@ document.addEventListener('pointerlockchange', () => {
 	$('crosshair').hidden = !document.pointerLockElement;
 });
 $('info-close').addEventListener('click', () => ($('info').hidden = true));
-window.addEventListener('keydown', (e) => {
-	if (e.code === 'Escape' && !isTyping(e)) $('info').hidden = true;
+bindKeys('explore', (e) => {
+	if (e.code !== 'Escape' || $('info').hidden) return;
+	$('info').hidden = true;
+	return true;
 });
 
 /** Book text uses $B for line breaks and $N for the reader's name. */
@@ -1016,7 +853,6 @@ function pageText(text: string): string {
 }
 
 function showInfo(info: SpawnInfo): void {
-	shownSpawn = info;
 	const isNpc = info.type === 'npc';
 	// The map's own props and buildings: no names, no Wowhead pages; their model file instead.
 	const isModel = info.type === 'm2' || info.type === 'wmo';
@@ -1083,7 +919,11 @@ function announceZone(zone: string | null, subzone: string | null): void {
 	if (sub) fadeZoneLine($('subzone-name'));
 }
 
+/** The latest HUD numbers, for the editor's status line. */
+const hudInfo = signal<HudInfo | null>(null);
+
 function showHud(info: HudInfo): void {
+	hudInfo.value = info;
 	announceZone(info.zone, info.subzone);
 	$('highlight-status').textContent = info.highlights;
 	$('hud-location').textContent = info.zone ? [info.zone, info.subzone].filter(Boolean).join(' · ') : info.location;

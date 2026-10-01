@@ -1,0 +1,330 @@
+/*
+ * The game's look, from its own interface art (see wowSkin.ts, which fills the --wow-* images
+ * in and adds .wow-skin to the root once they've loaded). Without them, plain dark panels.
+ */
+:root {
+	--wow-yellow: #ffd100;
+	--wow-white: #ffffff;
+	--wow-grey: #9d9d9d;
+	--wow-green: #1eff00;
+	--wow-red: #ff2020;
+	--wow-label: 'Friz Quadrata', 'Trebuchet MS', system-ui, sans-serif;
+	--wow-text: 'Arial Narrow WoW', 'Arial Narrow', 'Roboto Condensed', system-ui, sans-serif;
+	--wow-title: 'Morpheus', 'Friz Quadrata', Georgia, serif;
+}
+
+.wow {
+	font: 13px/1.35 var(--wow-text);
+	color: var(--wow-white);
+	cursor: var(--wow-cursor, default);
+}
+
+.wow :is(button, input, select, label, a, li) {
+	cursor: inherit;
+}
+
+/* Frames: a tooltip-like panel, and the heavier dialog and gold frames. */
+.wow-panel {
+	background: rgba(9, 9, 22, 0.92);
+	border: 1px solid #4a4f5a;
+	border-radius: 5px;
+}
+
+.wow-skin .wow-panel {
+	background: none;
+	border: 4px solid transparent;
+	border-radius: 0;
+	border-image: var(--wow-panel) 16 fill / 16px stretch;
+}
+
+.wow-dialog, .wow-gold {
+	background: rgb(14, 14, 16);
+	border: 2px solid #5d5d5d;
+	border-radius: 6px;
+}
+
+.wow-gold {
+	border-color: #a8862e;
+}
+
+.wow-skin .wow-dialog {
+	background: none;
+	border: 6px solid transparent;
+	border-radius: 0;
+	border-image: var(--wow-dialog) 32 fill / 22px round;
+}
+
+.wow-skin .wow-gold {
+	background: none;
+	border: 6px solid transparent;
+	border-radius: 0;
+	border-image: var(--wow-gold) 32 fill / 22px round;
+}
+
+/* Text colours as the game uses them. */
+.wow-label {
+	font-family: var(--wow-label);
+	color: var(--wow-yellow);
+	text-shadow: 1px 1px 0 #000;
+}
+
+.wow-title {
+	font-family: var(--wow-title);
+	color: var(--wow-yellow);
+	text-shadow: 1px 1px 1px #000;
+	font-weight: 400;
+}
+
+.wow-muted {
+	color: var(--wow-grey);
+}
+
+/* The red panel button: ends 12 px, the middle stretched. */
+.wow-button {
+	position: relative;
+	height: 22px;
+	min-width: 60px;
+	padding: 0 12px;
+	font: 12px/20px var(--wow-label);
+	color: var(--wow-yellow);
+	text-shadow: 1px 1px 0 #000;
+	white-space: nowrap;
+	background: linear-gradient(#7a1010, #400606);
+	border: 1px solid #1d0202;
+	border-radius: 3px;
+}
+
+.wow-skin .wow-button {
+	background: none;
+	border: 0 solid transparent;
+	border-width: 0 12px;
+	border-radius: 0;
+	padding: 0 2px;
+	border-image: var(--wow-button) 0 12 fill / 0 12px stretch;
+}
+
+.wow-skin .wow-button:active:not(:disabled) {
+	border-image-source: var(--wow-button-down);
+	padding: 1px 1px 0 3px;
+}
+
+.wow-button:hover:not(:disabled) {
+	color: var(--wow-white);
+}
+
+.wow-skin .wow-button:hover:not(:disabled)::after {
+	content: '';
+	position: absolute;
+	inset: 0 -12px;
+	border: 0 solid transparent;
+	border-width: 0 12px;
+	border-image: var(--wow-button-highlight) 0 12 fill / 0 12px stretch;
+	mix-blend-mode: screen;
+	pointer-events: none;
+}
+
+.wow-button:disabled {
+	color: var(--wow-grey);
+	filter: saturate(0.4);
+}
+
+.wow-skin .wow-button:disabled {
+	border-image-source: var(--wow-button-disabled);
+	filter: none;
+}
+
+/* Checkboxes: the game's box and gold tick. */
+.wow-check {
+	appearance: none;
+	flex: none;
+	width: 22px;
+	height: 22px;
+	margin: 0;
+	background: #1b2030;
+	border: 1px solid #5d6577;
+	border-radius: 3px;
+}
+
+.wow-check:checked {
+	background: #1b2030 linear-gradient(var(--wow-yellow), var(--wow-yellow)) center / 10px 10px no-repeat;
+}
+
+.wow-skin .wow-check {
+	width: 26px;
+	height: 26px;
+	margin: -2px;
+	border: none;
+	border-radius: 0;
+	background: var(--wow-check-up) center / contain no-repeat;
+}
+
+.wow-skin .wow-check:checked {
+	background: var(--wow-check) center / contain no-repeat, var(--wow-check-up) center / contain no-repeat;
+}
+
+.wow-skin .wow-check:hover {
+	background: var(--wow-check-highlight) center / contain no-repeat, var(--wow-check-up) center / contain no-repeat;
+}
+
+.wow-skin .wow-check:checked:hover {
+	background: var(--wow-check) center / contain no-repeat, var(--wow-check-highlight) center / contain no-repeat, var(--wow-check-up) center / contain no-repeat;
+}
+
+/* The round red close button. */
+.wow-close {
+	width: 26px;
+	height: 26px;
+	padding: 0;
+	border: none;
+	background: none;
+	color: var(--wow-yellow);
+	font-size: 18px;
+	line-height: 1;
+}
+
+.wow-skin .wow-close {
+	font-size: 0;
+	background: var(--wow-close) center / contain no-repeat;
+}
+
+.wow-skin .wow-close:hover {
+	background: var(--wow-close-highlight) center / contain no-repeat, var(--wow-close) center / contain no-repeat;
+}
+
+.wow-skin .wow-close:active {
+	background: var(--wow-close-down) center / contain no-repeat;
+}
+
+/* Edit boxes. */
+.wow-input {
+	height: 22px;
+	min-width: 0;
+	padding: 0 6px;
+	font: 13px var(--wow-text);
+	color: var(--wow-white);
+	background: #0b0d12;
+	border: 1px solid #4a4f5a;
+	border-radius: 3px;
+	cursor: text;
+}
+
+.wow-skin .wow-input {
+	background: none;
+	border: 0 solid transparent;
+	border-width: 0 8px;
+	border-radius: 0;
+	padding: 0 2px;
+	border-image: var(--wow-input) 0 8 fill / 0 8px stretch;
+}
+
+.wow-input:focus {
+	outline: none;
+	color: var(--wow-yellow);
+}
+
+select.wow-input {
+	cursor: inherit;
+}
+
+select.wow-input option, select.wow-input optgroup {
+	background: #101218;
+	color: var(--wow-white);
+}
+
+/* Square icon buttons, like action bar slots: the icon in the game's slot frame. */
+.wow-slot {
+	position: relative;
+	width: 36px;
+	height: 36px;
+	padding: 0;
+	border: 1px solid #000;
+	border-radius: 3px;
+	background: #222 center / cover no-repeat;
+	box-shadow: 0 0 0 1px #555;
+}
+
+.wow-skin .wow-slot {
+	border: none;
+	border-radius: 0;
+	box-shadow: none;
+}
+
+.wow-skin .wow-slot::before {
+	content: '';
+	position: absolute;
+	inset: -15px;
+	background: var(--wow-slot) center / contain no-repeat;
+	pointer-events: none;
+}
+
+.wow-slot:hover::after, .wow-slot[aria-pressed='true']::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.4);
+}
+
+.wow-slot[aria-pressed='true']::after {
+	box-shadow: inset 0 0 0 2px var(--wow-yellow);
+}
+
+.wow-skin .wow-slot:hover::after {
+	box-shadow: none;
+	background: var(--wow-slot-highlight) center / 100% 100% no-repeat;
+	mix-blend-mode: screen;
+}
+
+.wow-skin .wow-slot[aria-pressed='true']::after {
+	box-shadow: none;
+	background: var(--wow-slot-checked) center / 100% 100% no-repeat;
+	mix-blend-mode: screen;
+}
+
+.wow-slot:disabled {
+	filter: grayscale(1) brightness(0.6);
+}
+
+/* List rows that light up like the quest log's titles. */
+.wow-row {
+	position: relative;
+	border-radius: 2px;
+}
+
+.wow-row:hover, .wow-row.chosen {
+	background: rgba(255, 209, 0, 0.12);
+}
+
+.wow-skin .wow-row:hover, .wow-skin .wow-row.chosen {
+	background: var(--wow-list-highlight) center / 100% 100% no-repeat;
+}
+
+/* Scroll bars: slim, dark, with a gold-brown thumb. */
+.wow ::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+
+.wow ::-webkit-scrollbar-track {
+	background: rgba(0, 0, 0, 0.35);
+}
+
+.wow ::-webkit-scrollbar-thumb {
+	background: #5a4a26;
+	border: 2px solid rgba(0, 0, 0, 0.35);
+	border-radius: 5px;
+}
+
+.wow ::-webkit-scrollbar-thumb:hover {
+	background: #8a7234;
+}
+
+.wow kbd {
+	display: inline-block;
+	font: 11px/1.4 var(--wow-text);
+	color: var(--wow-grey);
+	padding: 0 4px;
+	border: 1px solid #3a3f4a;
+	border-radius: 3px;
+	background: rgba(0, 0, 0, 0.4);
+}

@@ -42,6 +42,8 @@ export interface StorageApi {
 	wmoArea(wmoId: number, nameSet: number, groupId: number): WmoArea | null;
 	loadSound(fdid: number): Uint8Array;
 	loadFont(fdid: number): Uint8Array;
+	/** Interface textures decoded to RGBA (null where missing). */
+	loadImages(fdids: number[]): (Image | null)[];
 	/** Every creature and game object template, for placing new ones. */
 	listTemplates(): TemplateListing;
 	/** A new spawn of a template on a map (positioned at the origin). */

@@ -660,7 +660,7 @@ kbd {
 }
 
 /* Alt+Z or U: only the world. */
-.ui-hidden :is(#hud, #help, #menubar, #place, #side, #zone-banner, #crosshair, #nameplates) {
+.ui-hidden :is(#hud, #help, #menubar, #side, #zone-banner, #crosshair, #nameplates) {
 	display: none !important;
 }
 
@@ -984,7 +984,7 @@ kbd {
 }
 
 /* The interface stays above the names, which can grow large up close. */
-:is(#hud, #side, #place, #help, #notice, #shot-status, #zone-banner) {
+:is(#hud, #side, #help, #notice, #shot-status, #zone-banner) {
 	z-index: 1;
 }
 
@@ -1018,150 +1018,9 @@ kbd {
 	display: none;
 }
 
-/* Editing NPCs and objects: the fields and buttons on the info card. */
-.edit-buttons {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 4px;
-}
-
-.edit-pose {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	margin: 8px 0 0;
-	color: var(--muted);
-}
-
-.edit-pose select {
-	flex: 1;
-	min-width: 0;
-	padding: 2px 4px;
-}
-
-#edit-badge:empty {
-	display: none;
-}
-
-.edit-fields {
-	display: grid;
-	grid-template-columns: 1fr 1fr;
-	gap: 4px 10px;
-	margin: 8px 0;
-}
-
-.edit-fields label {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	color: var(--muted);
-}
-
-.edit-fields input {
-	width: 100%;
-	min-width: 0;
-	font: inherit;
-	color: var(--text);
-	background: #1b1f25;
-	border: 1px solid var(--line);
-	border-radius: 4px;
-	padding: 2px 5px;
-}
-
-#edit-badge {
-	margin-top: 6px;
-}
-
-/* Finding an NPC or object to place: under the menus, over the HUD while open. */
-#place {
-	position: fixed;
-	top: 52px;
-	left: 12px;
-	width: 320px;
-	max-height: calc(100vh - 64px);
-	display: flex;
-	flex-direction: column;
-	gap: 6px;
-	padding: 10px 12px;
-	background: rgba(17, 19, 24, 0.96);
-	border: 1px solid var(--line);
-	border-radius: 6px;
-	font-size: 13px;
-}
-
-.place-head {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-}
-
-.place-head h2 {
-	margin: 0;
-	font-size: 15px;
-	color: var(--accent);
-}
-
-#place-close {
-	font-size: 18px;
-	color: var(--muted);
-	padding: 0 4px;
-}
-
-.place-tabs {
-	display: flex;
-	gap: 4px;
-}
-
-.place-tabs button {
-	flex: 1;
-	padding: 3px 8px;
-}
-
-.place-tabs button[aria-selected='true'] {
-	border-color: var(--accent);
-	color: var(--accent);
-}
-
-#place-query {
-	width: 100%;
-	font: inherit;
-	color: var(--text);
-	background: #1b1f25;
-	border: 1px solid var(--line);
-	border-radius: 4px;
-	padding: 4px 8px;
-}
-
-#place-results {
-	list-style: none;
-	margin: 0;
-	padding: 0;
-	overflow-y: auto;
-	min-height: 0;
-	flex: 1 1 auto;
-}
-
-#place-results li {
-	padding: 4px 6px;
-	border-radius: 4px;
-	cursor: pointer;
-}
-
-#place-results li:hover, #place-results li.chosen {
-	background: #2a2f37;
-}
-
-#place-results .sub {
-	display: block;
-	font-size: 11px;
-	color: var(--muted);
-}
-
-#place-results li.empty {
-	cursor: default;
-	color: var(--muted);
-}
-
-#place p {
-	margin: 0;
+/* Into the world editor: set apart from the menus. */
+.menu-edit-world {
+	margin-left: 8px;
+	color: var(--accent) !important;
+	border: 1px solid rgba(217, 164, 65, 0.5) !important;
 }

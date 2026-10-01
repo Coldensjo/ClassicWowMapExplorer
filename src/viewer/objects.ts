@@ -870,6 +870,28 @@ export class ObjectManager {
 		return offset;
 	}
 
+	/**
+	 * Every placed NPC and game object (and with props the map's own models within propRange of
+	 * the camera, with buildings its buildings) whose place passes a test, for box selection.
+	 */
+	placedWhere(test: (matrix: THREE.Matrix4) => boolean, props: boolean, buildings: boolean, propRange: number, camera: THREE.Vector3): { placement: Placement; wdt: number }[] {
+		const out: { placement: Placement; wdt: number }[] = [];
+		const range = propRange * propRange;
+		for (const [key, object] of this.objects) {
+			const kind = object.placement.kind;
+			if (kind === 'creature' || kind === 'object') {
+				if (!object.placement.spawn) continue;
+			} else if (kind === 'm2') {
+				if (!props) continue;
+				const e = object.matrix.elements;
+				if ((e[12] - camera.x) ** 2 + (e[13] - camera.y) ** 2 + (e[14] - camera.z) ** 2 > range) continue;
+			} else if (kind !== 'wmo' || !buildings) continue;
+			if (!test(object.matrix)) continue;
+			out.push({ placement: object.placement, wdt: Number(key.replace(/^edit:/, '').split(':')[0]) });
+		}
+		return out;
+	}
+
 	/** How far along a ray it first meets a building (WMO), or null. */
 	raycastBuildings(from: THREE.Vector3, direction: THREE.Vector3, far: number): number | null {
 		return this.castBuildings(from, direction, far)?.distance ?? null;

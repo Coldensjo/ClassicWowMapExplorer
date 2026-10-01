@@ -116,6 +116,8 @@ export interface DocumentHost {
  */
 export class EditDocument {
 	private readonly edits = new Map<string, SpawnEdit>();
+	/** Shown but not yet recorded: spawns being dragged, or carried before a click puts them down. */
+	private readonly previews = new Map<string, SpawnInfo>();
 	/** Spawns as the data has them, kept from when they were first picked or changed. */
 	private readonly originals = new Map<string, SpawnInfo>();
 	private readonly store = new EditStore();
@@ -144,7 +146,7 @@ export class EditDocument {
 
 	/** A spawn as it now is: its edit, or as the data has it (undefined if deleted or unknown). */
 	current(id: string): SpawnInfo | undefined {
-		const edit = this.edits.has(id) ? this.edits.get(id) : this.originals.get(id);
+		const edit = this.previews.get(id) ?? (this.edits.has(id) ? this.edits.get(id) : this.originals.get(id));
 		return edit && !edit.deleted ? edit : undefined;
 	}
 
@@ -237,20 +239,24 @@ export class EditDocument {
 	/** Shows a spawn changed without recording it (while it's being dragged). */
 	preview(info: SpawnInfo): void {
 		const id = spawnId(info);
-		this.edits.set(id, info);
+		this.previews.set(id, info);
 		this.draw(id, info);
 	}
 
-	/** Undoes a preview: back to the edit it had before (undefined: none). */
-	restore(id: string, before: SpawnEdit | undefined): void {
-		if (before === undefined) this.edits.delete(id);
-		else this.edits.set(id, before);
-		this.draw(id, before);
+	/** Drops a preview: the spawn shows as recorded again. */
+	restore(id: string): void {
+		if (!this.previews.delete(id)) return;
+		this.draw(id, this.edits.get(id));
 	}
 
-	/** The edit a spawn has now (for remembering it before a preview). */
+	/** A spawn's recorded edit (undefined: none). */
 	editOf(id: string): SpawnEdit | undefined {
 		return this.edits.get(id);
+	}
+
+	/** A spawn as it's shown now: its preview, else its recorded edit. */
+	shown(id: string): SpawnEdit | undefined {
+		return this.previews.get(id) ?? this.edits.get(id);
 	}
 
 	undo(): void {
@@ -279,7 +285,7 @@ export class EditDocument {
 	nextGuid(type: SpawnType, map: number): number {
 		const prefix = `${map}:${type}:`;
 		let guid = type === 'm2' || type === 'wmo' ? FIRST_NEW_MODEL_ID : FIRST_NEW_GUID;
-		for (const id of this.edits.keys()) if (id.startsWith(prefix)) guid = Math.max(guid, Number(id.slice(prefix.length)) + 1);
+		for (const id of [...this.edits.keys(), ...this.previews.keys()]) if (id.startsWith(prefix)) guid = Math.max(guid, Number(id.slice(prefix.length)) + 1);
 		return guid;
 	}
 
@@ -312,8 +318,9 @@ export class EditDocument {
 	/** Back to the spawn data everywhere. Not undoable. */
 	clearAll(): void {
 		batch(() => {
-			for (const id of [...this.edits.keys()]) this.draw(id, undefined);
+			for (const id of [...this.edits.keys(), ...this.previews.keys()]) this.draw(id, undefined);
 			this.edits.clear();
+			this.previews.clear();
 			void this.store.clear();
 			this.undoStack = [];
 			this.redoStack = [];
@@ -326,6 +333,7 @@ export class EditDocument {
 
 	/** Sets a spawn's edit, draws it and saves it. */
 	private apply(id: string, edit: SpawnEdit | undefined): void {
+		this.previews.delete(id);
 		if (edit === undefined) this.edits.delete(id);
 		else this.edits.set(id, edit);
 		this.draw(id, edit);

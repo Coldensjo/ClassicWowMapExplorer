@@ -52,6 +52,16 @@ export const ICONS = {
 	building: 134269, // inv_misc_map_01
 	note: 134327, // inv_misc_note_01
 	unknown: 134400, // inv_misc_questionmark
+	// Palette categories and groups.
+	nature: 132137, // ability_druid_naturalperfection
+	props: 132763, // inv_crate_03
+	town: 132327, // ability_townwatch
+	effects: 134333, // inv_misc_orb_01
+	candle: 133750, // inv_misc_candle_01
+	food: 133943, // inv_misc_food_01
+	bone: 133718, // inv_misc_bone_01
+	book: 133734, // inv_misc_book_02
+	recent: 133647, // inv_misc_bag_14
 	// Creature types.
 	beast: 132203, // ability_hunter_pet_wolf
 	dragonkin: 134153, // inv_misc_head_dragon_01

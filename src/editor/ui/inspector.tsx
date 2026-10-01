@@ -16,8 +16,8 @@ function shared(infos: SpawnInfo[], get: (p: SpawnPlace) => number): number | nu
 
 export function iconFor(info: SpawnInfo): IconName {
 	if (info.type === 'npc') return creatureIcon(info.kind);
-	if (info.type === 'm2') return 'prop';
-	if (info.type === 'wmo') return 'building';
+	if (info.type === 'm2') return 'props';
+	if (info.type === 'wmo') return 'town';
 	return info.kind === 'Text' ? 'note' : 'object';
 }
 

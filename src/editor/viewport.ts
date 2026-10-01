@@ -43,9 +43,12 @@ const CONTINENT_TO_WORLD = WORLD_TO_CONTINENT.clone().invert();
 
 export type Tool = 'select' | 'move' | 'rotate' | 'scale' | 'place';
 
-/** A template chosen in the palette, to put down where clicked. */
+/**
+ * Something chosen in the palette, to put down where clicked: an NPC or game object template
+ * (entry), or one of the game's map models, a prop or a building (entry: its file).
+ */
 export interface Stamp {
-	type: 'npc' | 'object';
+	type: 'npc' | 'object' | 'm2' | 'wmo';
 	entry: number;
 	name: string;
 }
@@ -201,8 +204,11 @@ export class EditorViewport {
 		const selected = this.doc.selection.value;
 		if (!selected.length) return;
 		this.cancel();
-		const copies = selected.map((s) => ({ ...s, guid: this.doc.nextGuid(s.type, s.place.map), created: true as const, place: { ...s.place } }));
-		for (const c of copies) this.doc.preview(c);
+		const copies = selected.map((s) => {
+			const copy: SpawnInfo = { ...s, guid: this.doc.nextGuid(s.type, s.place.map), created: true, place: { ...s.place } };
+			this.doc.preview(copy);
+			return copy;
+		});
 		this.doc.select(copies);
 		this.hold(copies, copies[0], 'carry', copies.map(() => undefined));
 		this.moveHeld();
@@ -240,13 +246,13 @@ export class EditorViewport {
 		this.press = null;
 		this.marquee.hidden = true;
 		if (this.adjust) {
-			for (const item of this.adjust.items) this.doc.restore(item.id, item.before);
+			for (const item of this.adjust.items) this.doc.restore(item.id);
 			this.adjust = null;
 		}
 		const held = this.held;
 		if (!held) return;
 		this.held = null;
-		for (const item of held.items) this.doc.restore(item.id, item.before);
+		for (const item of held.items) this.doc.restore(item.id);
 		if (held.mode === 'carry') this.doc.select(this.doc.selection.value.filter((s) => !held.items.some((i) => i.id === spawnId(s))));
 	}
 
@@ -317,7 +323,7 @@ export class EditorViewport {
 		if (this.adjust) {
 			const { items } = this.adjust;
 			this.adjust = null;
-			this.doc.commit(items.map((i) => ({ id: i.id, before: i.before, after: this.doc.editOf(i.id) })));
+			this.doc.commit(items.map((i) => ({ id: i.id, before: i.before, after: this.doc.shown(i.id) })));
 			return;
 		}
 		if (!press) return;
@@ -380,7 +386,7 @@ export class EditorViewport {
 		const held = this.held;
 		if (!held) return;
 		this.held = null;
-		this.doc.commit(held.items.map((i) => ({ id: i.id, before: i.before, after: this.doc.editOf(i.id) })));
+		this.doc.commit(held.items.map((i) => ({ id: i.id, before: i.before, after: this.doc.shown(i.id) })));
 		this.host.canvas.style.cursor = '';
 	}
 
@@ -398,7 +404,10 @@ export class EditorViewport {
 		const ground = this.groundHit(this.raycaster.ray) ?? this.host.camera.position;
 		const map = this.host.mapAt(ground.x, ground.z) ?? this.host.mapAt(this.host.camera.position.x, this.host.camera.position.z);
 		if (!map) return false;
-		const info = await this.host.templateSpawn(stamp.type, stamp.entry, map.mapId, this.doc.nextGuid(stamp.type, map.mapId));
+		const guid = this.doc.nextGuid(stamp.type, map.mapId);
+		const info = stamp.type === 'm2' || stamp.type === 'wmo'
+			? modelSpawn(stamp.type, stamp.entry, stamp.name, map.mapId, guid)
+			: await this.host.templateSpawn(stamp.type, stamp.entry, map.mapId, guid);
 		// The tool may have changed meanwhile.
 		if (!info || this.stamp.value !== stamp || this.tool.value !== 'place' || this.held) return false;
 		const made: SpawnInfo = { ...info, created: true };
@@ -584,6 +593,15 @@ export class EditorViewport {
 			},
 		};
 	}
+}
+
+/** A new copy of one of the game's map models (a prop or a building), at the origin, upright. */
+function modelSpawn(type: 'm2' | 'wmo', fdid: number, name: string, map: number, guid: number): SpawnInfo {
+	return {
+		type, guid, entry: fdid, name,
+		kind: type === 'wmo' ? 'Building' : 'Prop',
+		place: { map, x: 0, y: 0, z: 0, o: 0, scale: 1, display: fdid },
+	};
 }
 
 /** A spawn turned further about the world's up axis (its facing, and its full rotation if it has one). */

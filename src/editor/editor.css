@@ -543,3 +543,59 @@ body.ws-edit {
 .ed-help dd {
 	margin: 0;
 }
+
+/* Palette categories: a row of slots, then the groups within the chosen one. */
+.ed-categories {
+	display: flex;
+	justify-content: space-between;
+	padding: 2px 4px 4px;
+}
+
+.ed-categories .ed-slot {
+	width: 32px;
+	height: 32px;
+}
+
+.ed-category-title {
+	font-size: 12px;
+	margin: 4px 2px 6px;
+}
+
+.ed-groups {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	max-height: 96px;
+	overflow-y: auto;
+	margin-bottom: 6px;
+	flex: none;
+}
+
+.ed-chip {
+	padding: 1px 7px;
+	font: 12px var(--wow-text);
+	color: var(--wow-white);
+	background: rgba(0, 0, 0, 0.4);
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 10px;
+	white-space: nowrap;
+}
+
+.ed-chip span {
+	color: var(--wow-grey);
+	font-size: 11px;
+}
+
+.ed-chip:hover {
+	border-color: rgba(255, 209, 0, 0.5);
+}
+
+.ed-chip.on {
+	color: var(--wow-yellow);
+	border-color: var(--wow-yellow);
+	background: rgba(255, 209, 0, 0.12);
+}
+
+.ed-palette > .ed-check {
+	padding: 0 2px 6px;
+}

@@ -186,6 +186,12 @@ npm run spawns -- path/to/mangos.sqlite
 
 This needs `sqlite3` on the PATH. NPC hair textures come from the community listfile, expected at `.cache/listfile.csv`.
 
+The world editor's palette of map models (props and buildings) is `public/spawns/models.json`, built from the same listfile, keeping only the models your install has:
+
+```sh
+npm run models -- [wowDir] [product]
+```
+
 ### Scripts
 
 - `npm run dev`: start the dev server
@@ -193,6 +199,7 @@ This needs `sqlite3` on the PATH. NPC hair textures come from the community list
 - `npm run typecheck`: type-check only
 - `npm run probe`: inspect game data from Node
 - `npm run spawns`: rebuild the spawn files
+- `npm run models`: rebuild the editor's palette of map models
 - `npm run portable`: build the portable version into `release/` (the zip for a GitHub release);
   needs mingw-w64 (gcc, windres), ImageMagick and 7-Zip on the PATH. The launcher is
   `tools/portable/launcher.c`, its icon `public/icon.svg`

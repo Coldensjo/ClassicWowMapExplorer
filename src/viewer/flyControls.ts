@@ -26,6 +26,10 @@ export class FlyControls {
 	private readonly keys = new Set<string>();
 	private zoomVelocity = 0;
 	private flight: Flight | null = null;
+	/** Ground height under the camera at the end of the last update. */
+	private lastGround = -Infinity;
+	/** How far below the ground the camera may still be while it eases up after the ground popped. */
+	private groundEase = 0;
 	/** Height above ground at the last update. */
 	altitude = 0;
 	speed = 0;
@@ -37,6 +41,9 @@ export class FlyControls {
 
 		document.addEventListener('mousemove', (e) => {
 			if (document.pointerLockElement !== element) return;
+			// Browsers now and then report a bogus jump (the hidden cursor being recentred), which
+			// would snap the view; no real flick covers a third of the window in one event.
+			if (Math.abs(e.movementX) > window.innerWidth / 3 || Math.abs(e.movementY) > window.innerHeight / 3) return;
 			this.flight = null;
 			this.yaw -= e.movementX * LOOK_SENSITIVITY;
 			this.pitch = THREE.MathUtils.clamp(this.pitch - e.movementY * LOOK_SENSITIVITY, -MAX_PITCH, MAX_PITCH);
@@ -63,7 +70,11 @@ export class FlyControls {
 	ghost = false;
 
 	lock(): void {
-		if (!this.locked) this.element.requestPointerLock();
+		if (this.locked) return;
+		// Raw mouse movement skips the OS pointer acceleration, which is also where the spurious
+		// jumps come from; fall back to the plain lock where it isn't supported.
+		const request = (this.element.requestPointerLock as (options?: { unadjustedMovement?: boolean }) => Promise<void> | void).call(this.element, { unadjustedMovement: true });
+		if (request instanceof Promise) request.catch(() => this.element.requestPointerLock());
 	}
 
 	get locked(): boolean {
@@ -88,6 +99,8 @@ export class FlyControls {
 		this.yaw = yaw;
 		this.pitch = pitch;
 		this.flight = null;
+		this.lastGround = -Infinity;
+		this.groundEase = 0;
 		this.apply();
 	}
 
@@ -97,6 +110,14 @@ export class FlyControls {
 	 */
 	update(dt: number, groundHeight: (x: number, z: number) => number, surfaceHeight: (x: number, z: number) => number = groundHeight): void {
 		const pos = this.camera.position;
+		// The ground under the camera rose without it moving: a tile's detailed heights replaced the
+		// coarse ones. Ease up out of it rather than snapping.
+		const groundNow = groundHeight(pos.x, pos.z);
+		if (Number.isFinite(groundNow) && Number.isFinite(this.lastGround) && groundNow > this.lastGround) {
+			this.groundEase = Math.max(this.groundEase, groundNow - this.lastGround);
+		}
+		this.groundEase *= Math.exp(-dt * 6);
+		if (this.groundEase < 0.01) this.groundEase = 0;
 		const surface = surfaceHeight(pos.x, pos.z);
 		this.altitude = Math.max(0, pos.y - Math.max(surface, 0));
 		// Underground (entered through a hole): caves and mines lie below the surface, so the
@@ -138,8 +159,10 @@ export class FlyControls {
 			pos.add(this.collide && !this.ghost ? this.collide(pos, delta) : delta);
 		}
 
-		const floor = groundHeight(pos.x, pos.z) + MIN_CLEARANCE;
+		const ground = groundHeight(pos.x, pos.z);
+		const floor = ground + MIN_CLEARANCE - this.groundEase;
 		if (aboveGround && !this.ghost && pos.y < floor) pos.y = floor;
+		this.lastGround = ground;
 		this.apply();
 	}
 

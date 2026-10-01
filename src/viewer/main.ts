@@ -733,19 +733,28 @@ function showInfo(info: SpawnInfo): void {
 let shownZone: string | null = null;
 let shownSubzone: string | null = null;
 
-/** Shows the zone banner when entering a new zone, or just the subzone within the same zone. */
+/** Fades a line of zone text in, holds it and fades it out again, from the start. */
+function fadeZoneLine(el: HTMLElement): void {
+	el.classList.remove('show');
+	void el.offsetWidth; // restart the animation
+	el.classList.add('show');
+}
+
+/**
+ * Zone text as the game's ZoneText.lua shows it: a new zone shows its name with the subzone
+ * under it; within a zone only the subzone line shows, and leaving a subzone for the open zone
+ * shows the zone's name there.
+ */
 function announceZone(zone: string | null, subzone: string | null): void {
 	if (!zone || (zone === shownZone && subzone === shownSubzone)) return;
 	const newZone = zone !== shownZone;
 	shownZone = zone;
 	shownSubzone = subzone;
-	if (!newZone && !subzone) return;
-	$('zone-name').textContent = newZone ? zone : subzone ?? '';
-	$('subzone-name').textContent = newZone ? subzone ?? '' : '';
-	const banner = $('zone-banner');
-	banner.classList.remove('show');
-	void banner.offsetWidth; // restart the animation
-	banner.classList.add('show');
+	$('zone-name').textContent = zone;
+	if (newZone) fadeZoneLine($('zone-name'));
+	const sub = subzone ?? (newZone ? '' : zone);
+	$('subzone-name').textContent = sub;
+	if (sub) fadeZoneLine($('subzone-name'));
 }
 
 function showHud(info: HudInfo): void {

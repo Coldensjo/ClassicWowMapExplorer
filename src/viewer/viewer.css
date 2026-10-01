@@ -360,38 +360,50 @@ kbd {
 	pointer-events: none;
 }
 
+/*
+ * Zone text as the game's ZoneText.xml draws it, on its 768-unit-high screen: ZoneTextFont
+ * (Friz Quadrata 32, thick outline) centred 192 units from the top, SubZoneTextFont (26)
+ * right under it, both in (1.0, 0.9294, 0.7607). Each fades on its own: in 0.5 s, held 1 s,
+ * out 2 s. The zone line keeps its place while only the subzone shows.
+ */
 #zone-banner {
+	--ui-unit: calc(100vh / 768);
 	position: fixed;
-	top: 14%;
+	top: calc(192 * var(--ui-unit) - 0.6 * 32 * var(--ui-unit));
 	left: 0;
 	right: 0;
 	text-align: center;
 	pointer-events: none;
-	opacity: 0;
-	font-family: Georgia, 'Times New Roman', serif;
-	text-shadow: 0 0 3px #000, 0 2px 6px rgba(0, 0, 0, 0.8);
+	font-family: 'Friz Quadrata', 'Trebuchet MS', system-ui, sans-serif;
+	line-height: 1.2;
+	color: rgb(255, 237, 194);
 }
 
-#zone-banner.show {
-	animation: zone-fade 5s ease-in-out forwards;
+#zone-name, #subzone-name {
+	opacity: 0;
+	white-space: nowrap;
+	/* The thick outline: a ring of black round each letter. */
+	text-shadow:
+		0.06em 0 0 #000, -0.06em 0 0 #000, 0 0.06em 0 #000, 0 -0.06em 0 #000,
+		0.045em 0.045em 0 #000, -0.045em 0.045em 0 #000, 0.045em -0.045em 0 #000, -0.045em -0.045em 0 #000;
 }
 
 #zone-name {
-	font-size: clamp(26px, 4vw, 46px);
-	color: #ffd35a;
-	letter-spacing: 0.02em;
+	font-size: calc(32 * var(--ui-unit));
 }
 
 #subzone-name {
-	font-size: clamp(17px, 2.2vw, 26px);
-	color: #f4f0e6;
-	margin-top: 4px;
+	font-size: calc(26 * var(--ui-unit));
+}
+
+#zone-name.show, #subzone-name.show {
+	animation: zone-fade 3.5s linear forwards;
 }
 
 @keyframes zone-fade {
 	0% { opacity: 0; }
-	12% { opacity: 1; }
-	70% { opacity: 1; }
+	14.3% { opacity: 1; }
+	42.9% { opacity: 1; }
 	100% { opacity: 0; }
 }
 

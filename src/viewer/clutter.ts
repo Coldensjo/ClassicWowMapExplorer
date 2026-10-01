@@ -21,6 +21,14 @@ const MODEL_BATCH = 8;
 const UNUSED_MODEL_TTL = 30000;
 /** Floats per generated copy: x, y, z (world), yaw (radians), scale. */
 const STRIDE = 5;
+/**
+ * Screenshots: clutter covers every held tile in view, at full density within this distance
+ * (yards) and thinning beyond it as the square of the distance, so about as many copies show per
+ * pixel of screen however far off, and the count stays bounded.
+ */
+const SHOT_FULL_RANGE = 300;
+/** Screenshots: most chunks scattered per frame, so the page keeps showing progress. */
+const SHOT_CHUNKS_PER_FRAME = 300;
 
 const clutterRange = { value: RANGE };
 
@@ -125,6 +133,10 @@ export class ClutterManager {
 	private readonly lastBuild = new THREE.Vector3(Infinity, Infinity, Infinity);
 	private dirty = true;
 	private on = true;
+	/** A screenshot's view, while one is prepared (see holdInView). */
+	private shot: THREE.Frustum | null = null;
+	/** Thinned copies of the screenshot's far chunks, by tile key and chunk; let go after it. */
+	private readonly shotChunks = new Map<string, Map<number, Map<number, Float32Array>>>();
 
 	constructor(
 		private readonly storage: AsyncStorageApi,
@@ -156,12 +168,45 @@ export class ClutterManager {
 	}
 
 	removeTile(key: string): void {
+		this.shotChunks.delete(key);
 		if (this.tiles.delete(key)) this.dirty = true;
+	}
+
+	/**
+	 * For a screenshot: clutter shows on everything in the camera's view, however far off (only
+	 * the detailed tiles have any). Null goes back to the area around the camera.
+	 */
+	holdInView(camera: THREE.Camera | null): void {
+		if (camera) {
+			camera.updateMatrixWorld();
+			this.shot = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+			clutterRange.value = Infinity;
+		} else {
+			this.shot = null;
+			this.shotChunks.clear();
+			clutterRange.value = RANGE;
+			// Back to the usual few copies: let the screenshot's large buffers go.
+			for (const model of this.models.values()) {
+				if (!model.mesh) continue;
+				this.group.remove(model.mesh);
+				model.mesh.dispose();
+				model.mesh = null;
+			}
+		}
+		this.dirty = true;
+	}
+
+	/** For a screenshot: clutter still to scatter, and its models still to load. */
+	get pending(): number {
+		if (!this.on || !this.shot) return 0;
+		let n = this.dirty ? 1 : 0;
+		for (const model of this.models.values()) if (model.state === 'queued' || model.state === 'loading') n++;
+		return n;
 	}
 
 	/** Call once per frame. ground gives the terrain height under the camera. */
 	update(now: number, camera: THREE.Vector3, ground: number): void {
-		const high = camera.y - ground > RANGE;
+		const high = camera.y - ground > RANGE && !this.shot;
 		if (this.on && !high && (this.dirty || this.lastBuild.distanceToSquared(camera) > REBUILD_MOVE ** 2)) {
 			perf.time('clutter.build', () => this.build(camera));
 		} else if ((!this.on || high) && this.lastBuild.x !== Infinity) {
@@ -190,7 +235,9 @@ export class ClutterManager {
 		this.lastBuild.copy(camera);
 		const byModel = new Map<number, Float32Array[]>();
 		const reach = RANGE + REBUILD_MOVE;
-		for (const tile of this.tiles.values()) {
+		const box = new THREE.Box3();
+		let shotBudget = SHOT_CHUNKS_PER_FRAME;
+		for (const [key, tile] of this.tiles) {
 			for (let cy = 0; cy < CHUNKS_PER_TILE; cy++) {
 				for (let cx = 0; cx < CHUNKS_PER_TILE; cx++) {
 					const id = cy * CHUNKS_PER_TILE + cx;
@@ -200,15 +247,29 @@ export class ClutterManager {
 					const dx = Math.max(x0 - camera.x, 0, camera.x - x0 - CHUNK_SIZE);
 					const dz = Math.max(z0 - camera.z, 0, camera.z - z0 - CHUNK_SIZE);
 					const d2 = dx * dx + dz * dz;
-					if (d2 > KEEP_RANGE ** 2) {
-						tile.chunks.delete(id);
-						continue;
-					}
-					if (d2 > reach ** 2) continue;
-					let chunk = tile.chunks.get(id);
-					if (!chunk) {
-						chunk = this.generate(tile, cx, cy);
-						tile.chunks.set(id, chunk);
+					let chunk: Map<number, Float32Array> | undefined;
+					if (d2 > reach ** 2) {
+						if (d2 > KEEP_RANGE ** 2) tile.chunks.delete(id);
+						if (!this.shot) continue;
+						let held = this.shotChunks.get(key);
+						if (!held) this.shotChunks.set(key, (held = new Map()));
+						chunk = held.get(id);
+						if (!chunk) {
+							if (!this.shot.intersectsBox(this.chunkBox(tile, cx, cy, box))) continue;
+							if (shotBudget-- <= 0) {
+								this.dirty = true;
+								continue;
+							}
+							const d = Math.hypot(Math.sqrt(d2), Math.max(0, camera.y - box.max.y));
+							chunk = this.generate(tile, cx, cy, Math.min(1, (SHOT_FULL_RANGE / d) ** 2));
+							held.set(id, chunk);
+						}
+					} else {
+						chunk = tile.chunks.get(id);
+						if (!chunk) {
+							chunk = this.generate(tile, cx, cy);
+							tile.chunks.set(id, chunk);
+						}
 					}
 					for (const [fdid, copies] of chunk) {
 						let list = byModel.get(fdid);
@@ -229,10 +290,11 @@ export class ClutterManager {
 			const mesh = this.meshFor(model, capacity);
 			const out = mesh.instanceMatrix.array as Float32Array;
 			let count = 0;
+			const limit = this.shot ? Infinity : reach * reach;
 			for (const l of lists) {
 				for (let i = 0; i < l.length; i += STRIDE) {
 					const x = l[i], y = l[i + 1], z = l[i + 2];
-					if ((x - camera.x) ** 2 + (y - camera.y) ** 2 + (z - camera.z) ** 2 > reach * reach) continue;
+					if ((x - camera.x) ** 2 + (y - camera.y) ** 2 + (z - camera.z) ** 2 > limit) continue;
 					// Turned about the vertical, after standing the z-up model upright.
 					const c = Math.cos(l[i + 3]) * l[i + 4];
 					const s = Math.sin(l[i + 3]) * l[i + 4];
@@ -250,8 +312,28 @@ export class ClutterManager {
 		}
 	}
 
-	/** Scatters one chunk's copies: density per cell, models by weight, the same every time. */
-	private generate(tile: ClutterTile, cx: number, cy: number): Map<number, Float32Array> {
+	/** A chunk's bounds, from its terrain heights, with room above for the clutter on it. */
+	private chunkBox(tile: ClutterTile, cx: number, cy: number, box: THREE.Box3): THREE.Box3 {
+		const { outer } = tile.source;
+		const w = TILE_CELLS + 1;
+		let min = Infinity, max = -Infinity;
+		for (let row = 0; row <= 8; row++) {
+			for (let col = 0; col <= 8; col++) {
+				const h = outer[(cy * 8 + row) * w + cx * 8 + col];
+				min = Math.min(min, h);
+				max = Math.max(max, h);
+			}
+		}
+		box.min.set(tile.originX + cx * CHUNK_SIZE, min, tile.originZ + cy * CHUNK_SIZE);
+		box.max.set(tile.originX + (cx + 1) * CHUNK_SIZE, max + 10, tile.originZ + (cy + 1) * CHUNK_SIZE);
+		return box;
+	}
+
+	/**
+	 * Scatters one chunk's copies: density per cell, models by weight, the same every time.
+	 * keep thins them out (for a screenshot's far chunks), leaving a share of the same copies.
+	 */
+	private generate(tile: ClutterTile, cx: number, cy: number, keep = 1): Map<number, Float32Array> {
 		const { source } = tile;
 		const lists = new Map<number, number[]>();
 		for (let row = 0; row < 8; row++) {
@@ -271,6 +353,7 @@ export class ClutterManager {
 					const doodad = effect.doodads.find((d) => (pick -= d.weight) < 0) ?? effect.doodads[0];
 					const yaw = THREE.MathUtils.degToRad(rand() * doodad.yaw);
 					const scale = doodad.minScale + rand() * (doodad.maxScale - doodad.minScale);
+					if (keep < 1 && rand() >= keep) continue;
 					let list = lists.get(doodad.fdid);
 					if (!list) {
 						lists.set(doodad.fdid, (list = []));

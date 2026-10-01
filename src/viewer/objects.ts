@@ -6,7 +6,7 @@ import type { AsyncStorageApi } from '../worker/protocol';
 import { createModelMaterial, createSkinnedDepthMaterial, type SkinUniforms } from './modelMaterials';
 import { Mover, type GroundAt } from './movers';
 import { perf } from './perf';
-import { PARTICLE_RANGE, ParticleSystem, type EmitterSource, type LoadedEmitter } from './particles';
+import { PARTICLE_RANGE, SHOT_PARTICLE_RANGE, ParticleSystem, type EmitterSource, type LoadedEmitter } from './particles';
 import { useShadows, type ShadowRole } from './shadows';
 import { liquidMaterial } from './terrainMaterials';
 import { TextureCache } from './textureCache';
@@ -349,13 +349,14 @@ export class ObjectManager {
 	private nearbyEmitters(): EmitterSource[] {
 		const out = this.emitterSources;
 		out.length = 0;
+		const range = this.showAll ? SHOT_PARTICLE_RANGE : PARTICLE_RANGE;
 		for (const [id, entry] of this.models) {
 			if (!entry.emitters.length || entry.state !== 'ready') continue;
 			for (const key of entry.visible) {
 				const m = entry.instances.get(key);
 				if (!m) continue;
 				const e = m.elements;
-				if ((e[12] - this.camera.x) ** 2 + (e[13] - this.camera.y) ** 2 + (e[14] - this.camera.z) ** 2 > PARTICLE_RANGE ** 2) continue;
+				if ((e[12] - this.camera.x) ** 2 + (e[13] - this.camera.y) ** 2 + (e[14] - this.camera.z) ** 2 > range ** 2) continue;
 				out.push({ key: `${id}|${key}`, matrix: m, emitters: entry.emitters });
 			}
 		}
@@ -462,7 +463,10 @@ export class ObjectManager {
 
 	private showAll = false;
 
-	/** For a screenshot: every placed copy shows, however far off (tiles still limit what's placed). */
+	/**
+	 * For a screenshot: every placed copy shows, however far off (tiles still limit what's placed),
+	 * and particles run further out.
+	 */
 	set unlimited(on: boolean) {
 		if (on === this.showAll) return;
 		this.showAll = on;

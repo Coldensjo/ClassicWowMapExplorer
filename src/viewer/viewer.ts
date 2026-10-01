@@ -1061,13 +1061,14 @@ export class Viewer {
 	}
 
 	/**
-	 * Starts a screenshot of the current view: the tiles in it load in full, with every tree and
-	 * prop on them however far off, and once they have the picture is saved (see updateShot).
+	 * Starts a screenshot of the current view: the tiles in it load in full, with every tree, prop,
+	 * tuft of grass and particle effect on them however far off, and once they have the picture is saved (see updateShot).
 	 */
 	private startShot(): void {
 		if (this.controls.locked) document.exitPointerLock();
 		const tiles = this.terrain.holdInView(this.camera, SHOT_TILES);
 		this.objects.unlimited = true;
+		this.clutter.holdInView(this.camera);
 		this.shot = { started: performance.now(), tiles, readySince: 0, position: this.camera.position.clone(), yaw: this.controls.yaw, pitch: this.controls.pitch };
 		// Start loading on the next frame.
 		this.lastLodUpdate = 0;
@@ -1081,6 +1082,7 @@ export class Viewer {
 		this.shot = null;
 		this.terrain.holdInView(null);
 		this.objects.unlimited = false;
+		this.clutter.holdInView(null);
 		this.controls.set(shot.position, shot.yaw, shot.pitch);
 		this.onShotStatus(null);
 	}
@@ -1089,7 +1091,7 @@ export class Viewer {
 	private updateShot(now: number): void {
 		const shot = this.shot!;
 		const tiles = this.terrain.heldPending;
-		const models = this.objects.pending;
+		const models = this.objects.pending + this.clutter.pending;
 		const timedOut = now - shot.started > SHOT_TIMEOUT;
 		if ((tiles || models) && !timedOut) {
 			shot.readySince = 0;

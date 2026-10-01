@@ -4,6 +4,8 @@ import { EMITTER_SPHERE, type LifeKeys, type ParticleEmitter } from '../formats/
 
 /** Emitters further than this (yards) from the camera don't run. */
 export const PARTICLE_RANGE = 160;
+/** The same while a screenshot is prepared. */
+export const SHOT_PARTICLE_RANGE = 1000;
 /** Most particles alive per texture group, so a crowd of braziers can't swamp a frame. */
 const MAX_PER_GROUP = 3000;
 /** Longest simulation step (s); a stalled frame shouldn't fling particles. */

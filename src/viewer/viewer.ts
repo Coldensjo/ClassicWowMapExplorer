@@ -14,7 +14,7 @@ import { DAY, Lighting, Sky, sunDirection } from './lighting';
 import { MusicPlayer, type MusicTarget } from './music';
 import { Nameplates, type Plate, type Side } from './nameplates';
 import { ClutterManager } from './clutter';
-import { ObjectManager } from './objects';
+import { headPosition, ObjectManager } from './objects';
 import { perf } from './perf';
 import { TerrainManager, type ContinentPlacement } from './terrain';
 import { GroundDistancePass } from './groundDistance';
@@ -861,8 +861,11 @@ export class Viewer {
 				p.visible = (underground || !this.terrainBlocks(this.camera.position, p.position)) && !this.objects.blocksSight(this.camera.position, p.position);
 			}
 		}
-		// Distances change as the camera moves, even when the list doesn't.
-		for (const p of this.plates) p.distance = p.position.distanceTo(this.camera.position);
+		// Every frame, so names keep up with walking creatures; and distances change as the camera moves.
+		for (const p of this.plates) {
+			headPosition(p.matrix, p.height, p.position);
+			p.distance = p.position.distanceTo(this.camera.position);
+		}
 		this.nameplates.update(this.plates, this.camera, this.canvas.clientWidth, this.canvas.clientHeight, this.side, NAMEPLATE_RANGE);
 	}
 

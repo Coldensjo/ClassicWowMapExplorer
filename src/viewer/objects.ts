@@ -10,6 +10,16 @@ import { PARTICLE_RANGE, ParticleSystem, type EmitterSource, type LoadedEmitter 
 import { liquidMaterial } from './terrainMaterials';
 import { TextureCache } from './textureCache';
 
+/** Yards above a creature's head its name sits. */
+const NAME_CLEARANCE = 0.35;
+
+/** Where a creature's name goes: model space is z-up, so its head is at (0, 0, height), then a little above. */
+export function headPosition(matrix: THREE.Matrix4, height: number, out: THREE.Vector3): THREE.Vector3 {
+	out.set(0, 0, height).applyMatrix4(matrix);
+	out.y += NAME_CLEARANCE;
+	return out;
+}
+
 type Kind = ObjectKind;
 
 // Ray casts use a model's BVH when it has one (buildings); InstancedMesh casts go through this too.
@@ -582,10 +592,12 @@ export class ObjectManager {
 		return out;
 	}
 
-	/** NPCs within range of the camera, with the world position just above their heads. */
-	nameplates(camera: THREE.Vector3, range: number, out: { info: SpawnInfo; position: THREE.Vector3; distance: number }[] = []) {
+	/**
+	 * NPCs within range of the camera, with the world position just above their heads, and
+	 * the live placement it comes from (walkers' change every frame; see headPosition).
+	 */
+	nameplates(camera: THREE.Vector3, range: number, out: { info: SpawnInfo; position: THREE.Vector3; distance: number; matrix: THREE.Matrix4; height: number }[] = []) {
 		out.length = 0;
-		const head = new THREE.Vector3();
 		for (const entry of this.models.values()) {
 			if (entry.kind !== 'creature' || entry.state !== 'ready' || !entry.data) continue;
 			const top = entry.data.height;
@@ -596,10 +608,8 @@ export class ObjectManager {
 				const e = m.elements;
 				const dx = e[12] - camera.x, dy = e[13] - camera.y, dz = e[14] - camera.z;
 				if (dx * dx + dy * dy + dz * dz > range * range) continue;
-				// Model space is z-up: the head is at (0, 0, height) plus a little clearance.
-				head.set(0, 0, top).applyMatrix4(m);
-				head.y += 0.35;
-				out.push({ info, position: head.clone(), distance: head.distanceTo(camera) });
+				const position = headPosition(m, top, new THREE.Vector3());
+				out.push({ info, position, distance: position.distanceTo(camera), matrix: m, height: top });
 			}
 		}
 		return out;

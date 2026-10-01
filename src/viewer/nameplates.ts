@@ -7,6 +7,9 @@ export interface Plate {
 	info: SpawnInfo;
 	position: THREE.Vector3;
 	distance: number;
+	/** The creature's placement, which walkers update every frame, and its height, for following it. */
+	matrix: THREE.Matrix4;
+	height: number;
 	/** In line of sight from the camera (not behind terrain or a building). */
 	visible?: boolean;
 }

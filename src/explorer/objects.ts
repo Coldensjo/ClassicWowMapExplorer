@@ -6,7 +6,7 @@ import { Blend, M2_MATERIAL_TWO_SIDED, M2_MATERIAL_UNFOGGED, M2_MATERIAL_UNLIT, 
 import { attachmentPoints, skinVertex, standAnimation, standPose, type AnimationClip, type AttachmentPoint, type BoneAnimation } from '../formats/m2Pose';
 import { parseParticleEmitters, type ParticleEmitter } from '../formats/m2Particles';
 import {
-	parseWmoGroup, parseWmoRoot, WMO_GROUP_INTERIOR, WMO_LIQUID_CELL, type WmoGroup, WMO_MATERIAL_TWO_SIDED, WMO_MATERIAL_UNFOGGED, WMO_MATERIAL_UNLIT,
+	parseWmoGroup, parseWmoRoot, WMO_GROUP_INTERIOR, WMO_LIQUID_CELL, type WmoGroup, visibleWmoGroups, WMO_MATERIAL_TWO_SIDED, WMO_MATERIAL_UNFOGGED, WMO_MATERIAL_UNLIT,
 } from '../formats/wmo';
 import type { LiquidKind } from '../formats/mh2o';
 import { TILE_SIZE } from '../formats/adt';
@@ -433,13 +433,13 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 /** file: the root file's bytes, when the caller has already read them. */
 export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type: number) => LiquidKind, file?: Uint8Array): Promise<ModelData> {
 	const root = parseWmoRoot(file ?? await storage.readFile(fdid));
-	const groups = await Promise.all(root.groupFdids.map(async (g) => {
+	const groups = visibleWmoGroups(await Promise.all(root.groupFdids.map(async (g) => {
 		try {
 			return parseWmoGroup(await storage.readFile(g));
 		} catch {
 			return null;
 		}
-	}));
+	})));
 
 	let vertexCount = 0;
 	for (const g of groups) if (g) vertexCount += g.positions.length / 3;

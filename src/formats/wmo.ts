@@ -8,7 +8,10 @@ export const WMO_MATERIAL_CLAMP_T = 0x80;
 
 export const WMO_GROUP_HAS_VERTEX_COLORS = 0x4;
 export const WMO_GROUP_EXTERIOR = 0x8;
+export const WMO_GROUP_UNREACHABLE = 0x80;
 export const WMO_GROUP_INTERIOR = 0x2000;
+export const WMO_GROUP_ALWAYS_DRAW = 0x10000;
+export const WMO_GROUP_ANTIPORTAL = 0x4000000;
 
 export interface WmoMaterial {
 	flags: number;
@@ -54,6 +57,8 @@ export interface WmoGroup {
 	/** Bounding box in WMO space (z up). */
 	min: [number, number, number];
 	max: [number, number, number];
+	/** Portals leading out of this group; the game sees into interiors only through these. */
+	portalCount: number;
 	positions: Float32Array;
 	normals: Float32Array;
 	uvs: Float32Array;
@@ -140,6 +145,41 @@ export function parseWmoRoot(bytes: Uint8Array): WmoRoot {
 	return { materials, groupFdids, doodadSets, doodads, namedTextures: hasMotx, ambient, flags: rootFlags, wmoId };
 }
 
+/**
+ * Leaves out (as null) the groups the game never shows next to the rest, since the viewer draws
+ * every group at once instead of looking through portals:
+ * - antiportals, which only hide what's behind them;
+ * - unreachable interiors without portals, which nothing can see into (Stormwind keeps an older
+ *   cathedral shell and a copy of the mage tower this way);
+ * - unreachable exterior facades wrapped around interiors: rough stand-ins for buildings seen from
+ *   outside, which would stick out of the detailed interior (Stormwind's cathedral).
+ */
+export function visibleWmoGroups(groups: (WmoGroup | null)[]): (WmoGroup | null)[] {
+	const interiors = groups.filter((g): g is WmoGroup => !!g && (g.flags & WMO_GROUP_INTERIOR) !== 0);
+	return groups.map((g) => {
+		if (!g || g.flags & WMO_GROUP_ANTIPORTAL) return null;
+		if (!(g.flags & WMO_GROUP_UNREACHABLE) || g.flags & WMO_GROUP_ALWAYS_DRAW) return g;
+		if (g.flags & WMO_GROUP_INTERIOR) return g.portalCount === 0 ? null : g;
+		if (g.flags & WMO_GROUP_EXTERIOR && wrappedByInteriors(g, interiors)) return null;
+		return g;
+	});
+}
+
+/** Whether most of a group's bounding box lies inside interior groups' bounding boxes. */
+function wrappedByInteriors(group: WmoGroup, interiors: WmoGroup[]): boolean {
+	const volume = (min: number[], max: number[]) => Math.max(0, max[0] - min[0]) * Math.max(0, max[1] - min[1]) * Math.max(0, max[2] - min[2]);
+	const own = volume(group.min, group.max);
+	if (!own) return false;
+	// The largest single overlap is enough: a facade wraps one interior, not a patchwork.
+	let best = 0;
+	for (const g of interiors) {
+		const min = group.min.map((v, k) => Math.max(v, g.min[k]));
+		const max = group.max.map((v, k) => Math.min(v, g.max[k]));
+		best = Math.max(best, volume(min, max));
+	}
+	return best / own > 0.5;
+}
+
 export function parseWmoGroup(bytes: Uint8Array): WmoGroup {
 	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	let mogp: Chunk | null = null;
@@ -153,6 +193,7 @@ export function parseWmoGroup(bytes: Uint8Array): WmoGroup {
 		groupId: view.getUint32(mogp.offset + 56, true),
 		min: [f(12), f(16), f(20)],
 		max: [f(24), f(28), f(32)],
+		portalCount: view.getUint16(mogp.offset + 38, true),
 		positions: new Float32Array(0),
 		normals: new Float32Array(0),
 		uvs: new Float32Array(0),

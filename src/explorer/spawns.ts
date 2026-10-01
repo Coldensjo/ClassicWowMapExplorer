@@ -7,6 +7,9 @@ import type { GearAttachment, M2Options, Placement } from './objects';
 import { ATTACH_HAND_LEFT, ATTACH_HAND_RIGHT, ATTACH_HELM, ATTACH_SHIELD, ATTACH_SHOULDER_LEFT, ATTACH_SHOULDER_RIGHT } from '../formats/m2Pose';
 
 const MAP_ORIGIN = 32 * TILE_SIZE;
+/** creature_template npcflag bits (patch 1.12). */
+const NPC_FLAG_SPIRIT_HEALER = 0x20;
+const NPC_FLAG_SPIRIT_GUIDE = 0x40;
 
 /** Shown when a spawn is clicked. */
 export interface SpawnInfo {
@@ -24,6 +27,8 @@ export interface SpawnInfo {
 	pages?: string[];
 	/** NPCs: how they react to Alliance and Horde players (name plate colour). */
 	reaction?: { alliance: Reaction; horde: Reaction };
+	/** Spirit healers and battleground spirit guides, which can be hidden on their own. */
+	spiritHealer?: true;
 }
 
 export type Reaction = 'hostile' | 'neutral' | 'friendly';
@@ -150,7 +155,7 @@ export class SpawnSource {
 		for (const [guid, entry, x, y, z, o, move = 0] of creatures.spawns) {
 			const t = creatures.templates[entry];
 			if (!t) continue;
-			const [name, subname, levelMin, levelMax, type, rank, , displays, scales, faction, weapons, walk = 1] = t;
+			const [name, subname, levelMin, levelMax, type, rank, npcFlags, displays, scales, faction, weapons, walk = 1] = t;
 			const points = move === -1 ? creatures.paths?.[guid] : move === -2 ? creatures.templatePaths?.[entry] : undefined;
 			const movement: SpawnMovement | undefined = move > 0 || (points && points.length >= 8)
 				? { speed: WALK_SPEED * (walk || 1), orientation: o, wander: Math.max(0, move), path: points ? continentPath(points) : [] }
@@ -175,6 +180,7 @@ export class SpawnSource {
 					kind: CREATURE_TYPES[type] || undefined,
 					rank: RANKS[rank] || undefined,
 					reaction: reactionOf(faction),
+					spiritHealer: npcFlags & (NPC_FLAG_SPIRIT_HEALER | NPC_FLAG_SPIRIT_GUIDE) ? true : undefined,
 				},
 			});
 		}

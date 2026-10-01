@@ -169,6 +169,12 @@ export interface ViewSettings {
 	shadows: boolean;
 	/** Fog lying in the valleys, lit by the sun where it reaches it (Z). */
 	fog: boolean;
+	/** NPCs and monsters. */
+	creatures: boolean;
+	/** Game objects: chests, herbs, ore, doors, mailboxes. */
+	gameObjects: boolean;
+	/** Spirit healers and battleground spirit guides (shown only while creatures are). */
+	spiritHealers: boolean;
 	/** Multiplies the flying speed, from 1/8 to 8 (Y faster, Shift+Y slower). */
 	flySpeed: number;
 }
@@ -458,6 +464,9 @@ export class Viewer {
 			grading: this.post.gradingOn,
 			shadows: this.sun.castShadow,
 			fog: this.post.fogOn,
+			creatures: this.objects?.kindShown('creature') ?? true,
+			gameObjects: this.objects?.kindShown('object') ?? true,
+			spiritHealers: this.objects?.kindShown('spiritHealer') ?? true,
 			flySpeed: this.controls.speedScale,
 		};
 	}
@@ -473,6 +482,9 @@ export class Viewer {
 		if (next.grading !== undefined) this.post.gradingOn = next.grading;
 		if (next.shadows !== undefined) this.sun.castShadow = next.shadows;
 		if (next.fog !== undefined) this.post.fogOn = next.fog;
+		if (next.creatures !== undefined) this.objects?.setKindShown('creature', next.creatures);
+		if (next.gameObjects !== undefined) this.objects?.setKindShown('object', next.gameObjects);
+		if (next.spiritHealers !== undefined) this.objects?.setKindShown('spiritHealer', next.spiritHealers);
 		if (typeof next.flySpeed === 'number' && next.flySpeed > 0) {
 			// Snapped to the slider's notches, so a remembered or stepped value lands on one.
 			const notches = Math.round(Math.log2(next.flySpeed) / FLY_SPEED_STEP) * FLY_SPEED_STEP;

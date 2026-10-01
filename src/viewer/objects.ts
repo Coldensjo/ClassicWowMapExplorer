@@ -22,6 +22,8 @@ export function headPosition(matrix: THREE.Matrix4, height: number, out: THREE.V
 }
 
 type Kind = ObjectKind;
+/** What the View panel can hide: kinds of spawn, or spirit healers among the creatures. */
+export type Hideable = 'creature' | 'object' | 'spiritHealer';
 
 // Ray casts use a model's BVH when it has one (buildings); InstancedMesh casts go through this too.
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
@@ -474,6 +476,21 @@ export class ObjectManager {
 		for (const entry of this.models.values()) entry.dirty = true;
 	}
 
+	private readonly hiddenKinds = new Set<Hideable>();
+
+	/** Shows or hides every creature (NPCs and monsters), game object (chests, herbs, doors...) or spirit healer. */
+	setKindShown(kind: Hideable, shown: boolean): void {
+		if (shown !== this.hiddenKinds.has(kind)) return;
+		if (shown) this.hiddenKinds.delete(kind);
+		else this.hiddenKinds.add(kind);
+		const modelKind = kind === 'spiritHealer' ? 'creature' : kind;
+		for (const entry of this.models.values()) if (entry.kind === modelKind) entry.dirty = true;
+	}
+
+	kindShown(kind: Hideable): boolean {
+		return !this.hiddenKinds.has(kind);
+	}
+
 	/** Models and tiles' placements still to load. */
 	get pending(): number {
 		let n = this.queue.length + this.requests;
@@ -481,7 +498,9 @@ export class ObjectManager {
 		return n;
 	}
 
-	private isVisible(entry: ModelEntry, m: THREE.Matrix4): boolean {
+	private isVisible(entry: ModelEntry, key: string, m: THREE.Matrix4): boolean {
+		if ((entry.kind === 'creature' || entry.kind === 'object') && this.hiddenKinds.has(entry.kind)) return false;
+		if (entry.kind === 'creature' && this.hiddenKinds.has('spiritHealer') && this.objects.get(key)?.placement.spawn?.spiritHealer) return false;
 		// Buildings are already limited by tile distance.
 		if (entry.kind === 'wmo' || this.showAll) return true;
 		const e = m.elements;
@@ -493,7 +512,7 @@ export class ObjectManager {
 	private visibilityChanged(entry: ModelEntry): boolean {
 		let count = 0;
 		for (const [key, m] of entry.instances) {
-			if (this.isVisible(entry, m) !== entry.visible.has(key)) return true;
+			if (this.isVisible(entry, key, m) !== entry.visible.has(key)) return true;
 			count++;
 		}
 		return count === 0 && entry.visible.size > 0;
@@ -504,7 +523,7 @@ export class ObjectManager {
 		entry.dirty = false;
 		if (!entry.geometry) return;
 		entry.visible = new Set();
-		for (const [key, m] of entry.instances) if (this.isVisible(entry, m)) entry.visible.add(key);
+		for (const [key, m] of entry.instances) if (this.isVisible(entry, key, m)) entry.visible.add(key);
 		entry.drawnKeys = [...entry.visible];
 		entry.slots = new Map(entry.drawnKeys.map((key, i) => [key, i]));
 		const matrices = entry.drawnKeys.map((key) => entry.instances.get(key)!);

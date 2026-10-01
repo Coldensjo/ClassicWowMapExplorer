@@ -155,6 +155,7 @@ export class ParticleSystem {
 	private readonly states = new Map<string, EmitterState>();
 	private readonly groups = new Map<string, Group>();
 	private frame = 0;
+	private readonly warmMaterials: THREE.ShaderMaterial[] = [];
 
 	/**
 	 * Compiles both particle shaders (glowing and see-through) ahead of time, so the first fire
@@ -162,12 +163,11 @@ export class ParticleSystem {
 	 */
 	warmUp(prepare: (object: THREE.Object3D) => Promise<void>): void {
 		for (const blend of [Blend.Add, Blend.Alpha]) {
+			// The material is kept: disposing it would release its program, and the first
+			// particles would compile it all over again.
 			const geometry = new THREE.InstancedBufferGeometry();
-			const material = createMaterial(blend, 1, 1);
-			void prepare(new THREE.Mesh(geometry, material)).finally(() => {
-				geometry.dispose();
-				material.dispose();
-			});
+			this.warmMaterials.push(createMaterial(blend, 1, 1));
+			void prepare(new THREE.Mesh(geometry, this.warmMaterials.at(-1)!)).finally(() => geometry.dispose());
 		}
 	}
 

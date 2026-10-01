@@ -496,7 +496,7 @@ export class Viewer {
 	async load(onStatus: (text: string) => void): Promise<void> {
 		const anisotropy = this.renderer.capabilities.getMaxAnisotropy();
 		// Compiles shaders in the background (KHR_parallel_shader_compile) before objects are shown.
-		const prepare = (object: THREE.Object3D) => this.renderer.compileAsync(object, this.camera, this.scene).then(() => undefined);
+		const prepare = (object: THREE.Object3D, shadowPass?: boolean) => this.post.compileAsync(this.renderer, object, this.camera, this.scene, shadowPass);
 		this.objects = new ObjectManager(this.storage, this.usesCompressedTextures, anisotropy, prepare);
 		// Buildings (and the caves and mines built as buildings) are solid.
 		this.controls.collide = (from, move) => {
@@ -578,6 +578,12 @@ export class Viewer {
 			if (next) this.travelTo(next.position, next.yaw, next.pitch);
 		});
 		void this.terrain.loadFarTextures(this.camera.position);
+		// Whatever's in the world already (low-detail land, sea, sky), compiled before the first frame.
+		onStatus('Preparing shaders');
+		await prepare(this.scene);
+		// One frame drawn behind the loading screen compiles the rest: the shadow, ground-distance
+		// and full-screen passes, which draw with shaders of their own.
+		this.tick(0, performance.now());
 	}
 
 	/**

@@ -127,13 +127,13 @@ export class ObjectManager {
 
 	/**
 	 * prepare compiles an object's shaders off the critical path (renderer.compileAsync), so a
-	 * model's first frame doesn't stall on shader compilation.
+	 * model's first frame doesn't stall on shader compilation; shadowPass for depth materials.
 	 */
 	constructor(
 		private readonly storage: AsyncStorageApi,
 		compressed: boolean,
 		anisotropy: number,
-		private readonly prepare: (object: THREE.Object3D) => Promise<void>,
+		private readonly prepare: (object: THREE.Object3D, shadowPass?: boolean) => Promise<void>,
 	) {
 		this.textures = new TextureCache(storage, compressed, anisotropy);
 		this.group.add(this.particles.group);
@@ -430,11 +430,30 @@ export class ObjectManager {
 		if (data.bvh) {
 			geometry.boundsTree = MeshBVH.deserialize({ ...data.bvh, index: data.indices } as Parameters<typeof MeshBVH.deserialize>[0], geometry, { setIndex: false });
 		}
-		// Warm the instanced shader variant, which is what the model will be drawn with.
-		await this.prepare(new THREE.InstancedMesh(geometry, entry.materials, 1));
+		entry.liquids = (data.liquids ?? []).map((l) => ({ geometry: liquidGeometry(l.positions, l.indices), material: liquidMaterial(l.kind, l.type), type: l.type, mesh: null }));
+		// Warm the instanced shader variants, which are what the model and its liquids will be drawn with.
+		const warm = new THREE.Group().add(new THREE.InstancedMesh(geometry, entry.materials, 1), ...entry.liquids.map((l) => new THREE.InstancedMesh(l.geometry, l.material, 1)));
+		const warming = [this.prepare(warm)];
+		if (entry.depthMaterial) {
+			// The shadow pass draws the depth material with each batch's texture and alpha test,
+			// flipped to the faces away from the sun (WebGLShadowMap's getDepthMaterial).
+			const depth = entry.depthMaterial as THREE.MeshDepthMaterial;
+			const variants = new Set<string>();
+			for (const m of entry.materials) {
+				const map = (m as THREE.MeshLambertMaterial).map ?? null;
+				const side = m.side === THREE.DoubleSide ? THREE.DoubleSide : m.side === THREE.BackSide ? THREE.FrontSide : THREE.BackSide;
+				const variant = `${!!map} ${m.alphaTest > 0} ${side}`;
+				if (variants.has(variant)) continue;
+				variants.add(variant);
+				depth.map = map;
+				depth.alphaTest = m.alphaTest;
+				depth.side = side;
+				warming.push(this.prepare(new THREE.InstancedMesh(geometry, depth, 1), true));
+			}
+		}
+		await Promise.all(warming);
 		entry.geometry = geometry;
 		entry.radius = data.radius;
-		entry.liquids = (data.liquids ?? []).map((l) => ({ geometry: liquidGeometry(l.positions, l.indices), material: liquidMaterial(l.kind, l.type), type: l.type, mesh: null }));
 		entry.data = { ...data, positions: new Float32Array(0), normals: new Float32Array(0), uvs: new Float32Array(0), baked: null, indices: new Uint32Array(0), liquids: [], animation: undefined };
 		entry.state = 'ready';
 		entry.dirty = true;

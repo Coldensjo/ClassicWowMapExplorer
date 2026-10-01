@@ -342,6 +342,41 @@ export class PostPass {
 		this.sun = sun;
 	}
 
+	/**
+	 * renderer.compileAsync for objects drawn through this pass. A shader is built for the target
+	 * it draws into (the screen's sRGB and tone mapping, or this target's linear colour), so it
+	 * must be warmed with this target set; warmed for the screen, the real one is compiled anyway
+	 * on first draw, stalling that frame. shadowPass: the object's materials are depth materials
+	 * for the shadow maps, which three draws without the scene's fog.
+	 */
+	async compileAsync(renderer: THREE.WebGLRenderer, object: THREE.Object3D, camera: THREE.Camera, scene: THREE.Scene, shadowPass = false): Promise<void> {
+		const previous = renderer.getRenderTarget();
+		const fog = scene.fog;
+		renderer.setRenderTarget(this.target);
+		if (shadowPass) scene.fog = null;
+		let compiled: Promise<unknown>;
+		try {
+			// The programs are created here, synchronously; only the wait for them is async.
+			compiled = renderer.compileAsync(object, camera, scene);
+		} finally {
+			renderer.setRenderTarget(previous);
+			scene.fog = fog;
+		}
+		await compiled;
+		// A program's first use reads back its link status and uniforms: a round trip to the
+		// GPU process that waits for all the drawing queued before it, tens of ms mid-frame.
+		// Done now, between frames, there's less queued for it to wait on.
+		const materials = new Set<THREE.Material>();
+		object.traverse((o) => {
+			const material = (o as THREE.Mesh).material;
+			if (material) for (const m of Array.isArray(material) ? material : [material]) materials.add(m);
+		});
+		for (const material of materials) {
+			const program = (renderer.properties.get(material) as { currentProgram?: { getUniforms(): unknown } }).currentProgram;
+			program?.getUniforms();
+		}
+	}
+
 	render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera): void {
 		const u = this.uniforms;
 		u.uFogOn.value = this.fogEnabled && this.fogWanted ? 1 : 0;

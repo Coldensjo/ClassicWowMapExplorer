@@ -138,6 +138,8 @@ export class TerrainManager {
 	private nearInFlight = 0;
 	private farTexturesLoaded = 0;
 	private farTexturesTotal = 0;
+	/** A textured low-detail material, compiled before the first tile is given its texture. */
+	private farTexturedWarm: THREE.MeshLambertMaterial | null = null;
 	private readonly layerTextures: TextureCache;
 	/** Ground clutter is handed each detailed tile's clutter map. */
 	clutter: ClutterManager | null = null;
@@ -381,6 +383,14 @@ export class TerrainManager {
 			}
 			await Promise.all([...byContinent].map(async ([wdt, list]) => {
 				const results = await this.storage.loadTileTextures(wdt, list.map((t) => [t.x, t.y]), FAR_TEXTURE_SIZE, this.compressed);
+				// Textured, the tiles draw with another shader; the first one shown waits for it.
+				const first = results.findIndex((r) => r.texture);
+				if (!this.farTexturedWarm && first >= 0) {
+					// Kept, so its program is too until the tiles take it up.
+					this.farTexturedWarm = createFarMaterial(0xffffff);
+					this.farTexturedWarm.map = createTexture(results[first].texture!, this.anisotropy);
+					await this.prepare(new THREE.Mesh(list[first].far!.geometry, this.farTexturedWarm));
+				}
 				results.forEach((r, k) => {
 					if (!r.texture) return;
 					const material = list[k].far!.material;

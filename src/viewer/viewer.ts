@@ -5,6 +5,7 @@ import type { FarTile, InstanceMap, MapCategory } from '../explorer/world';
 import type { AsyncStorageApi } from '../worker/protocol';
 import type { AreaInfo } from '../explorer/lighting';
 import type { WmoArea } from '../explorer/music';
+import type { Place } from '../explorer/places';
 import type { SpawnInfo } from '../explorer/spawns';
 import { FlyControls } from './flyControls';
 import { Highlights, type HighlightSettings } from './highlights';
@@ -22,6 +23,7 @@ import { UnderwaterAudio } from './underwater';
 import type { LiquidKind } from '../formats/mh2o';
 import type { LiquidLooks } from '../explorer/clientDb';
 import { createTexture, supportsCompressedTextures } from './textures';
+import { isTyping } from './typing';
 
 /** A dungeon view in the URL hash: #d<map ID>/... */
 const HASH_INSTANCE = /^#d(\d+)\//;
@@ -125,6 +127,32 @@ export interface HudInfo {
 	highlights: string;
 	/** Whether walls, floors and the ground stop the camera (G toggles). */
 	collision: string;
+}
+
+/** What can be switched from the keyboard or the View panel. */
+export interface ViewSettings {
+	/** Light carried with the camera (L). */
+	torch: boolean;
+	/** Grass, flowers and pebbles (V). */
+	clutter: boolean;
+	/** Walls, floors and the ground stop the camera (G). */
+	collision: boolean;
+	/** Whose eyes name colours are seen through (F). */
+	side: Side;
+	/** Names over the dungeons and other maps laid out in the sea (I). */
+	mapNames: boolean;
+}
+
+/** A setting, or the time of day or the sound, changed by its key. */
+export type ViewChange = keyof ViewSettings | 'time' | 'sound';
+
+/** Where the camera is for the minimap: a map's tile grid, in fractional local tiles. */
+export interface MinimapView {
+	mapId: number;
+	wdt: number;
+	x: number;
+	y: number;
+	yaw: number;
 }
 
 /**
@@ -332,6 +360,62 @@ export class Viewer {
 		this.highlights?.set(settings);
 	}
 
+	/** Called when a key changes a setting, the time or the sound, for the page to show and remember. */
+	onChange: (change: ViewChange) => void = () => {};
+
+	get settings(): ViewSettings {
+		return {
+			torch: this.torchOn,
+			clutter: this.clutter?.enabled ?? true,
+			collision: !this.controls.ghost,
+			side: this.side,
+			mapNames: this.mapLabels?.enabled ?? false,
+		};
+	}
+
+	/** Applies any of the settings; the clutter's needs load() to have run. */
+	set settings(next: Partial<ViewSettings>) {
+		if (next.torch !== undefined && next.torch !== this.torchOn) this.setTorch(next.torch);
+		if (next.clutter !== undefined && this.clutter) this.clutter.enabled = next.clutter;
+		if (next.collision !== undefined) this.controls.ghost = !next.collision;
+		if (next.side) this.side = next.side;
+		if (next.mapNames !== undefined && this.mapLabels) this.mapLabels.enabled = next.mapNames;
+	}
+
+	/** Music and sound on, or null until the music tables are read. */
+	get soundOn(): boolean | null {
+		return this.music?.enabled ?? null;
+	}
+
+	set soundOn(on: boolean) {
+		if (this.music) this.music.enabled = on;
+	}
+
+	/** Game time of day in minutes (0-1439). */
+	get timeMinutes(): number {
+		return this.timeOfDay() / 2;
+	}
+
+	/** Sets the time of day; it keeps going with the clock from there. */
+	set timeMinutes(minutes: number) {
+		this.timeOffset = Math.round(minutes * 2 - this.clockTime());
+	}
+
+	/** Whether the time of day is the local time (N, or the View panel's Now). */
+	get timeIsLocal(): boolean {
+		return this.timeOffset === 0;
+	}
+
+	resetTime(): void {
+		this.timeOffset = 0;
+	}
+
+	/** The address of this view, brought up to date, for sharing. */
+	shareLink(): string {
+		this.writeHash(performance.now(), true);
+		return location.href;
+	}
+
 	get usesCompressedTextures(): boolean {
 		return supportsCompressedTextures(this.renderer);
 	}
@@ -419,12 +503,7 @@ export class Viewer {
 			const instance = HASH_INSTANCE.exec(location.hash);
 			if (instance) await this.placementFor(Number(instance[1]));
 			const next = this.viewFromHash();
-			if (!next) return;
-			// Across maps, jump: flying there would cross the whole world.
-			const here = this.terrain.locate(this.camera.position.x, this.camera.position.z)?.continent;
-			const there = this.terrain.locate(next.position.x, next.position.z)?.continent;
-			if (here === there) this.controls.flyTo(next.position, next.yaw, next.pitch, 2);
-			else this.controls.set(next.position, next.yaw, next.pitch);
+			if (next) this.travelTo(next.position, next.yaw, next.pitch);
 		});
 		void this.terrain.loadFarTextures(this.camera.position);
 	}
@@ -678,7 +757,7 @@ export class Viewer {
 	}
 
 	private onKey(e: KeyboardEvent): void {
-		if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || !this.terrain) return;
+		if (isTyping(e) || !this.terrain) return;
 		if (e.code === 'KeyP') {
 			if (this.shot) this.endShot();
 			else this.startShot();
@@ -687,14 +766,75 @@ export class Viewer {
 		else if (e.code === 'KeyR') this.controls.flyTo(this.startPosition(), 0, -0.3, 2.5);
 		else if (e.code.startsWith('Digit')) this.goToContinent(Number(e.code.slice(5)) - 1);
 		// Letters rather than [ ] \, which need AltGr on many layouts. Holding T keeps going.
-		else if (e.code === 'KeyT') this.timeOffset += e.shiftKey ? -TIME_STEP : TIME_STEP;
-		else if (e.code === 'KeyN') this.timeOffset = 0;
-		else if (e.code === 'KeyL') this.setTorch(!this.torchOn);
-		else if (e.code === 'KeyG') this.controls.ghost = !this.controls.ghost;
-		else if (e.code === 'KeyF') this.side = this.side === 'alliance' ? 'horde' : 'alliance';
-		else if (e.code === 'KeyM' && this.music) this.music.enabled = !this.music.enabled;
-		else if (e.code === 'KeyI' && this.mapLabels) this.mapLabels.enabled = !this.mapLabels.enabled;
-		else if (e.code === 'KeyV') this.clutter.enabled = !this.clutter.enabled;
+		else if (e.code === 'KeyT') {
+			this.timeOffset += e.shiftKey ? -TIME_STEP : TIME_STEP;
+			this.onChange('time');
+		} else if (e.code === 'KeyN') {
+			this.resetTime();
+			this.onChange('time');
+		} else if (e.code === 'KeyM' && this.music) {
+			this.music.enabled = !this.music.enabled;
+			this.onChange('sound');
+		} else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+			const s = this.settings;
+			const toggles: Record<string, Partial<ViewSettings>> = {
+				KeyL: { torch: !s.torch },
+				KeyG: { collision: !s.collision },
+				KeyF: { side: s.side === 'alliance' ? 'horde' : 'alliance' },
+				KeyV: { clutter: !s.clutter },
+			};
+			if (this.mapLabels) toggles.KeyI = { mapNames: !s.mapNames };
+			const change = toggles[e.code];
+			if (!change) return;
+			this.settings = change;
+			this.onChange(Object.keys(change)[0] as keyof ViewSettings);
+		}
+	}
+
+	/** Where in which map's tile grid the camera is, for the minimap; null over the open sea. */
+	minimapView(): MinimapView | null {
+		const pos = this.camera.position;
+		const at = this.terrain?.locate(pos.x, pos.z);
+		if (!at) return null;
+		const c = at.continent;
+		return { mapId: c.mapId, wdt: c.wdt, x: pos.x / TILE_SIZE - c.offsetX, y: pos.z / TILE_SIZE - c.offsetY, yaw: this.controls.yaw };
+	}
+
+	/** Flies over a point of a map's tile grid (in local tiles), keeping the height above ground and the heading. */
+	flyOver(mapId: number, x: number, y: number): void {
+		const c = this.continents.find((p) => p.mapId === mapId) ?? this.loadedInstances.get(mapId);
+		if (!c) return;
+		const wx = (x + c.offsetX) * TILE_SIZE;
+		const wz = (y + c.offsetY) * TILE_SIZE;
+		const ground = Math.max(0, this.terrain.heightAt(wx, wz));
+		this.controls.flyTo(new THREE.Vector3(wx, ground + Math.max(this.controls.altitude, 40), wz), this.controls.yaw, this.controls.pitch, 1.5);
+	}
+
+	/**
+	 * Goes to a zone (looking north over the whole of it) or a town or landmark (from close by).
+	 * False when its map isn't in the install.
+	 */
+	async goToPlace(place: Place): Promise<boolean> {
+		const placement = await this.placementFor(place.mapId);
+		if (!placement) return false;
+		this.triggersArmed = false;
+		const spot = worldFromWow(placement, place.x, place.y, 0);
+		const pitch = place.size ? -0.7 : -0.5;
+		const distance = place.size ? THREE.MathUtils.clamp(place.size * 0.35, 400, 2200) : 420;
+		const position = new THREE.Vector3(spot.x, 0, spot.z + Math.cos(pitch) * distance);
+		// Above the higher of the ground there and under the camera, so a hill between doesn't swallow it.
+		const ground = Math.max(0, this.terrain.heightAt(spot.x, spot.z), this.terrain.heightAt(position.x, position.z));
+		position.y = ground - Math.sin(pitch) * distance;
+		this.travelTo(position, 0, pitch);
+		return true;
+	}
+
+	/** Flies to a view on the same map; across maps, jumps, as flying there would cross the whole world. */
+	private travelTo(position: THREE.Vector3, yaw: number, pitch: number): void {
+		const here = this.terrain.locate(this.camera.position.x, this.camera.position.z)?.continent;
+		const there = this.terrain.locate(position.x, position.z)?.continent;
+		if (here === there) this.controls.flyTo(position, yaw, pitch, 2.5);
+		else this.controls.set(position, yaw, pitch);
 	}
 
 	private startPosition(): THREE.Vector3 {
@@ -888,10 +1028,15 @@ export class Viewer {
 		return name;
 	}
 
-	/** Game time in half-minutes: the local clock, shifted with [ and ]. */
-	private timeOfDay(): number {
+	/** The local clock in half-minutes. */
+	private clockTime(): number {
 		const d = new Date();
-		const t = (d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60) * 2 + this.timeOffset;
+		return (d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60) * 2;
+	}
+
+	/** Game time in half-minutes: the local clock, shifted with T and Shift+T. */
+	private timeOfDay(): number {
+		const t = this.clockTime() + this.timeOffset;
 		return ((Math.round(t) % DAY) + DAY) % DAY;
 	}
 

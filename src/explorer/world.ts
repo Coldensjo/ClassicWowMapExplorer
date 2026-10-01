@@ -8,6 +8,7 @@ import { loadAreas, loadLighting, type AreaInfo, type LightingData } from './lig
 import { buildLiquidMeshes, type LiquidMesh } from './liquidMesh';
 import { MusicTables, type MusicData, type WmoArea } from './music';
 import type { MapExplorer } from './maps';
+import { loadPlaces, type Place } from './places';
 import { KNOWN_MAPS } from './maps';
 import { globalWmoPlacement, globalWmoTiles, loadM2, loadWmo, parsePlacements, type ModelData, type ObjectKind, type Placement } from './objects';
 import { GroundEffects, type ClutterSource } from './groundEffects';
@@ -317,6 +318,10 @@ export class WorldLoader {
 		return liquidLooks(this.storage);
 	}
 
+	loadPlaces(): Promise<Place[]> {
+		return loadPlaces(this.storage);
+	}
+
 	loadLockKinds(): Promise<Record<number, LockKind>> {
 		return lockKinds(this.storage);
 	}
@@ -330,6 +335,11 @@ export class WorldLoader {
 	}
 
 	/** A sound file's bytes (the music tracks are MP3s). */
+	/** A font file from the game (Fonts\*.ttf), as it is. */
+	async loadFont(fdid: number): Promise<Uint8Array> {
+		return (await this.storage.readFile(fdid)).slice();
+	}
+
 	async loadSound(fdid: number): Promise<Uint8Array> {
 		// A copy: the result is transferred to the main thread, and the storage may cache what it read.
 		return (await this.storage.readFile(fdid)).slice();

@@ -190,6 +190,35 @@ button.big {
 	font-weight: 600;
 }
 
+/* Clicking the coordinates copies a link to the view. */
+#hud-coords {
+	pointer-events: auto;
+	display: block;
+	text-align: left;
+	font-variant-numeric: tabular-nums;
+}
+
+#hud-coords:hover {
+	color: var(--text);
+	text-decoration: underline dotted;
+}
+
+#hud-stats {
+	padding-top: 4px;
+	margin-top: 6px !important;
+	border-top: 1px solid var(--line);
+}
+
+/* A button that looks like text. */
+button.plain {
+	background: none;
+	border: none;
+	padding: 0;
+	font: inherit;
+	color: inherit;
+	cursor: pointer;
+}
+
 #hud dl {
 	display: grid;
 	grid-template-columns: auto 1fr;
@@ -206,18 +235,102 @@ button.big {
 	margin: 0;
 }
 
-#help {
+/* "? Controls", bottom left; the list itself opens over the middle. */
+#help-hint {
 	position: fixed;
 	bottom: 12px;
 	left: 12px;
 	background: var(--panel);
 	border-radius: 6px;
-	padding: 8px 12px;
+	padding: 5px 10px;
 	font-size: 12px;
 	color: var(--muted);
-	pointer-events: none;
+}
+
+#help-hint:hover {
+	color: var(--text);
+}
+
+#help {
+	position: fixed;
+	inset: 0;
+	display: grid;
+	place-items: center;
+	padding: 16px;
+	background: rgba(0, 0, 0, 0.35);
+}
+
+.help-card {
+	position: relative;
+	width: min(760px, 100%);
+	max-height: calc(100vh - 32px);
+	overflow: auto;
+	background: rgba(14, 16, 20, 0.92);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	padding: 16px 20px;
+	font-size: 13px;
+}
+
+.help-card h2 {
+	margin: 0 0 10px;
+	font-size: 17px;
+}
+
+.help-card h3 {
+	margin: 0 0 4px;
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--accent);
+}
+
+.help-groups {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+	gap: 14px 24px;
+}
+
+.help-groups section {
 	display: grid;
 	gap: 3px;
+	align-content: start;
+}
+
+.help-card p {
+	margin: 12px 0 0;
+}
+
+#help-close {
+	position: absolute;
+	top: 8px;
+	right: 12px;
+	font-size: 20px;
+	line-height: 1;
+	color: var(--muted);
+}
+
+/* What a key just changed: a line low in the middle that fades out. */
+#notice {
+	position: fixed;
+	left: 50%;
+	bottom: 56px;
+	transform: translateX(-50%);
+	max-width: calc(100% - 32px);
+	padding: 6px 14px;
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	font-size: 14px;
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 0.4s;
+	white-space: nowrap;
+}
+
+#notice.show {
+	opacity: 1;
+	transition: none;
 }
 
 kbd {
@@ -295,21 +408,174 @@ kbd {
 	pointer-events: none;
 }
 
-/* Info for a clicked creature or object. */
-#map-picker {
+/*
+ * The right column: minimap and Go to at the top, settings at the bottom, and the info for
+ * what was clicked between them, scrolling rather than covering anything.
+ */
+#side {
 	position: fixed;
 	top: 12px;
 	right: 12px;
-	max-width: 280px;
-	background: var(--panel);
+	bottom: 12px;
+	width: min(280px, calc(100vw - 24px));
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	pointer-events: none;
+	overflow-y: auto;
+	scrollbar-width: thin;
 }
 
-#info {
-	position: fixed;
-	top: 52px;
+#side > * {
+	pointer-events: auto;
+	flex: none;
+}
+
+#side > .spacer {
+	flex: 1 1 0;
+	pointer-events: none;
+}
+
+#minimap-wrap {
+	position: relative;
+	align-self: flex-end;
+	width: 180px;
+	height: 180px;
+}
+
+#minimap {
+	display: block;
+	width: 100%;
+	height: 100%;
+	border-radius: 50%;
+	border: 2px solid #4a4134;
+	box-shadow: 0 0 0 1px #000, 0 2px 10px rgba(0, 0, 0, 0.5);
+	cursor: crosshair;
+}
+
+#minimap-wrap .north {
+	position: absolute;
+	top: -2px;
+	left: 50%;
+	transform: translateX(-50%);
+	font: 700 12px/1 'Trebuchet MS', system-ui, sans-serif;
+	color: #ffd35a;
+	background: #1a1712;
+	border: 1px solid #4a4134;
+	border-radius: 50%;
+	width: 18px;
+	height: 18px;
+	display: grid;
+	place-items: center;
+	pointer-events: none;
+}
+
+#minimap-wrap .zoom {
+	position: absolute;
+	right: -2px;
+	bottom: 4px;
+	display: grid;
+	gap: 2px;
+}
+
+#minimap-wrap .zoom button {
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border-radius: 50%;
+	line-height: 1;
+	background: #1a1712;
+	border-color: #4a4134;
+}
+
+#minimap-wrap .zoom button:hover {
+	border-color: var(--accent);
+}
+
+/* Go to: a search box with the matches under it. */
+#goto {
+	position: relative;
+	background: var(--panel);
+	border-radius: 6px;
+	padding: 6px;
+}
+
+#goto-query {
+	width: 100%;
+	font: inherit;
+	font-size: 13px;
+	color: var(--text);
+	background: #1b1f25;
+	border: 1px solid var(--line);
+	border-radius: 4px;
+	padding: 4px 26px 4px 8px;
+}
+
+#goto-query:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.goto-key {
+	position: absolute;
 	right: 12px;
-	width: min(340px, calc(100vw - 24px));
-	max-height: calc(100vh - 24px);
+	top: 10px;
+	pointer-events: none;
+}
+
+#goto:focus-within .goto-key {
+	display: none;
+}
+
+#goto-results {
+	list-style: none;
+	margin: 6px 0 0;
+	padding: 0;
+	max-height: min(360px, 45vh);
+	overflow-y: auto;
+	font-size: 13px;
+}
+
+#goto-results li {
+	display: flex;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 3px 6px;
+	border-radius: 3px;
+	cursor: pointer;
+}
+
+#goto-results li[aria-selected='true'] {
+	background: #d9a44133;
+}
+
+#goto-results li .sub {
+	color: var(--muted);
+	font-size: 12px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+#goto-results li.group {
+	cursor: default;
+	padding-top: 6px;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--accent);
+}
+
+#goto-results li.empty {
+	cursor: default;
+	color: var(--muted);
+}
+
+/* Info for a clicked creature or object. */
+#info {
+	position: relative;
+	flex: 0 1 auto !important;
+	min-height: 180px;
 	overflow: auto;
 	background: var(--panel);
 	border: 1px solid var(--line);
@@ -400,38 +666,71 @@ kbd {
 	color: var(--text);
 }
 
-/* Alt+Z: only the world. */
-.ui-hidden :is(#hud, #help, #map-picker, #corner, #info, #zone-banner, #crosshair, #nameplates) {
+/* Alt+Z or U: only the world. */
+.ui-hidden :is(#hud, #help, #help-hint, #side, #zone-banner, #crosshair, #nameplates) {
 	display: none !important;
 }
 
-/* Bottom right: the sound settings above the highlight panel. */
-#corner {
-	position: fixed;
-	right: 12px;
-	bottom: 12px;
-	width: 230px;
-	display: grid;
-	gap: 8px;
-}
-
-/* Volume sliders, folded away until wanted. */
-#sound {
+/* The panels at the bottom right; View and Sound fold away until wanted. */
+.panel {
 	background: var(--panel);
 	border-radius: 6px;
 	padding: 6px 12px;
 	font-size: 13px;
 }
 
-#sound summary {
+.panel summary {
 	cursor: pointer;
 	user-select: none;
 	font-weight: 600;
 }
 
-#sound summary span {
-	font-weight: 400;
-	margin-left: 4px;
+.panel input[type='checkbox'], .panel input[type='range'] {
+	accent-color: var(--accent);
+}
+
+.panel kbd {
+	margin-left: 2px;
+}
+
+#view-panel label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 4px;
+	cursor: pointer;
+	user-select: none;
+}
+
+#view-panel select {
+	padding: 1px 4px;
+	font-size: 12px;
+}
+
+.time-row {
+	display: grid;
+	grid-template-columns: auto 1fr auto auto;
+	align-items: center;
+	gap: 6px;
+	margin-top: 6px;
+}
+
+.time-row input {
+	width: 100%;
+	min-width: 0;
+}
+
+#time-out {
+	font-variant-numeric: tabular-nums;
+}
+
+#time-out.shifted {
+	color: var(--accent);
+}
+
+#time-now {
+	padding: 1px 8px;
+	font-size: 12px;
 }
 
 #sound label {
@@ -442,9 +741,14 @@ kbd {
 	margin-top: 4px;
 }
 
-#sound input {
+#sound label.check {
+	display: flex;
+	cursor: pointer;
+	user-select: none;
+}
+
+#sound input[type='range'] {
 	width: 100%;
-	accent-color: var(--accent);
 }
 
 #sound output {
@@ -455,10 +759,7 @@ kbd {
 
 /* What to highlight on the ground. */
 #highlight {
-	background: var(--panel);
-	border-radius: 6px;
 	padding: 8px 12px;
-	font-size: 13px;
 	display: grid;
 	gap: 6px;
 }
@@ -565,12 +866,22 @@ kbd {
 	display: none;
 }
 
-/* NPC names above their heads. Positioned by transform each frame; never catch the mouse. */
+/*
+ * NPC names above their heads, as the game draws them: its own font (Friz Quadrata, read from
+ * the install), flat colour with only a faint shadow, the title as large as the name, in the
+ * colours of UnitSelectionColor: pure red, yellow and green. Sized for their distance by
+ * nameplates.ts and positioned by transform each frame; never catch the mouse.
+ */
 #nameplates {
 	position: fixed;
 	inset: 0;
 	pointer-events: none;
 	overflow: hidden;
+}
+
+/* The interface stays above the names, which can grow large up close. */
+:is(#hud, #side, #help-hint, #help, #notice, #shot-status, #zone-banner) {
+	z-index: 1;
 }
 
 .plate {
@@ -579,25 +890,21 @@ kbd {
 	top: 0;
 	text-align: center;
 	white-space: nowrap;
-	font: 700 13px/1.2 'Trebuchet MS', system-ui, sans-serif;
-	color: #ffd100;
-	text-shadow: 1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000;
+	font: 400 15px/1.05 'Friz Quadrata', 'Trebuchet MS', system-ui, sans-serif;
+	color: #ffff00;
+	text-shadow: 0.04em 0.04em 0.08em rgba(0, 0, 0, 0.55);
 	will-change: transform;
 }
 
 .plate[data-reaction='hostile'] {
-	color: #ff3b2f;
+	color: #ff0000;
 }
 
 .plate[data-reaction='friendly'] {
-	color: #3ee33e;
+	color: #00ff00;
 }
 
-.plate-sub {
-	font-size: 11px;
-	font-weight: 400;
-}
-
+/* The <Title> line takes the name's colour and size; hidden when there's none. */
 .plate-sub:empty {
 	display: none;
 }

@@ -1,10 +1,13 @@
 import { droppedFolderToSource, filesToSource, hasDirectoryPicker, pickDirectory } from '../app/folderPicker';
 import { createStorageClient } from '../worker/client';
 import type { SourceInit } from '../worker/protocol';
+import type { Place } from '../explorer/places';
 import type { SpawnInfo } from '../explorer/spawns';
 import type { MapCategory, MapListing } from '../explorer/world';
 import type { HighlightGroup, HighlightSettings } from './highlights';
-import { Viewer, type HudInfo } from './viewer';
+import { Minimap } from './minimap';
+import { isTyping } from './typing';
+import { Viewer, type HudInfo, type ViewSettings } from './viewer';
 import { setVolume, volumeSetting, type VolumeChannel } from './volume';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -165,6 +168,22 @@ $('pick-direct').addEventListener('click', async () => {
 
 $('explore').addEventListener('click', () => void explore());
 
+/** Fonts\FRIZQT__.TTF, Friz Quadrata: the game's font for names over heads and most of its interface. */
+const GAME_FONT = 615960;
+
+/**
+ * Takes the game's own font from the install for the names over NPCs, as the game draws them.
+ * Without it they fall back to a font of this computer's.
+ */
+async function loadGameFont(): Promise<void> {
+	try {
+		const face = new FontFace('Friz Quadrata', new Uint8Array(await storage.loadFont(GAME_FONT)));
+		document.fonts.add(await face.load());
+	} catch (e) {
+		console.warn('Game font unavailable:', e);
+	}
+}
+
 /** Opens the chosen game version and starts the viewer. */
 async function explore(): Promise<void> {
 	const button = $<HTMLButtonElement>('explore');
@@ -172,18 +191,23 @@ async function explore(): Promise<void> {
 	for (const id of ['pick', 'pick-direct']) $<HTMLButtonElement>(id).disabled = true;
 	try {
 		await storage.open($<HTMLSelectElement>('product').value);
+		const font = loadGameFont();
 		const viewer = new Viewer($('view'), storage, showHud, showInfo, $('nameplates'));
 		// For poking at the scene from the console (and test scripts) while developing.
 		if (import.meta.env.DEV) (globalThis as unknown as { mapExplorerViewer: Viewer }).mapExplorerViewer = viewer;
 		viewer.onShotStatus = showShotStatus;
 		await viewer.load((text) => showProgress(text));
+		await font;
 		showProgress('Starting');
 		$('start').hidden = true;
-		$('hud').hidden = $('help').hidden = false;
+		$('hud').hidden = $('side').hidden = $('help-hint').hidden = false;
+		setUpView(viewer);
 		viewer.start();
-		void setUpMapPicker(viewer);
+		setUpMinimap(viewer);
+		void setUpGoTo(viewer);
 		setUpHighlights(viewer);
-		setUpSound();
+		setUpSound(viewer);
+		setUpHelp();
 	} catch (e) {
 		setStatus(`Could not start: ${(e as Error).message}`, true);
 		button.disabled = false;
@@ -191,7 +215,182 @@ async function explore(): Promise<void> {
 	}
 }
 
-// --- Going to any map ---
+// --- Remembered settings ---
+
+function readSaved<T>(key: string): Partial<T> {
+	try {
+		return JSON.parse(localStorage.getItem(key) ?? '{}') ?? {};
+	} catch {
+		// Storage blocked or unreadable: the defaults.
+		return {};
+	}
+}
+
+function save(key: string, value: unknown): void {
+	try {
+		localStorage.setItem(key, JSON.stringify(value));
+	} catch {
+		// Not remembered; it still applies for this visit.
+	}
+}
+
+// --- Notices: what a key just changed ---
+
+let noticeTimer = 0;
+
+/** A line low in the middle saying what just changed; it fades after a moment. Shown even with the interface hidden. */
+function notify(text: string): void {
+	const el = $('notice');
+	el.textContent = text;
+	el.classList.add('show');
+	clearTimeout(noticeTimer);
+	noticeTimer = window.setTimeout(() => el.classList.remove('show'), 1800);
+}
+
+const onOff = (on: boolean) => (on ? 'on' : 'off');
+
+/** Minutes after midnight as HH:MM. */
+function clock(minutes: number): string {
+	const m = Math.floor(minutes) % 1440;
+	return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+// --- Keys belong to the world ---
+
+// Text boxes and lists keep keys while in use; everything else hands them back once used, and
+// clicking the world or pressing Esc always does.
+document.addEventListener('change', (e) => {
+	if (!isTyping(e) || e.target instanceof HTMLSelectElement) (e.target as HTMLElement).blur();
+});
+document.addEventListener('click', (e) => {
+	// Space flies up; it mustn't fold a panel or press a button again.
+	(e.target as Element).closest<HTMLElement>('summary, button')?.blur();
+});
+$('view').addEventListener('pointerdown', () => (document.activeElement as HTMLElement | null)?.blur());
+document.addEventListener('keydown', (e) => {
+	if (e.code === 'Escape' && isTyping(e)) (e.target as HTMLElement).blur();
+});
+
+// --- The View panel and the HUD ---
+
+const VIEW_KEY = 'mapExplorer.view';
+type SavedView = Partial<ViewSettings> & { stats: boolean };
+
+/** Called with each HUD update, for the parts of the page that follow the viewer. */
+const hudFollowers: (() => void)[] = [];
+
+/** The View panel: every setting the keys toggle, the time of day and the HUD's stats; remembered between visits. */
+function setUpView(viewer: Viewer): void {
+	const panel = $('view-panel');
+	const { stats = false, ...settings } = readSaved<SavedView>(VIEW_KEY);
+	viewer.settings = settings;
+	const statsBox = $<HTMLInputElement>('stats-on');
+	const controls = [...panel.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-setting]')];
+	const remember = () => save(VIEW_KEY, { ...viewer.settings, stats: statsBox.checked });
+	const sync = () => {
+		const s = viewer.settings;
+		for (const c of controls) {
+			const value = s[c.dataset.setting as keyof ViewSettings];
+			if (c instanceof HTMLInputElement) c.checked = value as boolean;
+			else c.value = String(value);
+		}
+	};
+	const setStats = (on: boolean) => {
+		statsBox.checked = on;
+		$('hud-stats').hidden = !on;
+	};
+	setStats(stats);
+	sync();
+	for (const c of controls) {
+		c.addEventListener('change', () => {
+			viewer.settings = { [c.dataset.setting!]: c instanceof HTMLInputElement ? c.checked : c.value };
+			remember();
+		});
+	}
+	statsBox.addEventListener('change', () => {
+		setStats(statsBox.checked);
+		remember();
+	});
+	window.addEventListener('keydown', (e) => {
+		if (e.code !== 'KeyK' || isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+		setStats(!statsBox.checked);
+		remember();
+		notify(`Performance stats ${onOff(statsBox.checked)}`);
+	});
+
+	// The time of day: the slider follows the clock unless it's being dragged.
+	const time = $<HTMLInputElement>('time');
+	const timeOut = $('time-out');
+	const now = $<HTMLButtonElement>('time-now');
+	let dragging = false;
+	const syncTime = () => {
+		const minutes = viewer.timeMinutes;
+		if (!dragging) time.value = String(Math.round(minutes / 15) * 15);
+		timeOut.textContent = clock(minutes);
+		timeOut.classList.toggle('shifted', !viewer.timeIsLocal);
+		timeOut.title = viewer.timeIsLocal ? 'Your local time' : 'Moved from your local time';
+		now.disabled = viewer.timeIsLocal;
+	};
+	time.addEventListener('pointerdown', () => (dragging = true));
+	window.addEventListener('pointerup', () => (dragging = false));
+	time.addEventListener('input', () => {
+		viewer.timeMinutes = Number(time.value);
+		syncTime();
+	});
+	now.addEventListener('click', () => {
+		viewer.resetTime();
+		syncTime();
+	});
+	syncTime();
+	hudFollowers.push(syncTime);
+
+	viewer.onChange = (change) => {
+		const s = viewer.settings;
+		sync();
+		syncTime();
+		syncSound(viewer);
+		remember();
+		notify({
+			torch: () => `Torch ${onOff(s.torch)}`,
+			clutter: () => `Grass and flowers ${onOff(s.clutter)}`,
+			collision: () => (s.collision ? 'Collision on: walls and floors stop you' : 'Collision off: flying through walls'),
+			side: () => `Name colours as the ${s.side === 'alliance' ? 'Alliance' : 'Horde'} sees them`,
+			mapNames: () => `Dungeon and raid names ${onOff(s.mapNames)}`,
+			time: () => (viewer.timeIsLocal ? `Local time, ${clock(viewer.timeMinutes)}` : `Time of day ${clock(viewer.timeMinutes)}`),
+			sound: () => `Music and sound ${onOff(viewer.soundOn ?? false)}`,
+		}[change]());
+	};
+
+	// Clicking the coordinates copies a link that opens this view.
+	$('hud-coords').addEventListener('click', async () => {
+		try {
+			await navigator.clipboard.writeText(viewer.shareLink());
+			notify('Link to this view copied');
+		} catch {
+			notify('Couldn’t copy: the browser didn’t allow it');
+		}
+	});
+}
+
+function fillList(id: string, rows: [string, string][]): void {
+	$(id).replaceChildren(...rows.flatMap(([k, v]) => {
+		const dt = document.createElement('dt');
+		dt.textContent = k;
+		const dd = document.createElement('dd');
+		dd.textContent = v;
+		return [dt, dd];
+	}));
+}
+
+// --- The minimap ---
+
+function setUpMinimap(viewer: Viewer): void {
+	const minimap = new Minimap($('minimap'), storage, () => viewer.minimapView(), (mapId, x, y) => viewer.flyOver(mapId, x, y));
+	$('minimap-in').addEventListener('click', () => minimap.zoomBy(-1));
+	$('minimap-out').addEventListener('click', () => minimap.zoomBy(1));
+}
+
+// --- Going places ---
 
 const MAP_GROUPS: [MapCategory, string][] = [
 	['continent', 'Continents'],
@@ -200,35 +399,146 @@ const MAP_GROUPS: [MapCategory, string][] = [
 	['battleground', 'Battlegrounds'],
 	['other', 'Other maps'],
 ];
+const MAP_KINDS: Record<MapCategory, string> = { continent: 'Continent', dungeon: 'Dungeon', raid: 'Raid', battleground: 'Battleground', other: 'Other map' };
+/** Matches shown at most. */
+const GOTO_LIMIT = 40;
 
-/** Every map in the install, grouped, to jump straight to (many have no way in from the world). */
-async function setUpMapPicker(viewer: Viewer): Promise<void> {
-	const picker = $<HTMLSelectElement>('map-picker');
-	let maps: MapListing[];
-	try {
-		maps = await storage.listMaps();
-	} catch (e) {
-		console.warn('Map list unavailable:', e);
-		return;
-	}
-	const placeholder = new Option(`Go to map… (${maps.length})`, '');
-	placeholder.disabled = true;
-	const groups = MAP_GROUPS.map(([category, label]) => {
-		const group = document.createElement('optgroup');
-		group.label = label;
-		group.append(...maps.filter((m) => m.category === category).map((m) => new Option(m.name, String(m.id))));
-		return group;
-	}).filter((g) => g.children.length);
-	picker.replaceChildren(placeholder, ...groups);
-	picker.value = '';
-	picker.hidden = false;
-	picker.addEventListener('change', async () => {
-		const id = Number(picker.value);
-		const name = picker.selectedOptions[0]?.textContent ?? `Map ${id}`;
-		// Back to the placeholder, and out of the way of the flying keys.
-		picker.value = '';
-		picker.blur();
-		if (!(await viewer.goToMap(id))) console.warn(`${name} couldn't be loaded`);
+interface Destination {
+	name: string;
+	/** What it is, or where it lies. */
+	sub: string;
+	/** Zones before maps before towns, among matches as good as each other. */
+	order: number;
+	category?: MapCategory;
+	/** The name lower-cased, without accents or apostrophes, for matching. */
+	key: string;
+	go: () => Promise<boolean>;
+}
+
+const searchKey = (text: string) => text.toLowerCase().normalize('NFD').replace(/[̀-ͯ'’]/g, '');
+
+/** How well a name matches: the start of it, the start of a word in it, anywhere in it, or not at all (-1). */
+function matchScore(key: string, query: string): number {
+	if (key.startsWith(query)) return 0;
+	if (key.split(/[\s-]+/).some((word) => word.startsWith(query))) return 1;
+	return key.includes(query) ? 2 : -1;
+}
+
+/**
+ * Go to: a search over every zone, town and landmark, and every map in the install (many have
+ * no way in from the world). Empty, it lists the maps by kind, as a way in to all of them.
+ */
+async function setUpGoTo(viewer: Viewer): Promise<void> {
+	const input = $<HTMLInputElement>('goto-query');
+	const list = $('goto-results');
+	const [maps, places] = await Promise.all([
+		storage.listMaps().catch((e): MapListing[] => {
+			console.warn('Map list unavailable:', e);
+			return [];
+		}),
+		storage.loadPlaces().catch((e): Place[] => {
+			console.warn('Zones and towns unavailable:', e);
+			return [];
+		}),
+	]);
+	const mapNames = new Map(maps.map((m) => [m.id, m.name]));
+	const destination = (name: string, sub: string, order: number, go: () => Promise<boolean>, category?: MapCategory): Destination => ({ name, sub, order, category, key: searchKey(name), go });
+	// Only places on maps in the install, and not a battleground's own zone (the map stands for it).
+	const placesHere = places.filter((p) => mapNames.has(p.mapId) && !(p.kind === 'zone' && mapNames.get(p.mapId) === p.name));
+	const destinations = [
+		...placesHere.filter((p) => p.kind === 'zone').map((p) => destination(p.name, 'Zone', 0, () => viewer.goToPlace(p))),
+		...maps.map((m) => destination(m.name, MAP_KINDS[m.category], 1, () => viewer.goToMap(m.id), m.category)),
+		...placesHere.filter((p) => p.kind === 'place').map((p) => destination(p.name, p.zone ?? mapNames.get(p.mapId) ?? '', 2, () => viewer.goToPlace(p))),
+	];
+
+	let shown: Destination[] = [];
+	let active = -1;
+
+	const item = (d: Destination) => {
+		const li = document.createElement('li');
+		li.role = 'option';
+		li.id = `goto-${shown.length}`;
+		const name = document.createElement('span');
+		name.textContent = d.name;
+		const sub = document.createElement('span');
+		sub.className = 'sub';
+		sub.textContent = d.sub;
+		li.append(name, sub);
+		// Before the box loses focus, which closes the list.
+		li.addEventListener('mousedown', (e) => {
+			e.preventDefault();
+			void pick(d);
+		});
+		shown.push(d);
+		return li;
+	};
+	const note = (text: string, className: string) => {
+		const li = document.createElement('li');
+		li.className = className;
+		li.textContent = text;
+		return li;
+	};
+	const setActive = (index: number) => {
+		active = index;
+		list.querySelectorAll('[aria-selected]').forEach((li) => li.removeAttribute('aria-selected'));
+		const li = index >= 0 ? $(`goto-${index}`) : null;
+		li?.setAttribute('aria-selected', 'true');
+		li?.scrollIntoView({ block: 'nearest' });
+		if (li) input.setAttribute('aria-activedescendant', li.id);
+		else input.removeAttribute('aria-activedescendant');
+	};
+	const render = () => {
+		const query = searchKey(input.value.trim());
+		shown = [];
+		const rows: HTMLLIElement[] = [];
+		if (!query) {
+			for (const [category, label] of MAP_GROUPS) {
+				const group = destinations.filter((d) => d.category === category);
+				if (!group.length) continue;
+				rows.push(note(label, 'group'), ...group.map(item));
+			}
+		} else {
+			const matches = destinations
+				.map((d) => ({ d, score: matchScore(d.key, query) }))
+				.filter((m) => m.score >= 0)
+				.sort((a, b) => a.score - b.score || a.d.order - b.d.order || a.d.name.length - b.d.name.length || a.d.name.localeCompare(b.d.name))
+				.slice(0, GOTO_LIMIT);
+			rows.push(...matches.map((m) => item(m.d)));
+			if (!matches.length) rows.push(note('Nothing by that name', 'empty'));
+		}
+		list.replaceChildren(...rows);
+		list.hidden = false;
+		input.setAttribute('aria-expanded', 'true');
+		setActive(query && shown.length ? 0 : -1);
+	};
+	const close = () => {
+		list.hidden = true;
+		input.setAttribute('aria-expanded', 'false');
+		input.value = '';
+		setActive(-1);
+	};
+	const pick = async (d: Destination) => {
+		input.blur();
+		if (!(await d.go())) notify(`${d.name} isn’t in this install`);
+	};
+
+	input.addEventListener('focus', render);
+	input.addEventListener('input', render);
+	input.addEventListener('blur', close);
+	input.addEventListener('keydown', (e) => {
+		if (e.code === 'ArrowDown' || e.code === 'ArrowUp') {
+			e.preventDefault();
+			if (shown.length) setActive((active + (e.code === 'ArrowDown' ? 1 : shown.length - 1 + (active < 0 ? 1 : 0))) % shown.length);
+		} else if (e.code === 'Enter') {
+			const d = shown[Math.max(active, 0)];
+			if (d) void pick(d);
+		}
+	});
+	window.addEventListener('keydown', (e) => {
+		if (e.key !== '/' || isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+		e.preventDefault();
+		if (document.pointerLockElement) document.exitPointerLock();
+		input.focus();
 	});
 }
 
@@ -242,12 +552,7 @@ function setUpHighlights(viewer: Viewer): void {
 	const on = $<HTMLInputElement>('highlight-on');
 	const query = $<HTMLInputElement>('highlight-query');
 	const boxes = [...panel.querySelectorAll<HTMLInputElement>('#highlight-groups input')];
-	let saved: Partial<HighlightSettings> = {};
-	try {
-		saved = JSON.parse(localStorage.getItem(HIGHLIGHT_KEY) ?? '{}');
-	} catch {
-		// Storage blocked or unreadable: start with nothing highlighted.
-	}
+	const saved = readSaved<HighlightSettings>(HIGHLIGHT_KEY);
 	on.checked = saved.on ?? false;
 	query.value = saved.query ?? '';
 	for (const box of boxes) box.checked = saved.groups?.includes(box.value as HighlightGroup) ?? false;
@@ -260,19 +565,13 @@ function setUpHighlights(viewer: Viewer): void {
 		};
 		panel.classList.toggle('off', !settings.on);
 		viewer.setHighlights(settings);
-		try {
-			localStorage.setItem(HIGHLIGHT_KEY, JSON.stringify(settings));
-		} catch {
-			// Not remembered; it still works for this visit.
-		}
+		save(HIGHLIGHT_KEY, settings);
 	};
 	for (const box of [on, ...boxes]) {
 		box.addEventListener('change', () => {
 			// Choosing a kind turns highlighting on.
 			if (box !== on && box.checked) on.checked = true;
 			apply();
-			// Out of the way of the flying keys, which inputs keep for themselves.
-			box.blur();
 		});
 	}
 	query.addEventListener('input', () => {
@@ -280,21 +579,28 @@ function setUpHighlights(viewer: Viewer): void {
 		apply();
 	});
 	query.addEventListener('keydown', (e) => {
-		if (e.code === 'Enter' || e.code === 'Escape') query.blur();
+		if (e.code === 'Enter') query.blur();
 	});
 	window.addEventListener('keydown', (e) => {
-		if (e.code !== 'KeyH' || e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+		if (e.code !== 'KeyH' || isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
 		on.checked = !on.checked;
 		apply();
+		notify(`Highlights ${onOff(on.checked)}`);
 	});
 	apply();
-	panel.hidden = false;
 }
 
-// --- Volume ---
+// --- Sound ---
 
-/** The Sound panel: a slider per kind of sound, applied as they move. */
-function setUpSound(): void {
+/** The Sound panel's on/off box, which is greyed out until the music is read. */
+function syncSound(viewer: Viewer): void {
+	const box = $<HTMLInputElement>('sound-on');
+	box.checked = viewer.soundOn ?? true;
+	box.disabled = viewer.soundOn === null;
+}
+
+/** The Sound panel: music and sound on or off, and a slider per kind of sound, applied as they move. */
+function setUpSound(viewer: Viewer): void {
 	const panel = $('sound');
 	for (const slider of panel.querySelectorAll<HTMLInputElement>('input[type=range]')) {
 		const channel = slider.dataset.channel as VolumeChannel;
@@ -305,12 +611,47 @@ function setUpSound(): void {
 			setVolume(channel, Number(slider.value) / 100);
 			shown.value = `${slider.value}%`;
 		});
-		// Out of the way of the flying keys once let go.
-		slider.addEventListener('change', () => slider.blur());
 	}
-	// Space flies up; it mustn't fold the panel.
-	panel.querySelector('summary')!.addEventListener('click', (e) => (e.currentTarget as HTMLElement).blur());
-	panel.hidden = false;
+	$('sound-on').addEventListener('change', (e) => {
+		viewer.soundOn = (e.target as HTMLInputElement).checked;
+	});
+	// The music is read after the world opens.
+	hudFollowers.push(() => syncSound(viewer));
+}
+
+// --- Help ---
+
+const HELP_KEY = 'mapExplorer.helpSeen';
+
+/** The list of controls: ? or F1, or the button bottom left; shown once by itself on the first visit. */
+function setUpHelp(): void {
+	const help = $('help');
+	const show = (on: boolean) => {
+		help.hidden = !on;
+		if (on && document.pointerLockElement) document.exitPointerLock();
+	};
+	$('help-hint').addEventListener('click', () => show(Boolean(help.hidden)));
+	$('help-close').addEventListener('click', () => show(false));
+	help.addEventListener('click', (e) => {
+		if (e.target === help) show(false);
+	});
+	window.addEventListener('keydown', (e) => {
+		if (isTyping(e)) return;
+		if (e.key === '?' || e.code === 'F1') {
+			e.preventDefault();
+			show(Boolean(help.hidden));
+		} else if (e.code === 'Escape') {
+			show(false);
+		}
+	});
+	let seen = true;
+	try {
+		seen = localStorage.getItem(HELP_KEY) === '1';
+		localStorage.setItem(HELP_KEY, '1');
+	} catch {
+		// Storage blocked: not shown by itself, as it couldn't be remembered as seen.
+	}
+	if (!seen) show(true);
 }
 
 // --- Hiding the interface ---
@@ -319,9 +660,10 @@ function setUpSound(): void {
 // screenshots. The NVIDIA overlay takes Alt+Z for itself where it's installed, hence U too.
 window.addEventListener('keydown', (e) => {
 	const toggle = e.altKey ? e.code === 'KeyZ' : e.code === 'KeyU' && !e.ctrlKey && !e.metaKey;
-	if (!toggle || $('start').hidden === false || e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+	if (!toggle || $('start').hidden === false || isTyping(e)) return;
 	e.preventDefault();
-	document.body.classList.toggle('ui-hidden');
+	const hidden = document.body.classList.toggle('ui-hidden');
+	notify(hidden ? 'Interface hidden: U brings it back' : 'Interface shown');
 });
 
 // --- Screenshots ---
@@ -344,7 +686,7 @@ document.addEventListener('pointerlockchange', () => {
 });
 $('info-close').addEventListener('click', () => ($('info').hidden = true));
 window.addEventListener('keydown', (e) => {
-	if (e.code === 'Escape') $('info').hidden = true;
+	if (e.code === 'Escape' && !isTyping(e)) $('info').hidden = true;
 });
 
 /** Book text uses $B for line breaks and $N for the reader's name. */
@@ -360,13 +702,7 @@ function showInfo(info: SpawnInfo): void {
 	const facts: [string, string][] = [];
 	if (info.level) facts.push(['Level', info.level]);
 	facts.push([isNpc ? 'NPC ID' : 'Object ID', String(info.entry)], ['Spawn', String(info.guid)]);
-	$('info-facts').replaceChildren(...facts.flatMap(([k, v]) => {
-		const dt = document.createElement('dt');
-		dt.textContent = k;
-		const dd = document.createElement('dd');
-		dd.textContent = v;
-		return [dt, dd];
-	}));
+	fillList('info-facts', facts);
 
 	const pages = $('info-pages');
 	pages.replaceChildren();
@@ -390,6 +726,7 @@ function showInfo(info: SpawnInfo): void {
 	});
 	$('info-links').replaceChildren(...links);
 	$('info').hidden = false;
+	$('info').scrollTop = 0;
 	(window as unknown as { $WowheadPower?: { refreshLinks?: () => void } }).$WowheadPower?.refreshLinks?.();
 }
 
@@ -416,23 +753,19 @@ function showHud(info: HudInfo): void {
 	$('highlight-status').textContent = info.highlights;
 	$('hud-location').textContent = info.zone ? [info.zone, info.subzone].filter(Boolean).join(' · ') : info.location;
 	$('hud-coords').textContent = info.zone ? `${info.location} · ${info.coordinates}` : info.coordinates;
-	const rows: [string, string][] = [
+	fillList('hud-view', [
 		['Time', info.time],
-		['Names for', info.side],
-		['Music', info.music],
 		['Altitude', `${info.altitude.toFixed(0)} yd above ground`],
-		['Speed', `${info.speed.toFixed(0)} yd/s`],
-		['Collision', info.collision],
-		['Detail', info.near],
-		['Objects', info.objects],
-		['Textures', info.textures],
-		['FPS', info.fps.toFixed(0)],
-	];
-	$('hud-stats').replaceChildren(...rows.flatMap(([k, v]) => {
-		const dt = document.createElement('dt');
-		dt.textContent = k;
-		const dd = document.createElement('dd');
-		dd.textContent = v;
-		return [dt, dd];
-	}));
+		['Music', info.music],
+	]);
+	if (!$('hud-stats').hidden) {
+		fillList('hud-stats', [
+			['Speed', `${info.speed.toFixed(0)} yd/s`],
+			['Detail', info.near],
+			['Objects', info.objects],
+			['Textures', info.textures],
+			['FPS', info.fps.toFixed(0)],
+		]);
+	}
+	for (const follow of hudFollowers) follow();
 }

@@ -81,11 +81,17 @@ const api: AsyncStorageApi = {
 	async loadLockKinds() {
 		return requireWorld().loadLockKinds();
 	},
+	async loadPlaces() {
+		return requireWorld().loadPlaces();
+	},
 	async loadMusic() {
 		return requireWorld().loadMusic();
 	},
 	async wmoArea(wmoId, nameSet, groupId) {
 		return requireWorld().wmoArea(wmoId, nameSet, groupId);
+	},
+	async loadFont(fdid) {
+		return requireWorld().loadFont(fdid);
 	},
 	async loadSound(fdid) {
 		return requireWorld().loadSound(fdid);

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { isTyping } from './typing';
 
 const LOOK_SENSITIVITY = 0.0022;
 const MAX_PITCH = THREE.MathUtils.degToRad(89.5);
@@ -54,7 +55,7 @@ export class FlyControls {
 			this.zoomVelocity += -Math.sign(e.deltaY) * 2.5;
 		}, { passive: false });
 		window.addEventListener('keydown', (e) => {
-			if (e.target instanceof HTMLInputElement) return;
+			if (isTyping(e)) return;
 			this.keys.add(e.code);
 			if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC'].includes(e.code)) this.flight = null;
 			if (e.code === 'Space') e.preventDefault();

@@ -4,6 +4,7 @@ import type { LiquidKind } from '../formats/mh2o';
 
 /** File IDs of client database tables (DBFilesClient/*.db2); they're unnamed in the root. */
 export const DB2_FILES = {
+	AreaPOI: 1000630,
 	AreaTable: 1353545,
 	GroundEffectDoodad: 1308057,
 	GroundEffectTexture: 1308499,
@@ -15,6 +16,8 @@ export const DB2_FILES = {
 	Map: 1349477,
 	SoundAmbience: 1310628,
 	SoundKitEntry: 1237435,
+	UiMap: 1957206,
+	UiMapAssignment: 1957219,
 	WMOAreaTable: 1355528,
 	ZoneIntroMusicTable: 1310251,
 	ZoneMusic: 1310254,

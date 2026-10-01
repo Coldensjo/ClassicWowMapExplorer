@@ -12,6 +12,14 @@ export interface Plate {
 }
 
 const MAX_PLATES = 60;
+/**
+ * As in the game, names have a size in the world (yards of font size), so they shrink with
+ * distance like everything else and are large up close; within these pixel sizes, so far
+ * ones stay legible and near ones don't fill the screen.
+ */
+const NAME_HEIGHT = 0.32;
+const NAME_MIN_PX = 7;
+const NAME_MAX_PX = 72;
 
 /**
  * Names above NPCs' heads, like the game's: coloured by how they react to the chosen side
@@ -40,6 +48,8 @@ export class Nameplates {
 	update(plates: Plate[], camera: THREE.Camera, width: number, height: number, side: Side, range: number): void {
 		// Nearest first, so the closest names win when there are many.
 		plates.sort((a, b) => a.distance - b.distance);
+		// Pixels a yard spans one yard from the camera: half the view's height over tan(half the field of view).
+		const pixelsPerYard = (camera.projectionMatrix.elements[5] * height) / 2;
 		let shown = 0;
 		for (const plate of plates) {
 			if (shown >= MAX_PLATES) break;
@@ -57,6 +67,10 @@ export class Nameplates {
 			const x = (this.projected.x * 0.5 + 0.5) * width;
 			const y = (-this.projected.y * 0.5 + 0.5) * height;
 			el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
+			// The font size itself rather than a scale, so the text stays sharp; in half pixels, so it rarely changes.
+			const px = Math.min(NAME_MAX_PX, Math.max(NAME_MIN_PX, (NAME_HEIGHT * pixelsPerYard) / Math.max(plate.distance, 0.1)));
+			const size = `${Math.round(px * 2) / 2}px`;
+			if (el.style.fontSize !== size) el.style.fontSize = size;
 			// Fade out towards the edge of the range.
 			el.style.opacity = String(Math.min(1, (1 - plate.distance / range) * 4));
 			el.hidden = false;

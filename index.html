@@ -44,58 +44,129 @@
 
 	<div id="hud" hidden>
 		<div id="hud-location"></div>
-		<div id="hud-coords" class="muted"></div>
-		<dl id="hud-stats"></dl>
+		<button id="hud-coords" class="plain muted" title="Copy a link to this view"></button>
+		<dl id="hud-view"></dl>
+		<dl id="hud-stats" hidden></dl>
 	</div>
-
-	<select id="map-picker" hidden aria-label="Go to map"></select>
 
 	<div id="nameplates" aria-hidden="true"></div>
-
-	<div id="corner">
-	<details id="sound" hidden>
-		<summary>Sound <span class="muted small"><kbd>M</kbd> all on/off</span></summary>
-		<label>Master <input type="range" min="0" max="100" step="1" data-channel="master"><output></output></label>
-		<label>Music <input type="range" min="0" max="100" step="1" data-channel="music"><output></output></label>
-		<label>Under water <input type="range" min="0" max="100" step="1" data-channel="ambience"><output></output></label>
-		<label>Splashes <input type="range" min="0" max="100" step="1" data-channel="effects"><output></output></label>
-	</details>
-	<div id="highlight" hidden>
-		<label class="highlight-on"><input type="checkbox" id="highlight-on"> Highlight <kbd>H</kbd></label>
-		<div id="highlight-groups">
-			<label data-group="chest"><input type="checkbox" value="chest"> Chests</label>
-			<label data-group="herb"><input type="checkbox" value="herb"> Herbs</label>
-			<label data-group="ore"><input type="checkbox" value="ore"> Ore</label>
-			<label data-group="fishing"><input type="checkbox" value="fishing"> Fishing</label>
-		</div>
-		<input id="highlight-query" type="search" placeholder="Find anything by name…" autocomplete="off" spellcheck="false" aria-label="Highlight by name">
-		<div id="highlight-status" class="muted small" aria-live="polite"></div>
-	</div>
-	</div>
 	<div id="crosshair" hidden></div>
 
-	<aside id="info" hidden aria-live="polite">
-		<button id="info-close" title="Close" aria-label="Close">×</button>
-		<div id="info-kind" class="muted small"></div>
-		<h2 id="info-name"></h2>
-		<div id="info-sub"></div>
-		<dl id="info-facts"></dl>
-		<div id="info-pages"></div>
-		<div id="info-links"></div>
-		<p class="small muted">Spawns: VMaNGOS world database (patch 1.12)</p>
-	</aside>
+	<!-- Right: the minimap and Go to, what was clicked, then the settings at the bottom. -->
+	<div id="side" hidden>
+		<div id="minimap-wrap">
+			<canvas id="minimap" title="Click to fly there · wheel to zoom"></canvas>
+			<span class="north" aria-hidden="true">N</span>
+			<div class="zoom">
+				<button id="minimap-in" title="Zoom in" aria-label="Zoom the minimap in">+</button>
+				<button id="minimap-out" title="Zoom out" aria-label="Zoom the minimap out">−</button>
+			</div>
+		</div>
+
+		<div id="goto">
+			<input id="goto-query" type="search" placeholder="Go to a zone, town or map…" autocomplete="off" spellcheck="false" aria-label="Go to a zone, town or map" aria-controls="goto-results" aria-expanded="false" role="combobox">
+			<kbd class="goto-key" aria-hidden="true">/</kbd>
+			<ul id="goto-results" role="listbox" hidden></ul>
+		</div>
+
+		<aside id="info" hidden aria-live="polite">
+			<button id="info-close" title="Close" aria-label="Close">×</button>
+			<div id="info-kind" class="muted small"></div>
+			<h2 id="info-name"></h2>
+			<div id="info-sub"></div>
+			<dl id="info-facts"></dl>
+			<div id="info-pages"></div>
+			<div id="info-links"></div>
+			<p class="small muted">Spawns: VMaNGOS world database (patch 1.12)</p>
+		</aside>
+
+		<div class="spacer"></div>
+
+		<details id="view-panel" class="panel">
+			<summary>View</summary>
+			<div class="time-row">
+				<span>Time</span>
+				<input type="range" id="time" min="0" max="1425" step="15" aria-label="Time of day">
+				<output id="time-out"></output>
+				<button id="time-now" title="Back to local time (N)">Now</button>
+			</div>
+			<label><input type="checkbox" data-setting="torch"> Torch <kbd>L</kbd></label>
+			<label><input type="checkbox" data-setting="clutter"> Grass and flowers <kbd>V</kbd></label>
+			<label><input type="checkbox" data-setting="collision"> Collision with walls <kbd>G</kbd></label>
+			<label><input type="checkbox" data-setting="mapNames"> Dungeon and raid names <kbd>I</kbd></label>
+			<label>Name colours for <select data-setting="side"><option value="alliance">Alliance</option><option value="horde">Horde</option></select> <kbd>F</kbd></label>
+			<label><input type="checkbox" id="stats-on"> Performance stats <kbd>K</kbd></label>
+		</details>
+
+		<details id="sound" class="panel">
+			<summary>Sound</summary>
+			<label class="check"><input type="checkbox" id="sound-on"> Music and sound <kbd>M</kbd></label>
+			<label>Master <input type="range" min="0" max="100" step="1" data-channel="master"><output></output></label>
+			<label>Music <input type="range" min="0" max="100" step="1" data-channel="music"><output></output></label>
+			<label>Under water <input type="range" min="0" max="100" step="1" data-channel="ambience"><output></output></label>
+			<label>Splashes <input type="range" min="0" max="100" step="1" data-channel="effects"><output></output></label>
+		</details>
+
+		<div id="highlight" class="panel">
+			<label class="highlight-on"><input type="checkbox" id="highlight-on"> Highlight <kbd>H</kbd></label>
+			<div id="highlight-groups">
+				<label data-group="chest"><input type="checkbox" value="chest"> Chests</label>
+				<label data-group="herb"><input type="checkbox" value="herb"> Herbs</label>
+				<label data-group="ore"><input type="checkbox" value="ore"> Ore</label>
+				<label data-group="fishing"><input type="checkbox" value="fishing"> Fishing</label>
+			</div>
+			<input id="highlight-query" type="search" placeholder="Find anything by name…" autocomplete="off" spellcheck="false" aria-label="Highlight by name">
+			<div id="highlight-status" class="muted small" aria-live="polite"></div>
+		</div>
+	</div>
 
 	<div id="shot-status" hidden aria-live="polite"></div>
 
 	<div id="zone-banner" aria-live="polite"><div id="zone-name"></div><div id="subzone-name"></div></div>
 
+	<div id="notice" role="status" aria-live="polite"></div>
+
+	<button id="help-hint" class="plain" hidden><kbd>?</kbd> Controls</button>
+
 	<div id="help" hidden>
-		<div><kbd>Click</kbd> look around (<kbd>Esc</kbd> to release) · click creatures and objects for info</div>
-		<div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly · <kbd>Space</kbd>/<kbd>C</kbd> up/down · <kbd>Shift</kbd> fast · <kbd>G</kbd> go through walls</div>
-		<div><kbd>Wheel</kbd> zoom · <kbd>O</kbd> whole world · <kbd>1</kbd>/<kbd>2</kbd> continents · <kbd>R</kbd> back to start</div>
-		<div><kbd>T</kbd>/<kbd>Shift</kbd>+<kbd>T</kbd> later/earlier · <kbd>N</kbd> back to local time · <kbd>L</kbd> torch · <kbd>V</kbd> grass and flowers · <kbd>F</kbd> Alliance/Horde names · <kbd>M</kbd> music and sound (volumes under Sound, bottom right) · <kbd>I</kbd> dungeon and raid names · <kbd>U</kbd> hide the interface</div>
-		<div><kbd>P</kbd> screenshot, with everything in view loaded in full detail however far off</div>
-		<div><kbd>H</kbd> highlight chests, herbs, ore, fishing pools or anything by name, seen from afar</div>
+		<div class="help-card" role="dialog" aria-labelledby="help-title">
+			<button id="help-close" class="plain" title="Close" aria-label="Close">×</button>
+			<h2 id="help-title">Controls</h2>
+			<div class="help-groups">
+				<section>
+					<h3>Flying</h3>
+					<div><kbd>Click</kbd> look around · <kbd>Esc</kbd> let go of the mouse</div>
+					<div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly</div>
+					<div><kbd>Space</kbd> / <kbd>C</kbd> up / down</div>
+					<div><kbd>Shift</kbd> fast · <kbd>Wheel</kbd> zoom</div>
+					<div><kbd>G</kbd> fly through walls</div>
+				</section>
+				<section>
+					<h3>Going places</h3>
+					<div><kbd>/</kbd> go to a zone, town, dungeon or raid</div>
+					<div>Click the minimap to fly there</div>
+					<div><kbd>O</kbd> whole world · <kbd>1</kbd> / <kbd>2</kbd> continents</div>
+					<div><kbd>R</kbd> back to the start</div>
+					<div>Click the coordinates to copy a link to the view</div>
+				</section>
+				<section>
+					<h3>The world</h3>
+					<div><kbd>T</kbd> / <kbd>Shift</kbd>+<kbd>T</kbd> later / earlier · <kbd>N</kbd> local time</div>
+					<div><kbd>L</kbd> torch · <kbd>V</kbd> grass and flowers</div>
+					<div><kbd>F</kbd> name colours for Alliance or Horde</div>
+					<div><kbd>I</kbd> dungeon and raid names · <kbd>M</kbd> music and sound</div>
+					<div><kbd>H</kbd> highlight chests, herbs, ore, fishing pools or anything by name</div>
+				</section>
+				<section>
+					<h3>Screen</h3>
+					<div>Click creatures and objects for their details</div>
+					<div><kbd>P</kbd> screenshot, everything in view in full detail</div>
+					<div><kbd>U</kbd> hide the interface · <kbd>K</kbd> performance stats</div>
+					<div><kbd>?</kbd> or <kbd>F1</kbd> this list</div>
+				</section>
+			</div>
+			<p class="muted small">Everything here is also under View, Sound and Highlight at the bottom right.</p>
+		</div>
 	</div>
 
 	<script type="module" src="/src/viewer/main.ts"></script>

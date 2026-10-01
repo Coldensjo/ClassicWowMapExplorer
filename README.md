@@ -60,6 +60,7 @@ On any system with Chrome or Edge, and **[Node.js](https://nodejs.org)** (the LT
 - Every other map in the install (dungeons, raids, battlegrounds, unused and test maps) laid out in
   the sea south of the continents, optionally named from afar, to fly to or walk into through their entrances
 - Highlights for chests, herbs, ore veins, fishing pools or anything by name, seen from afar
+- A minimap from the game's own map images, and a search to go to any zone, town or map
 
 ## Controls
 
@@ -82,17 +83,29 @@ On any system with Chrome or Edge, and **[Node.js](https://nodejs.org)** (the LT
 | M | Music and sound on / off |
 | I | Names of dungeons, raids and other maps in the sea on / off (off by default) |
 | H | Highlights on / off |
+| / | Go to a zone, town or map |
+| K | Performance stats on / off |
+| P | Screenshot, with everything in view loaded in full detail |
 | U or Alt+Z | Hide / show the interface |
+| ? or F1 | List of controls |
 
-**Go to map…** (top right) jumps to any map, including ones nothing leads to. The other maps also sit
+Every key that switches something shows what it did, low in the middle of the screen. All of them are
+also under **View** and **Sound** at the bottom right, which remember your choices between visits.
+
+**Go to** (top right, or press /) finds any zone, town or landmark by name, and every map in the
+install, including ones nothing leads to. Empty, it lists the maps by kind. The other maps also sit
 in rows in the sea south of the continents, with their names floating over them (press I), so you can fly there.
 Maps that are a single building (most dungeons) lie under the sea until you fly over them.
+
+The **minimap** above it shows the game's own map around you, north up. Click it to fly there, and
+zoom it with the wheel or its + and − buttons.
 
 **Highlight** (bottom right) marks chests, herbs, ore and fishing pools within 1000 yards, through
 terrain and buildings; typing a name marks every creature or object with that name on the map, however far away.
 The spawn data lists every place a herb or vein can appear, so there are more marks than nodes up at any one time.
 
-The camera position is kept in the URL, so a link brings you back to the same spot. Add `?time=HH:MM` to set the time of day.
+The camera position is kept in the URL, so a link brings you back to the same spot; click the coordinates
+(top left) to copy it. Add `?time=HH:MM` to set the time of day.
 
 ## Troubleshooting
 

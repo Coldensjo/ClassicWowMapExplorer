@@ -7,12 +7,23 @@ export interface LightState {
 	colors: Record<LightColor, THREE.Color>;
 	fogEnd: number;
 	fogScaler: number;
+	/** How much of each colour grading table to use (file ID -> weight, summing to 1; 0 = none). */
+	grading: Map<number, number>;
+	/** Height fog thickness, 1 normal. */
+	fogDensity: number;
 }
 
 interface Sampled {
 	colors: THREE.Color[];
 	fogEnd: number;
 	fogScaler: number;
+	grading: Map<number, number>;
+	fogDensity: number;
+}
+
+/** Adds weight of a grading table to a blend. */
+function addGrading(into: Map<number, number>, id: number, weight: number): void {
+	if (weight > 0) into.set(id, (into.get(id) ?? 0) + weight);
 }
 
 const toColor = (hex: number) => new THREE.Color().setHex(hex); // sRGB hex -> linear working space
@@ -51,7 +62,11 @@ export class Lighting {
 			const [fa, fb, ff] = around<LightKey>(fogKeys, t);
 			fogEnd = fa.fogEnd + (fb.fogEnd - fa.fogEnd) * ff;
 		}
-		const value = { colors, fogEnd, fogScaler };
+		const grading = new Map<number, number>();
+		addGrading(grading, a.grading, 1 - f);
+		addGrading(grading, b.grading, f);
+		const fogDensity = a.fogDensity + (b.fogDensity - a.fogDensity) * f;
+		const value = { colors, fogEnd, fogScaler, grading, fogDensity };
 		this.cache.set(params, { t, value });
 		return value;
 	}
@@ -96,14 +111,18 @@ export class Lighting {
 		let fogEnd = 0;
 		let fogWeight = 0;
 		let fogScaler = 0;
+		let fogDensity = 0;
+		const grading = new Map<number, number>();
 		for (const p of parts) {
+			fogDensity += (p.value.fogDensity * p.weight) / sum;
+			for (const [id, w] of p.value.grading) addGrading(grading, id, (w * p.weight) / sum);
 			fogScaler += (p.value.fogScaler * p.weight) / sum;
 			if (p.value.fogEnd > 0) {
 				fogEnd += p.value.fogEnd * p.weight;
 				fogWeight += p.weight;
 			}
 		}
-		return { colors, fogEnd: fogWeight ? fogEnd / fogWeight : 0, fogScaler };
+		return { colors, fogEnd: fogWeight ? fogEnd / fogWeight : 0, fogScaler, grading, fogDensity };
 	}
 }
 

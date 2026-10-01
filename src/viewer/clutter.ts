@@ -5,6 +5,7 @@ import type { ModelData, ModelMaterial } from '../explorer/objects';
 import type { AsyncStorageApi } from '../worker/protocol';
 import { createModelMaterial } from './modelMaterials';
 import { perf } from './perf';
+import { useShadows } from './shadows';
 import { liquidTime } from './terrainMaterials';
 import { TextureCache } from './textureCache';
 
@@ -295,6 +296,8 @@ export class ClutterManager {
 			mesh.matrixAutoUpdate = false;
 			// The copies surround the camera; there's nothing to cull.
 			mesh.frustumCulled = false;
+			// Grass lies in the shade of trees and walls; too small to cast any worth the cost.
+			useShadows(mesh, 'receive');
 			this.group.add(mesh);
 			model.mesh = mesh;
 		}

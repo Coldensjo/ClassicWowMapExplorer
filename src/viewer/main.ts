@@ -357,6 +357,9 @@ function setUpView(viewer: Viewer): void {
 			side: () => `Name colours as the ${s.side === 'alliance' ? 'Alliance' : 'Horde'} sees them`,
 			mapNames: () => `Dungeon and raid names ${onOff(s.mapNames)}`,
 			cinematic: () => (s.cinematic ? 'Cinematic camera: turning glides after the mouse' : 'Cinematic camera off'),
+			grading: () => `Colour grading ${onOff(s.grading)}`,
+			shadows: () => `Shadows ${onOff(s.shadows)}`,
+			fog: () => `Fog and sun shafts ${onOff(s.fog)}`,
 			time: () => (viewer.timeIsLocal ? `Local time, ${clock(viewer.timeMinutes)}` : `Time of day ${clock(viewer.timeMinutes)}`),
 			sound: () => `Music and sound ${onOff(viewer.soundOn ?? false)}`,
 		}[change]());

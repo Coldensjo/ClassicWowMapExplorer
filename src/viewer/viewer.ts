@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SunLight } from 'three/addons/lights/SunLight.js';
 import { TILE_SIZE } from '../formats/adt';
 import { KNOWN_MAPS } from '../explorer/maps';
 import type { FarTile, InstanceMap, MapCategory } from '../explorer/world';
@@ -18,6 +19,9 @@ import { headPosition, ObjectManager } from './objects';
 import { perf } from './perf';
 import { TerrainManager, type ContinentPlacement } from './terrain';
 import { GroundDistancePass } from './groundDistance';
+import { PostPass, type FogSettings } from './post';
+import { installShadowGroups, setShadowLight } from './shadows';
+import { TerrainShadowPass } from './terrainShadow';
 import { animateFlipbooks, flipbooks, liquidKindOf, liquidMaterials, liquidTime, seaMask, setLiquidLooks, setLiquidsFromBelow } from './terrainMaterials';
 import { UnderwaterAudio } from './underwater';
 import type { LiquidKind } from '../formats/mh2o';
@@ -67,6 +71,22 @@ const UNDERWATER: Record<LiquidKind, { far: number; color: number }> = {
 const FAR_PAST_FOG = 1.1;
 /** Yards; the far plane never comes closer than this, so the sky dome (1000 yd around the camera) always shows. */
 const MIN_FAR = 1500;
+/** Yards the sun's shadows reach from the camera on the ground, and how much further per yard of altitude. */
+const SHADOW_RANGE = 300;
+const SHADOW_RANGE_PER_ALTITUDE = 2;
+const SHADOW_RANGE_MAX = 1200;
+/** How much of the sun shade takes away: some stays, as light from the sky and the ground would fill it in. */
+const SHADOW_INTENSITY = 0.8;
+/** Height of the sun (y of its direction) below which the moon lights the world instead. */
+const SUN_TO_MOON = 0.08;
+/** Height fog: thickness per yard at the lowest ground around (times the zone's), and how fast it thins with height. */
+const FOG_DENSITY = 0.0012;
+const FOG_FALLOFF = 1 / 40;
+/** How strongly the sun lights the fog. */
+const FOG_SUNLIGHT = 2;
+/** The fog lies at the lowest ground within this many yards of the camera, sampled on a grid this many to a side. */
+const FOG_BASE_REACH = 600;
+const FOG_BASE_SAMPLES = 9;
 /**
  * Screenshots (P): at most this many tiles in view load in full, nearest first (each takes some
  * 6 MB of video memory), and the picture is this many times the screen's resolution, up to
@@ -143,6 +163,12 @@ export interface ViewSettings {
 	mapNames: boolean;
 	/** Turning glides after the mouse rather than following it at once (J). */
 	cinematic: boolean;
+	/** The game's colour grading for each zone and time of day (B). */
+	grading: boolean;
+	/** The sun and moon cast shadows (X). */
+	shadows: boolean;
+	/** Fog lying in the valleys, lit by the sun where it reaches it (Z). */
+	fog: boolean;
 }
 
 /** A setting, or the time of day or the sound, changed by its key. */
@@ -219,10 +245,24 @@ export class Viewer {
 	private readonly fog = new THREE.Fog(SKY, 1000, 8000);
 	private continents: ContinentPlacement[] = [];
 	private frames = 0;
+	private shadowFrame = 0;
+	/** 0-1: shadows fade out as the light passes from the sun to the moon at dusk and back at dawn. */
+	private shadowStrength = 1;
+	/** World height the fog is thickest at, eased towards the lowest ground around. */
+	private fogBase: number | null = null;
+	private readonly fogLook: FogSettings = {
+		color: new THREE.Color(),
+		sunColor: new THREE.Color(),
+		sunDir: new THREE.Vector3(0, 1, 0),
+		density: FOG_DENSITY,
+		falloff: FOG_FALLOFF,
+		base: 0,
+		sunlight: FOG_SUNLIGHT,
+	};
 	private fps = 0;
 	private lastFpsTime = performance.now();
 	private lastLodUpdate = 0;
-	private readonly sun = new THREE.DirectionalLight(0xfff2dd);
+	private readonly sun = new SunLight(0xfff2dd);
 	private readonly ambient = new THREE.HemisphereLight(0x8899aa, 0x8899aa);
 	private readonly sky = new Sky();
 	private lighting: Lighting | null = null;
@@ -272,6 +312,8 @@ export class Viewer {
 	private readonly liquidMeshes: THREE.Object3D[] = [];
 	/** How far the ground is under each pixel, for how deep the water there looks. */
 	private groundPass!: GroundDistancePass;
+	private readonly post: PostPass;
+	private readonly terrainShadow: TerrainShadowPass;
 	/**
 	 * A screenshot being prepared (P): when it started, how many tiles are held for it, since
 	 * when nothing has been left to load, and the view it's taken from (the camera stays put).
@@ -290,11 +332,14 @@ export class Viewer {
 		this.nameplates = plateContainer ? new Nameplates(plateContainer) : null;
 		this.highlights = plateContainer ? new Highlights(plateContainer, storage.loadLockKinds()) : null;
 		this.mapLabels = plateContainer ? new MapLabels(plateContainer) : null;
-		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
+		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, logarithmicDepthBuffer: true });
 		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 		this.camera = new THREE.PerspectiveCamera(60, 1, 0.5, 400000);
 		this.controls = new FlyControls(this.camera, canvas);
 		this.groundPass = new GroundDistancePass(this.renderer);
+		// Antialiased there rather than on the canvas.
+		this.post = new PostPass(this.renderer, storage);
+		this.terrainShadow = new TerrainShadowPass(this.renderer);
 
 		this.scene.background = SKY;
 		this.scene.fog = this.fog;
@@ -303,6 +348,23 @@ export class Viewer {
 		this.sun.intensity = Math.PI;
 		this.ambient.intensity = Math.PI;
 		this.sun.position.set(-0.6, 1, 0.45);
+		// Two cascades fitted to the view out to the shadow range, softened by filtering.
+		this.renderer.shadowMap.enabled = true;
+		this.renderer.shadowMap.type = THREE.PCFShadowMap;
+		// Redrawn every other frame (see tick): each map is used with its own matrices, so a map a
+		// frame old still lines up; only moving things' shadows lag a frame.
+		this.renderer.shadowMap.autoUpdate = false;
+		installShadowGroups(this.scene);
+		setShadowLight(this.sun);
+		this.post.setShadowLight(this.sun);
+		this.sun.castShadow = true;
+		this.sun.shadow.mapSize.set(2048, 2048);
+		this.sun.shadow.camera.near = 1;
+		this.sun.shadow.camera.far = SHADOW_RANGE;
+		this.sun.shadow.bias = -0.0003;
+		this.sun.shadow.normalBias = 0.15;
+		this.sun.shadow.radius = 2;
+		this.sun.shadow.intensity = SHADOW_INTENSITY;
 		this.scene.add(this.sun, this.ambient, this.sky.mesh);
 		// Off to the right, so nearby surfaces get some shading rather than flat front light.
 		this.torch.position.copy(TORCH_POSITION);
@@ -373,6 +435,9 @@ export class Viewer {
 			side: this.side,
 			mapNames: this.mapLabels?.enabled ?? false,
 			cinematic: this.controls.cinematic,
+			grading: this.post.gradingOn,
+			shadows: this.sun.castShadow,
+			fog: this.post.fogOn,
 		};
 	}
 
@@ -384,6 +449,9 @@ export class Viewer {
 		if (next.side) this.side = next.side;
 		if (next.mapNames !== undefined && this.mapLabels) this.mapLabels.enabled = next.mapNames;
 		if (next.cinematic !== undefined) this.controls.cinematic = next.cinematic;
+		if (next.grading !== undefined) this.post.gradingOn = next.grading;
+		if (next.shadows !== undefined) this.sun.castShadow = next.shadows;
+		if (next.fog !== undefined) this.post.fogOn = next.fog;
 	}
 
 	/** Music and sound on, or null until the music tables are read. */
@@ -787,6 +855,9 @@ export class Viewer {
 				KeyF: { side: s.side === 'alliance' ? 'horde' : 'alliance' },
 				KeyV: { clutter: !s.clutter },
 				KeyJ: { cinematic: !s.cinematic },
+				KeyB: { grading: !s.grading },
+				KeyX: { shadows: !s.shadows },
+				KeyZ: { fog: !s.fog },
 			};
 			if (this.mapLabels) toggles.KeyI = { mapNames: !s.mapNames };
 			const change = toggles[e.code];
@@ -934,7 +1005,10 @@ export class Viewer {
 		this.clutter.update(now, pos, this.terrain.surfaceAt(pos.x, pos.z));
 		// Under water the surface is seen from below, where its depth isn't used.
 		if (!this.underwater) perf.time('groundDistance', () => this.groundPass.render(this.renderer, this.terrain.group, this.camera));
-		perf.time('render', () => this.renderer.render(this.scene, this.camera));
+		// Mountains' shadows past the shadow maps' reach.
+		perf.time('terrainShadow', () => this.terrainShadow.update(this.renderer, this.terrain.group, pos, this.controls.altitude, this.sun.position, this.sun.shadow.camera.far, this.sun.castShadow ? this.shadowStrength : 0, now));
+		this.renderer.shadowMap.needsUpdate = (this.shadowFrame++ & 1) === 0;
+		perf.time('render', () => this.post.render(this.renderer, this.scene, this.camera));
 		if (this.shot) this.updateShot(now);
 		perf.time('nameplates', () => this.updateNameplates(now));
 		if (this.mapLabels) {
@@ -1017,7 +1091,8 @@ export class Viewer {
 		const largest = Math.min(this.renderer.capabilities.maxTextureSize, SHOT_MAX_SIZE);
 		this.renderer.setPixelRatio(ratio * Math.min(SHOT_SCALE, largest / (size.x * ratio), largest / (size.y * ratio)));
 		if (!this.underwater) this.groundPass.render(this.renderer, this.terrain.group, this.camera);
-		this.renderer.render(this.scene, this.camera);
+		this.renderer.shadowMap.needsUpdate = true;
+		this.post.render(this.renderer, this.scene, this.camera);
 		const pos = this.camera.position;
 		const place = this.zoneNames().zone ?? this.terrain.locate(pos.x, pos.z)?.continent.name ?? 'Open sea';
 		const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '.');
@@ -1060,6 +1135,19 @@ export class Viewer {
 		};
 	}
 
+	/** The lowest ground on a grid around a point (for the fog to lie at); the point's own height if there's none. */
+	private lowestGroundAround(p: THREE.Vector3): number {
+		let lowest = Infinity;
+		const half = (FOG_BASE_SAMPLES - 1) / 2;
+		for (let i = 0; i < FOG_BASE_SAMPLES; i++) {
+			for (let j = 0; j < FOG_BASE_SAMPLES; j++) {
+				const h = this.terrain.heightAt(p.x + ((i - half) / half) * FOG_BASE_REACH, p.z + ((j - half) / half) * FOG_BASE_REACH);
+				if (h > -Infinity && h < lowest) lowest = h;
+			}
+		}
+		return lowest < Infinity ? lowest : p.y;
+	}
+
 	/** Sun, ambient, sky and fog from the game's light zones for the current place and time. */
 	private updateLighting(): void {
 		// A map laid out apart isn't in the sea mask, so it gets no sea at all.
@@ -1077,17 +1165,29 @@ export class Viewer {
 		const place = where ?? OPEN_SEA_LIGHT;
 		const state = this.lighting ? this.lighting.sample(place.mapId, place.x, place.y, t) : null;
 		const alt = this.controls.altitude;
+		this.sun.shadow.camera.far = Math.min(SHADOW_RANGE + alt * SHADOW_RANGE_PER_ALTITUDE, SHADOW_RANGE_MAX);
 		let fogNear = 1200;
 		let fogFar = 9000;
 		if (state) {
 			const c = state.colors;
 			// Lit by the sun by day and by the (opposite) moon at night; the colours already say how bright.
-			const lightDir = sunDir.y > 0.08 ? sunDir : new THREE.Vector3(-sunDir.x, Math.abs(sunDir.y) + 0.35, sunDir.z).normalize();
+			const bySun = sunDir.y > SUN_TO_MOON;
+			const lightDir = bySun ? sunDir : new THREE.Vector3(-sunDir.x, Math.abs(sunDir.y) + 0.35, sunDir.z).normalize();
+			// Shadows fade to nothing either side of the switch, so they don't jump round.
+			this.shadowStrength = bySun ? THREE.MathUtils.smoothstep(sunDir.y, SUN_TO_MOON, SUN_TO_MOON + 0.12) : THREE.MathUtils.smoothstep(-sunDir.y, -SUN_TO_MOON, 0.1);
+			this.sun.shadow.intensity = SHADOW_INTENSITY * this.shadowStrength;
 			this.sun.position.copy(lightDir);
 			this.sun.color.copy(c.direct);
 			this.ambient.color.copy(c.ambient);
 			this.ambient.groundColor.copy(c.ambient).multiplyScalar(0.8);
 			this.sky.update(state, sunDir, this.camera.position);
+			this.post.grading.set(state.grading);
+			const fog = this.fogLook;
+			fog.color.copy(c.skyFog);
+			fog.sunColor.copy(c.direct).multiplyScalar(this.shadowStrength);
+			fog.sunDir.copy(lightDir);
+			// Gone from far above, where it would only veil the map.
+			fog.density = FOG_DENSITY * state.fogDensity * (1 - THREE.MathUtils.smoothstep(alt, 1500, 4000));
 			this.fog.color.copy(c.skyFog);
 			(this.scene.background as THREE.Color).copy(c.skyFog);
 			if (state.fogEnd > 0) {
@@ -1103,6 +1203,10 @@ export class Viewer {
 		// the deeper you are.
 		this.underwater = this.liquidAt(this.camera.position);
 		this.sky.mesh.visible = !this.underwater;
+		const base = this.lowestGroundAround(this.camera.position);
+		this.fogBase = this.fogBase === null ? base : this.fogBase + (base - this.fogBase) * 0.15;
+		this.fogLook.base = this.fogBase;
+		this.post.setFog(this.underwater || !state ? null : this.fogLook);
 		setLiquidsFromBelow(this.underwater !== null);
 		if (this.underwater) {
 			const { kind, type, surface } = this.underwater;

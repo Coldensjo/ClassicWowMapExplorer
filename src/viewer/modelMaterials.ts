@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import type { ModelMaterial } from '../explorer/objects';
 import { liquidTime } from './terrainMaterials';
 import { Blend } from '../formats/m2';
+import { setNoShadow } from './shadows';
+import { applyTerrainShadow } from './terrainShadow';
 
 /** Shared uniforms for a skinned model: its bone texture and loop. */
 export interface SkinUniforms {
@@ -54,6 +56,8 @@ export function createModelMaterial(m: ModelMaterial, texture: THREE.Texture | n
 			material.blendDst = m.blend === Blend.Mod2x ? THREE.SrcColorFactor : THREE.ZeroFactor;
 			break;
 	}
+	if (material.transparent || m.unlit) setNoShadow(material);
+	if (material instanceof THREE.MeshLambertMaterial) applyTerrainShadow(material);
 	return material;
 }
 
@@ -130,11 +134,18 @@ const SKIN_BASE = /* glsl */ `
 #endif
 `;
 
+/** What the sun's shadow pass draws a GPU-skinned model with, so its shadow moves with it. */
+export function createSkinnedDepthMaterial(skin: SkinUniforms): THREE.MeshDepthMaterial {
+	const material = new THREE.MeshDepthMaterial();
+	applyModelAnimation(material, skin, null);
+	return material;
+}
+
 /**
  * Animates an M2 batch on the GPU: bone skinning from the model's sampled Stand loop (each
  * instance offset by its own phase so copies don't move in step), and steady texture scrolling.
  */
-function applyModelAnimation(material: THREE.MeshLambertMaterial | THREE.MeshBasicMaterial, skin: SkinUniforms | null, uvScroll: [number, number] | null): void {
+function applyModelAnimation(material: THREE.MeshLambertMaterial | THREE.MeshBasicMaterial | THREE.MeshDepthMaterial, skin: SkinUniforms | null, uvScroll: [number, number] | null): void {
 	material.defines = { ...(material.defines ?? {}), ...(skin ? { M2_SKINNED: '' } : {}), ...(uvScroll ? { M2_UV_SCROLL: '' } : {}) };
 	material.onBeforeCompile = (shader) => {
 		Object.assign(shader.uniforms, { uTime: liquidTime, uUvScroll: { value: new THREE.Vector2(...(uvScroll ?? [0, 0])) } }, skin ?? {});
@@ -145,5 +156,5 @@ function applyModelAnimation(material: THREE.MeshLambertMaterial | THREE.MeshBas
 			.replace('#include <skinning_vertex>', '#ifdef M2_SKINNED\n\ttransformed = (animSkin * vec4(transformed, 1.0)).xyz;\n#endif')
 			.replace('#include <uv_vertex>', '#include <uv_vertex>\n#if defined( M2_UV_SCROLL ) && defined( USE_MAP )\n\tvMapUv += uUvScroll * uTime;\n#endif');
 	};
-	material.customProgramCacheKey = () => `m2-anim-${skin ? 1 : 0}-${uvScroll ? 1 : 0}`;
+	material.customProgramCacheKey = () => `m2-anim-${material.type}-${skin ? 1 : 0}-${uvScroll ? 1 : 0}`;
 }

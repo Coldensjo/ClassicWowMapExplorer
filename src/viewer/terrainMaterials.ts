@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { SplatLayer } from '../explorer/splatMesh';
 import type { LiquidLooks } from '../explorer/clientDb';
 import type { LiquidKind } from '../formats/mh2o';
+import { applyTerrainShadow } from './terrainShadow';
 
 /** Colour the sea floor fades to with depth below sea level. */
 const DEEP_WATER = new THREE.Color(0x0e2c3c);
@@ -139,6 +140,7 @@ function patch(material: THREE.MeshLambertMaterial, uniforms: Record<string, THR
 			.replace('#include <map_fragment>', FRAGMENT_MAP);
 	};
 	material.customProgramCacheKey = () => key;
+	applyTerrainShadow(material);
 }
 
 /** Low-detail terrain: the baked map texture, with the underwater tint. */
@@ -228,6 +230,19 @@ export const groundDistance = {
 	uScreenSize: { value: new THREE.Vector2(1, 1) },
 };
 
+/** A tile's river flow map and where the tile's corner is (world x and z), on a liquid mesh's userData.flow. */
+export interface FlowBinding {
+	texture: THREE.Texture;
+	x: number;
+	z: number;
+}
+
+/** A tile's size in yards (formats/adt TILE_SIZE), over which its flow map is stretched. */
+const FLOW_TILE_SIZE = 1600 / 3;
+
+/** Ripple texture coordinates per second per unit of flow (the map's -0.5 to 0.5 doubled). */
+const FLOW_SPEED = 1.2;
+
 /** 1 while the camera is under water: surfaces are seen from below, where depth means nothing. */
 const fromBelow: THREE.IUniform<number> = { value: 0 };
 
@@ -260,7 +275,7 @@ const waterUniforms = new WeakMap<THREE.Material, WaterUniforms>();
  * angles and sun glints off the ripples. Slime's texture is its colour instead. How deep it is
  * under each pixel comes from the ground distance pass.
  */
-function waterMaterial(kind: WaterKind, opacity: number, sea = false): THREE.MeshPhongMaterial {
+function waterMaterial(kind: WaterKind, opacity: number, sea = false, flow: FlowBinding | null = null): THREE.MeshPhongMaterial {
 	const material = new THREE.MeshPhongMaterial({ specular: 0x9ab4c8, shininess: 80, transparent: true, opacity, depthWrite: false });
 	const water: WaterUniforms = {
 		uShallow: { value: new THREE.Color() },
@@ -269,10 +284,15 @@ function waterMaterial(kind: WaterKind, opacity: number, sea = false): THREE.Mes
 		uFoam: { value: new THREE.Color() },
 	};
 	waterUniforms.set(material, water);
+	// The river flow map of the tile this copy is for: x, y the tile's corner (world x, z), z 1 / its size, w 1 if there's one.
+	const flowUniforms = {
+		uFlowMap: { value: flow?.texture ?? white },
+		uFlowTile: { value: new THREE.Vector4(flow?.x ?? 0, flow?.z ?? 0, 1 / FLOW_TILE_SIZE, flow ? 1 : 0) },
+	};
 	const book = kind === 'water' ? flipbooks.lake : flipbooks[kind];
 	const slime = kind === 'slime';
 	material.onBeforeCompile = (shader) => {
-		Object.assign(shader.uniforms, water, book.uniforms, groundDistance, { uTime: liquidTime, uFromBelow: fromBelow });
+		Object.assign(shader.uniforms, water, book.uniforms, groundDistance, flowUniforms, { uTime: liquidTime, uFromBelow: fromBelow });
 		shader.vertexShader = shader.vertexShader
 			.replace('#include <common>', `#include <common>
 ${LIQUID_VERTEX_PARS}`)
@@ -288,7 +308,7 @@ ${LIQUID_VERTEX_MAIN}`);
 				uniform sampler2D uGroundDistance;
 				uniform vec2 uScreenSize;
 				uniform float uFromBelow;
-				${WAVES}${FLIPBOOK}${sea ? SEA_MASK : ''}`)
+				${WAVES}${FLIPBOOK}${FLOWING_FLIPBOOK}${sea ? SEA_MASK : ''}`)
 			.replace('#include <clipping_planes_fragment>', sea
 				// The sea plane: nothing where there's no open sea. Nor on the pixel row at its horizon,
 				// where antialiasing works out the depth at pixel centres just past the sea's edge and
@@ -312,7 +332,8 @@ ${LIQUID_VERTEX_MAIN}`);
 				vec3 water = mix(uShallow, uDeep, smoothstep(0.0, 7.0, depth));
 				water = mix(water, uMid, 0.15 * (1.0 - smoothstep(0.0, 3.0, depth)));
 				vec2 rippleUv = vLiquidPos.xz / ${book.repeat.toFixed(1)};
-				vec4 frame = uFramesLoaded > 0.5 ? flipbook(rippleUv) : vec4(0.0);
+				setFlow(vLiquidPos.xz);
+				vec4 frame = uFramesLoaded > 0.5 ? flowingFlipbook(rippleUv) : vec4(0.0);
 				${slime
 					? /* glsl */ `if (uFramesLoaded > 0.5) water = frame.rgb * mix(1.0, 0.7, smoothstep(0.0, 7.0, depth));
 					float ripple = 0.0;`
@@ -331,7 +352,7 @@ ${LIQUID_VERTEX_MAIN}`);
 				vec2 slope = waveSlope(vLiquidPos.xz, uTime) * 0.35;
 				${slime ? '' : /* glsl */ `if (uFramesLoaded > 0.5) {
 					float texel = 1.5 / 256.0;
-					slope += vec2(flipbook(rippleUv + vec2(texel, 0.0)).a - frame.a, flipbook(rippleUv + vec2(0.0, texel)).a - frame.a) * 0.6;
+					slope += vec2(flowingFlipbook(rippleUv + vec2(texel, 0.0)).a - frame.a, flowingFlipbook(rippleUv + vec2(0.0, texel)).a - frame.a) * 0.6;
 				}`}
 				normal = normalize((viewMatrix * vec4(-slope.x, 1.0, -slope.y, 0.0)).xyz);`)
 			.replace('#include <opaque_fragment>', /* glsl */ `
@@ -393,6 +414,33 @@ uniform float uFrameBlend;
 uniform float uFramesLoaded;
 vec4 flipbook(vec2 uv) {
 	return mix(texture2D(uFrameA, uv), texture2D(uFrameB, uv), uFrameBlend);
+}
+`;
+
+/**
+ * The flipbook carried along by the river's flow where the tile has a flow map: two copies
+ * drifting downstream half a cycle apart, each faded out as it resets, so it never stretches.
+ */
+const FLOWING_FLIPBOOK = /* glsl */ `
+uniform sampler2D uFlowMap;
+uniform vec4 uFlowTile;
+vec2 flowHere = vec2(0.0);
+void setFlow(vec2 xz) {
+	if (uFlowTile.w < 0.5) return;
+	vec2 f = texture2D(uFlowMap, (xz - uFlowTile.xy) * uFlowTile.z).rg - 0.5;
+	flowHere = vec2(-f.x, f.y) * 2.0;
+}
+vec4 flowingFlipbook(vec2 uv) {
+	// Still water (the map's 128, a hair off its middle) keeps the plain ripples.
+	float moving = smoothstep(0.02, 0.06, length(flowHere));
+	if (moving <= 0.0) return flipbook(uv);
+	float cycle = uTime * 0.5;
+	float p0 = fract(cycle);
+	float p1 = fract(cycle + 0.5);
+	vec2 drift = flowHere * ${FLOW_SPEED.toFixed(2)} * 2.0;
+	vec4 a = flipbook(uv - drift * p0);
+	vec4 b = flipbook(uv - drift * p1 + vec2(0.37, 0.61));
+	return mix(flipbook(uv), mix(a, b, abs(p0 - 0.5) * 2.0), moving);
 }
 `;
 
@@ -484,9 +532,20 @@ function applyLook(material: THREE.Material, kind: WaterKind, type: number): voi
 
 const OPACITY: Record<WaterKind, number> = { water: 0.85, ocean: 0.94, slime: 0.92 };
 
-/** The material for a liquid surface of a given LiquidType. */
-export function liquidMaterial(kind: LiquidKind, type: number): THREE.Material {
+/**
+ * The material for a liquid surface of a given LiquidType. With a flow map, a copy of its own
+ * that carries the ripples downstream; hand it back with releaseLiquidMaterial when the tile goes.
+ */
+export function liquidMaterial(kind: LiquidKind, type: number, flow: FlowBinding | null = null): THREE.Material {
 	if (kind === 'magma') return liquidMaterials.magma;
+	if (flow) {
+		const material = waterMaterial(kind, OPACITY[kind], false, flow);
+		material.side = fromBelow.value ? THREE.BackSide : THREE.FrontSide;
+		applyLook(material, kind, type);
+		kinds.set(material, kind);
+		flowing.set(material, { kind, type });
+		return material;
+	}
 	const key = `${kind}:${type}`;
 	let entry = byType.get(key);
 	if (!entry) {
@@ -500,10 +559,21 @@ export function liquidMaterial(kind: LiquidKind, type: number): THREE.Material {
 	return entry.material;
 }
 
+/** Copies made for flowing water (see liquidMaterial), with what they're of. */
+const flowing = new Map<THREE.Material, { kind: WaterKind; type: number }>();
+
+/** Done with a liquid material: frees it if it was a copy of its own, for a flow map. */
+export function releaseLiquidMaterial(material: THREE.Material): void {
+	if (!flowing.delete(material)) return;
+	kinds.delete(material);
+	material.dispose();
+}
+
 /** Gives the liquids their colours once LiquidType.db2 has been read. */
 export function setLiquidLooks(value: LiquidLooks): void {
 	looks = value;
 	for (const { kind, type, material } of byType.values()) applyLook(material, kind, type);
+	for (const [material, { kind, type }] of flowing) applyLook(material, kind, type);
 	applyLook(liquidMaterials.ocean, 'ocean', value.ocean);
 }
 

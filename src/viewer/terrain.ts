@@ -8,8 +8,9 @@ import type { AsyncStorageApi } from '../worker/protocol';
 import type { ClutterManager } from './clutter';
 import type { ObjectLevel, ObjectManager } from './objects';
 import { TextureCache } from './textureCache';
-import { createAlphaTexture, createFarMaterial, createSplatMaterial, liquidMaterial, seaMask } from './terrainMaterials';
+import { createAlphaTexture, createFarMaterial, createSplatMaterial, liquidMaterial, releaseLiquidMaterial, seaMask, type FlowBinding } from './terrainMaterials';
 import { perf } from './perf';
+import { useShadows } from './shadows';
 import { createTexture } from './textures';
 
 /** Full-detail tiles load within this distance of the camera and unload beyond the drop distance. */
@@ -70,6 +71,8 @@ interface NearState {
 	geometries: THREE.BufferGeometry[];
 	materials: THREE.Material[];
 	ownTextures: THREE.Texture[];
+	/** Water materials made for this tile's flow map, released with it. */
+	flowMaterials: THREE.Material[];
 	sharedTextures: number[];
 	/** The tile's liquid surfaces (lakes, rivers, sea). */
 	liquids: THREE.Mesh[];
@@ -167,6 +170,9 @@ export class TerrainManager {
 			far.position.set(gx * TILE_SIZE, 0, gy * TILE_SIZE);
 			far.matrixAutoUpdate = false;
 			far.updateMatrix();
+			// Shadows only reach a short way; the near tiles there cast them. Hundreds of far tiles
+			// in the sun's view would each cost draws in the shadow pass.
+			useShadows(far, 'receive');
 			this.group.add(far);
 
 			let maxHeight = -Infinity;
@@ -470,7 +476,7 @@ export class TerrainManager {
 				this.layerTextures.release(sharedTextures);
 				return;
 			}
-			const near = perf.time('near.build', () => this.buildNear(tile, textures, sharedTextures));
+			const near = perf.time('near.build', () => this.buildNear(tile, textures, sharedTextures, t.originX, t.originZ));
 			await this.prepare(near.object);
 			t.near = near;
 			t.near.object.position.set(t.originX, 0, t.originZ);
@@ -493,11 +499,13 @@ export class TerrainManager {
 		}
 	}
 
-	private buildNear(tile: NearTile, textures: Map<number, THREE.Texture | null>, sharedTextures: number[]): NearState {
-		const state: NearState = { object: new THREE.Group(), geometries: [], materials: [], ownTextures: [], sharedTextures, liquids: [] };
+	/** originX, originZ: the tile's corner in the world, where it will be placed. */
+	private buildNear(tile: NearTile, textures: Map<number, THREE.Texture | null>, sharedTextures: number[], originX: number, originZ: number): NearState {
+		const state: NearState = { object: new THREE.Group(), geometries: [], materials: [], ownTextures: [], flowMaterials: [], sharedTextures, liquids: [] };
 		const add = (geometry: THREE.BufferGeometry, material: THREE.Material | THREE.Material[]) => {
 			const mesh = new THREE.Mesh(geometry, material);
 			mesh.matrixAutoUpdate = false;
+			useShadows(mesh);
 			state.object.add(mesh);
 			state.geometries.push(geometry);
 			return mesh;
@@ -522,10 +530,23 @@ export class TerrainManager {
 			add(toBufferGeometry(tile.fallback.geometry), material);
 		}
 
+		// The tile's river flow map, for its water surfaces (see bindFlow).
+		const flowData = tile.flow?.format === 'rgba' ? tile.flow.mips[0] : null;
+		let flow: FlowBinding | null = null;
+		if (flowData) {
+			const texture = new THREE.DataTexture(flowData.data, flowData.width, flowData.height, THREE.RGBAFormat);
+			texture.magFilter = texture.minFilter = THREE.LinearFilter;
+			texture.needsUpdate = true;
+			state.ownTextures.push(texture);
+			flow = { texture, x: originX, z: originZ };
+		}
 		for (const liquid of tile.liquids) {
 			// Shared materials (one per liquid type); drawn after the terrain so the ground shows through.
-			const mesh = add(liquidGeometry(liquid.positions, liquid.indices), liquidMaterial(liquid.kind, liquid.type));
+			const material = liquidMaterial(liquid.kind, liquid.type, liquid.kind === 'magma' ? null : flow);
+			if (flow) state.flowMaterials.push(material);
+			const mesh = add(liquidGeometry(liquid.positions, liquid.indices), material);
 			mesh.renderOrder = 1;
+			mesh.castShadow = false;
 			mesh.userData.liquidType = liquid.type;
 			state.liquids.push(mesh);
 		}
@@ -539,6 +560,7 @@ export class TerrainManager {
 		for (const g of near.geometries) g.dispose();
 		for (const m of near.materials) m.dispose();
 		for (const tex of near.ownTextures) tex.dispose();
+		for (const m of near.flowMaterials) releaseLiquidMaterial(m);
 		this.layerTextures.release(near.sharedTextures);
 		perf.record('near.drop', 0);
 		this.clutter?.removeTile(TerrainManager.objectKey(t));

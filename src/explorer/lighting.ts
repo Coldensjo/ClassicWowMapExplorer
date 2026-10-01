@@ -18,6 +18,13 @@ export interface LightKey {
 	/** Yards; 0 = not set in this keyframe. */
 	fogEnd: number;
 	fogScaler: number;
+	/** Colour grading lookup table (a 1024x32 BLP, 32 slices of 32x32), 0 for none. */
+	grading: number;
+	/**
+	 * How thick the height fog is, 1 normal. A guess: one of Forever's unnamed LightData fields
+	 * (1.60.1 field 51), which is highest in Duskwood (3) and Ashenvale (2) and lowest in Dun Morogh (0.4).
+	 */
+	fogDensity: number;
 }
 
 /** A Light.db2 zone: global when outer is 0, otherwise a sphere in world coordinates. */
@@ -81,6 +88,8 @@ export async function loadLighting(storage: CascStorage, mapIds: number[]): Prom
 			colors: LIGHT_COLORS.map((_, i) => data.getInt(id, 3 + i)!),
 			fogEnd: asFloat(data.getInt(id, 21)!),
 			fogScaler: asFloat(data.getInt(id, 22)!),
+			grading: data.getInt(id, 32) ?? 0,
+			fogDensity: data.fieldCount > 51 ? asFloat(data.getInt(id, 51) ?? 0) || 1 : 1,
 		});
 	}
 	for (const list of Object.values(keys)) list.sort((a, b) => a.time - b.time);

@@ -11,6 +11,11 @@ export interface WdtTile {
 	y: number;
 	flags: number;
 	files: Record<TileFileKind, number>;
+	/**
+	 * WoW Forever's river flow map (MAI2, 0 for none): 256x256, the way the water flows in red
+	 * (east is 128 - R) and green (south is G - 128), at 128 where it's still.
+	 */
+	flowMap: number;
 }
 
 /** The one building a WMO-only map (most dungeons) consists of, placed by the WDT's MODF. */
@@ -41,11 +46,13 @@ export function parseWdt(bytes: Uint8Array): Wdt {
 	let flags = 0;
 	let main: number | null = null;
 	let maid: number | null = null;
+	let mai2: number | null = null;
 	let globalWmo: WdtGlobalWmo | null = null;
 	for (const c of chunks(bytes)) {
 		if (c.id === 'MPHD') flags = view.getUint32(c.offset, true);
 		else if (c.id === 'MAIN') main = c.offset;
 		else if (c.id === 'MAID') maid = c.offset;
+		else if (c.id === 'MAI2' && c.size >= MAP_SIZE * MAP_SIZE * 32) mai2 = c.offset;
 		else if (c.id === 'MODF' && c.size >= 64) {
 			const o = c.offset;
 			const f = (k: number) => view.getFloat32(o + k, true);
@@ -74,7 +81,8 @@ export function parseWdt(bytes: Uint8Array): Wdt {
 		TILE_FILE_KINDS.forEach((kind, k) => {
 			files[kind] = view.getUint32(maid + i * 32 + k * 4, true);
 		});
-		tiles[i] = { x: i % MAP_SIZE, y: Math.floor(i / MAP_SIZE), flags: tileFlags, files };
+		const flowMap = mai2 === null ? 0 : view.getUint32(mai2 + i * 32, true);
+		tiles[i] = { x: i % MAP_SIZE, y: Math.floor(i / MAP_SIZE), flags: tileFlags, files, flowMap };
 		tileCount++;
 	}
 	return { flags, tiles, tileCount, globalWmo };

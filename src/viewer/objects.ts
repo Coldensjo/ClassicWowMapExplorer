@@ -3,10 +3,11 @@ import { acceleratedRaycast, MeshBVH } from 'three-mesh-bvh';
 import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
 import type { SpawnInfo } from '../explorer/spawns';
 import type { AsyncStorageApi } from '../worker/protocol';
-import { createModelMaterial, type SkinUniforms } from './modelMaterials';
+import { createModelMaterial, createSkinnedDepthMaterial, type SkinUniforms } from './modelMaterials';
 import { Mover, type GroundAt } from './movers';
 import { perf } from './perf';
 import { PARTICLE_RANGE, ParticleSystem, type EmitterSource, type LoadedEmitter } from './particles';
+import { useShadows, type ShadowRole } from './shadows';
 import { liquidMaterial } from './terrainMaterials';
 import { TextureCache } from './textureCache';
 
@@ -32,6 +33,8 @@ const MAX_MODEL_REQUESTS = 4;
 const UNUSED_MODEL_TTL = 15000;
 /** How often (ms) instance visibility is re-checked against the camera. */
 const CULL_INTERVAL = 250;
+/** Models smaller than this (radius in yards: crates, fences, people) cast shadows only in the near cascade. */
+const SMALL_CASTER = 3;
 /** Creatures further than this (yards) from the camera stand still. */
 const MOVE_RANGE = 300;
 
@@ -50,6 +53,8 @@ class ModelEntry {
 	mesh: THREE.InstancedMesh | null = null;
 	geometry: THREE.BufferGeometry | null = null;
 	materials: THREE.Material[] = [];
+	/** For GPU-skinned models: the shadow pass's material, skinned the same way. */
+	depthMaterial: THREE.Material | null = null;
 	textures: number[] = [];
 	/** WMO liquid surfaces, instanced with the same matrices as the model. */
 	liquids: { geometry: THREE.BufferGeometry; material: THREE.Material; type: number; mesh: THREE.InstancedMesh | null }[] = [];
@@ -413,6 +418,7 @@ export class ObjectManager {
 				uClips: { value: a.clips.map((c) => new THREE.Vector3(c.row, c.frames, c.duration)) },
 			};
 			entry.animation = { key: a.key, duration: a.clips[0].duration };
+			entry.depthMaterial = createSkinnedDepthMaterial(skin);
 		}
 		geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
 		const batches = [...data.batches].sort((a, b) => a.order - b.order);
@@ -478,11 +484,14 @@ export class ObjectManager {
 		entry.drawnKeys = [...entry.visible];
 		entry.slots = new Map(entry.drawnKeys.map((key, i) => [key, i]));
 		const matrices = entry.drawnKeys.map((key) => entry.instances.get(key)!);
-		entry.mesh = this.syncMesh(entry.mesh, entry.geometry, entry.materials, matrices, entry.kind === 'wmo' ? -1 : 0);
+		// People and creatures are small however big their model's bounds.
+		const role: ShadowRole = entry.kind === 'wmo' || (entry.kind !== 'creature' && entry.radius >= SMALL_CASTER) ? 'cast' : 'near';
+		entry.mesh = this.syncMesh(entry.mesh, entry.geometry, entry.materials, matrices, entry.kind === 'wmo' ? -1 : 0, role);
+		if (entry.depthMaterial) entry.mesh.customDepthMaterial = entry.depthMaterial;
 		if (entry.animation) this.writePhases(entry.mesh, entry.geometry, entry.drawnKeys, entry.animation.duration);
 		for (const liquid of entry.liquids) {
 			// Liquids draw after the building so it shows through the surface.
-			liquid.mesh = this.syncMesh(liquid.mesh, liquid.geometry, liquid.material, matrices, 1);
+			liquid.mesh = this.syncMesh(liquid.mesh, liquid.geometry, liquid.material, matrices, 1, 'receive');
 			liquid.mesh.userData.liquidType = liquid.type;
 		}
 	}
@@ -494,6 +503,7 @@ export class ObjectManager {
 		material: THREE.Material | THREE.Material[],
 		matrices: THREE.Matrix4[],
 		renderOrder: number,
+		shadow: ShadowRole,
 	): THREE.InstancedMesh {
 		const count = matrices.length;
 		if (!mesh || mesh.instanceMatrix.count < count) {
@@ -505,6 +515,7 @@ export class ObjectManager {
 			mesh = new THREE.InstancedMesh(geometry, material, capacity);
 			mesh.matrixAutoUpdate = false;
 			mesh.renderOrder = renderOrder;
+			useShadows(mesh, shadow);
 			this.group.add(mesh);
 		}
 		matrices.forEach((m, i) => mesh!.setMatrixAt(i, m));
@@ -572,6 +583,7 @@ export class ObjectManager {
 		}
 		entry.geometry?.dispose();
 		for (const m of entry.materials) m.dispose();
+		entry.depthMaterial?.dispose();
 		for (const l of entry.liquids) {
 			if (l.mesh) {
 				this.group.remove(l.mesh);

@@ -417,12 +417,13 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 		vbase += count;
 		ibase += src.indices.length;
 	});
+	const packed = packForShadows(indices, batches);
 	const anim = prepared.animation;
 	// Fresh frames: the arrays are transferred to the main thread, which would empty the cached ones.
 	const emitters = parts.flatMap((p) => p.prepared.emitters.map((e) => ({ ...e, frame: p.rest ? multiply(p.rest, e.frame) : e.frame.slice() })));
 	return {
-		fdid, positions, normals, uvs, baked: null, indices, batches: mergeBatches(batches),
-		radius: prepared.m2.bounds.radius || boundingRadius(positions), height: topOf(positions, indices, batches),
+		fdid, positions, normals, uvs, baked: null, indices: packed.indices, batches: mergeBatches(packed.batches),
+		radius: prepared.m2.bounds.radius || boundingRadius(positions), height: topOf(positions, packed.indices, packed.batches),
 		// The bone data is shared by every look of this model, so it's keyed for reuse on the GPU.
 		animation: anim && boneIndex && boneWeight
 			? { key: `m2:${fdid}`, bones: anim.bones, clips: anim.clips, data: anim.data.slice(), boneIndex, boneWeight }
@@ -476,9 +477,21 @@ export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type:
 		}
 		base += count;
 	}
+	// Laid out for the sun's shadow pass (see viewer/shadows.ts): the materials it draws as plain
+	// depth first, so they're one range, then alpha-tested ones by texture, then those it skips.
+	const shadowRank = (materialIndex: number): [number, number] => {
+		const m = root.materials[materialIndex];
+		if (!m || m.flags & WMO_MATERIAL_UNLIT || (m.blend !== Blend.Opaque && m.blend !== Blend.AlphaKey)) return [2, 0];
+		return m.blend === Blend.AlphaKey && !root.namedTextures && m.texture ? [1, m.texture] : [0, 0];
+	};
+	const layout = [...byMaterial].sort(([a], [b]) => {
+		const [ra, ta] = shadowRank(a);
+		const [rb, tb] = shadowRank(b);
+		return ra - rb || ta - tb;
+	});
 	const indices: number[] = [];
 	const batches: ModelBatch[] = [];
-	for (const [materialIndex, list] of byMaterial) {
+	for (const [materialIndex, list] of layout) {
 		const m = root.materials[materialIndex];
 		const start = indices.length;
 		for (const i of list) indices.push(i);
@@ -532,6 +545,45 @@ function boundingRadius(positions: Float32Array): number {
 	let r = 0;
 	for (let i = 0; i < positions.length; i += 3) r = Math.max(r, Math.hypot(positions[i], positions[i + 1], positions[i + 2]));
 	return r;
+}
+
+/**
+ * How the sun's shadow pass draws a batch (see viewer/shadows.ts): 0 plain depth, 1 alpha-tested
+ * (by texture), 2 not at all. Follows createModelMaterial: see-through, added and unlit batches cast nothing.
+ */
+function shadowRank(m: ModelMaterial): number {
+	if (m.unlit || m.opacity < 1 || (m.blend !== Blend.Opaque && m.blend !== Blend.AlphaKey)) return 2;
+	return m.blend === Blend.AlphaKey && m.texture ? 1 : 0;
+}
+
+/**
+ * Copies only the triangles the batches draw (not hidden geosets) into a new index buffer, laid
+ * out for the shadow pass: plain-depth batches first, so they're one range, then alpha-tested
+ * ones by texture, then those it skips. Batches sharing a range (a base and a glow layer over the
+ * same triangles) keep sharing it. Draw order is the batches' own and doesn't change.
+ */
+function packForShadows(indices: Uint32Array, batches: ModelBatch[]): { indices: Uint32Array; batches: ModelBatch[] } {
+	const ranges = new Map<string, { start: number; count: number; rank: number; texture: number }>();
+	for (const b of batches) {
+		const key = `${b.start}:${b.count}`;
+		const rank = shadowRank(b.material);
+		const r = ranges.get(key);
+		if (!r) ranges.set(key, { start: b.start, count: b.count, rank, texture: rank === 1 ? b.material.texture : 0 });
+		else if (rank < r.rank) {
+			r.rank = rank;
+			r.texture = rank === 1 ? b.material.texture : 0;
+		}
+	}
+	const order = [...ranges.entries()].sort(([, a], [, b]) => a.rank - b.rank || a.texture - b.texture || a.start - b.start);
+	const out = new Uint32Array(order.reduce((n, [, r]) => n + r.count, 0));
+	const moved = new Map<string, number>();
+	let next = 0;
+	for (const [key, r] of order) {
+		out.set(indices.subarray(r.start, r.start + r.count), next);
+		moved.set(key, next);
+		next += r.count;
+	}
+	return { indices: out, batches: batches.map((b) => ({ ...b, start: moved.get(`${b.start}:${b.count}`)! })) };
 }
 
 /**

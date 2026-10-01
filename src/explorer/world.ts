@@ -80,6 +80,8 @@ export interface NearTile {
 	areaIds: Uint32Array;
 	/** What grows on the ground (grass, flowers, pebbles), or null for none. */
 	clutter: ClutterSource | null;
+	/** Which way the rivers flow (see WdtTile.flowMap), or null where the tile has none. */
+	flow: TextureData | null;
 }
 
 export interface LoadedTexture {
@@ -196,6 +198,7 @@ export class WorldLoader {
 		]);
 		const root = parseAdtRoot(rootBytes);
 		const liquids = buildLiquidMeshes(root.liquids, kindOf);
+		const flow = liquids.length && tile.flowMap ? await this.readTexture(tile.flowMap, Infinity, false) : null;
 		const sea = new Uint8Array(256);
 		for (const l of root.liquids) {
 			if (kindOf(l.type) === 'ocean' && l.width && l.height && (!l.exists || l.exists.includes(1))) sea[l.chunk] = 1;
@@ -207,7 +210,7 @@ export class WorldLoader {
 			const tex = parseAdtTex(texBytes, (wdt.flags & MPHD_BIG_ALPHA) !== 0, (i) => !(root.chunks[i]?.flags & MCNK_DO_NOT_FIX_ALPHA));
 			const terrain = buildSplatTerrain(root, tex);
 			const clutter = groundEffects?.source(root, tex, terrain.heights, tileGrids(root).inner, terrain.holes) ?? null;
-			return { x, y, terrain, fallback: null, heights: terrain.heights, holes: terrain.holes, liquids, sea, areaIds, clutter };
+			return { x, y, terrain, fallback: null, heights: terrain.heights, holes: terrain.holes, liquids, sea, areaIds, clutter, flow };
 		}
 		const grids = tileGrids(root);
 		return {
@@ -224,6 +227,7 @@ export class WorldLoader {
 			sea,
 			areaIds,
 			clutter: null,
+			flow,
 		};
 	}
 

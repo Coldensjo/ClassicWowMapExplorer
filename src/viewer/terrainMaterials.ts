@@ -51,6 +51,11 @@ const VERTEX_PARS = /* glsl */ `
 	varying float vChunk;
 	varying vec2 vTileUv;
 #endif
+#ifdef TERRAIN_FAR_BATCH
+	uniform highp sampler2D uFarInfo;
+	flat varying vec4 vFarInfo;
+	varying vec2 vFarUv;
+#endif
 varying float vWorldY;
 varying vec2 vWorldXZ;
 `;
@@ -60,7 +65,20 @@ const VERTEX_MAIN = /* glsl */ `
 	vChunk = chunkIndex;
 	vTileUv = uv;
 #endif
-	vec4 terrainWorld = modelMatrix * vec4(transformed, 1.0);
+#ifdef TERRAIN_FAR_BATCH
+	{
+		// The tile's colour and texture layer, by its instance in the batch.
+		int id = int(getIndirectIndex(gl_DrawID));
+		int width = textureSize(uFarInfo, 0).x;
+		vFarInfo = texelFetch(uFarInfo, ivec2(id % width, id / width), 0);
+		vFarUv = uv;
+	}
+#endif
+	vec4 terrainLocal = vec4(transformed, 1.0);
+	#ifdef USE_BATCHING
+		terrainLocal = batchingMatrix * terrainLocal;
+	#endif
+	vec4 terrainWorld = modelMatrix * terrainLocal;
 	vWorldY = terrainWorld.y;
 	vWorldXZ = terrainWorld.xz;
 `;
@@ -87,6 +105,11 @@ ${SEA_MASK}
 	uniform float uHeightBlend;
 	varying float vChunk;
 	varying vec2 vTileUv;
+#endif
+#ifdef TERRAIN_FAR_BATCH
+	uniform mediump sampler2DArray uFarMaps;
+	flat varying vec4 vFarInfo;
+	varying vec2 vFarUv;
 #endif
 `;
 
@@ -122,6 +145,12 @@ const FRAGMENT_MAP = /* glsl */ `
 	w /= max(dot(w, vec4(1.0)), 1e-4);
 	diffuseColor.rgb *= d0.rgb * w.x + d1.rgb * w.y + d2.rgb * w.z + d3.rgb * w.w;
 }
+#elif defined(TERRAIN_FAR_BATCH)
+{
+	// Layer -1: not textured (yet), just the tile's colour.
+	vec4 map = texture(uFarMaps, vec3(vFarUv, max(vFarInfo.a, 0.0)));
+	diffuseColor.rgb *= vFarInfo.rgb * (vFarInfo.a >= 0.0 ? map.rgb : vec3(1.0));
+}
 #else
 	#include <map_fragment>
 #endif
@@ -147,6 +176,20 @@ function patch(material: THREE.MeshLambertMaterial, uniforms: Record<string, THR
 export function createFarMaterial(color: number): THREE.MeshLambertMaterial {
 	const material = new THREE.MeshLambertMaterial({ color });
 	patch(material, {}, 'terrain-far');
+	return material;
+}
+
+/** The array texture of a batch of low-detail tiles' maps, and each tile's colour and layer (see FarBatch). */
+export interface FarBatchUniforms {
+	uFarMaps: THREE.IUniform<THREE.Texture | null>;
+	uFarInfo: THREE.IUniform<THREE.DataTexture>;
+}
+
+/** Low-detail terrain drawn as a batch: each tile's map from a layer of the batch's array texture. */
+export function createFarBatchMaterial(uniforms: FarBatchUniforms): THREE.MeshLambertMaterial {
+	const material = new THREE.MeshLambertMaterial();
+	material.defines = { TERRAIN_FAR_BATCH: '' };
+	patch(material, uniforms as unknown as Record<string, THREE.IUniform>, 'terrain-far-batch');
 	return material;
 }
 

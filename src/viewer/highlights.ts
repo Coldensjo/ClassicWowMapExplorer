@@ -3,6 +3,7 @@ import { TILE_SIZE } from '../formats/adt';
 import type { LockKind } from '../explorer/clientDb';
 import type { SpawnFile } from '../explorer/spawns';
 import type { ContinentPlacement } from './terrain';
+import { behindCamera } from './screen';
 
 /** Kinds of things on the ground that can be picked out all at once. */
 export type HighlightGroup = 'chest' | 'herb' | 'ore' | 'fishing';
@@ -114,7 +115,7 @@ export class Highlights {
 		let shown = 0;
 		for (const m of this.markers) {
 			this.projected.copy(m.position).project(camera);
-			if (this.projected.z > 1 || Math.abs(this.projected.x) > 1.05 || Math.abs(this.projected.y) > 1.05) continue;
+			if (behindCamera(this.projected, camera) || Math.abs(this.projected.x) > 1.05 || Math.abs(this.projected.y) > 1.05) continue;
 			const el = this.element(shown);
 			const [name, distance] = el.children as unknown as [HTMLElement, HTMLElement];
 			const labelled = shown < LABELLED;

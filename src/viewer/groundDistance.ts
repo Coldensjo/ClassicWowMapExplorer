@@ -33,14 +33,22 @@ export class GroundDistancePass {
 			magFilter: THREE.NearestFilter,
 			generateMipmaps: false,
 			depthBuffer: true,
+			// Float depth, for a reversed depth buffer to be precise out to the pass's range.
+			depthTexture: new THREE.DepthTexture(1, 1, THREE.FloatType),
 		});
 		this.scene.overrideMaterial = new THREE.ShaderMaterial({
 			vertexShader: /* glsl */ `
 				#include <common>
+				#include <batching_pars_vertex>
 				#include <logdepthbuf_pars_vertex>
 				varying vec3 vView;
 				void main() {
-					vec4 view = modelViewMatrix * vec4(position, 1.0);
+					vec4 local = vec4(position, 1.0);
+					#ifdef USE_BATCHING
+						#include <batching_vertex>
+						local = batchingMatrix * local;
+					#endif
+					vec4 view = modelViewMatrix * local;
 					vView = view.xyz;
 					gl_Position = projectionMatrix * view;
 					#include <logdepthbuf_vertex>

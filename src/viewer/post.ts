@@ -116,6 +116,8 @@ uniform mat4 uInvProjection;
 uniform mat4 uCameraWorld;
 uniform vec3 uCameraPos;
 uniform float uLogFar;
+// The projection's depth terms, for a reversed depth buffer: view depth = y / (depth + x).
+uniform vec2 uDepthDecode;
 uniform float uFar;
 uniform vec3 uFogColor;
 uniform vec3 uSunColor;
@@ -177,8 +179,15 @@ float opticalDepth(float t, float dy) {
 		s.xyz /= s.w;
 		// The atlas holds the cascades side by side; stay in this one's half.
 		float left = float(c) * 0.5;
-		if (s.x < left || s.x > left + 0.5 || s.y < 0.0 || s.y > 1.0 || s.z > 1.0) return 1.0;
-		return texture(uShadowMap, vec3(s.xy, s.z - 0.001));
+		if (s.x < left || s.x > left + 0.5 || s.y < 0.0 || s.y > 1.0) return 1.0;
+		// Biased towards the sun, which is further up a reversed depth buffer and down a normal one.
+		#ifdef USE_REVERSED_DEPTH_BUFFER
+			if (s.z < 0.0) return 1.0;
+			return texture(uShadowMap, vec3(s.xy, s.z + 0.001));
+		#else
+			if (s.z > 1.0) return 1.0;
+			return texture(uShadowMap, vec3(s.xy, s.z - 0.001));
+		#endif
 	}
 #endif
 
@@ -190,13 +199,23 @@ void main() {
 	vec3 color = texture2D(uScene, vUv).rgb;
 	if (uFogOn > 0.5) {
 		float depth = texture2D(uDepth, vUv).r;
-		bool sky = depth >= 0.999999;
+		#ifdef USE_REVERSED_DEPTH_BUFFER
+			// Reversed: 1 at the near plane, 0 at the far one (and where nothing was drawn).
+			bool sky = depth <= 0.0;
+		#else
+			bool sky = depth >= 0.999999;
+		#endif
 		vec4 v = uInvProjection * vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
 		vec3 viewDir = normalize(v.xyz / v.w);
 		vec3 dir = normalize((uCameraWorld * vec4(viewDir, 0.0)).xyz);
 		float forward = max(-viewDir.z, 1e-4);
-		// Logarithmic depth back to view depth, then to distance along the ray.
-		float dist = sky ? 20000.0 : (exp2(depth * uLogFar) - 1.0) / forward;
+		// Depth back to view depth, then to distance along the ray.
+		#ifdef USE_REVERSED_DEPTH_BUFFER
+			float viewDepth = uDepthDecode.y / (depth + uDepthDecode.x);
+		#else
+			float viewDepth = exp2(depth * uLogFar) - 1.0;
+		#endif
+		float dist = sky ? 20000.0 : viewDepth / forward;
 		// The fog ends at the sea's surface (which writes no depth): below it is water, not air,
 		// whether it's the sea floor or nothing at all.
 		if (dir.y < 0.0 && uCameraPos.y > 0.0 && uCameraPos.y + dir.y * dist < 0.0) dist = uCameraPos.y / -dir.y;
@@ -258,7 +277,8 @@ export class PostPass {
 	private readonly target: THREE.WebGLRenderTarget;
 	private readonly quad: THREE.Mesh;
 	private readonly quadScene = new THREE.Scene();
-	private readonly quadCamera = new THREE.Camera();
+	/** Unused by the full-screen shader, but three needs a camera it can update for a reversed depth buffer. */
+	private readonly quadCamera = new THREE.OrthographicCamera();
 	private readonly size = new THREE.Vector2();
 	private readonly uniforms = {
 		uScene: { value: null as THREE.Texture | null },
@@ -270,6 +290,7 @@ export class PostPass {
 		uCameraWorld: { value: new THREE.Matrix4() },
 		uCameraPos: { value: new THREE.Vector3() },
 		uLogFar: { value: 1 },
+		uDepthDecode: { value: new THREE.Vector2() },
 		uFar: { value: 1 },
 		uFogColor: { value: new THREE.Color() },
 		uSunColor: { value: new THREE.Color() },
@@ -291,7 +312,8 @@ export class PostPass {
 			type: THREE.HalfFloatType,
 			samples: Math.min(4, renderer.capabilities.maxSamples),
 			depthBuffer: true,
-			depthTexture: new THREE.DepthTexture(1, 1),
+			// Float depth: what a reversed depth buffer needs to be precise from near to far.
+			depthTexture: new THREE.DepthTexture(1, 1, THREE.FloatType),
 		});
 		this.uniforms.uScene.value = this.target.texture;
 		this.uniforms.uDepth.value = this.target.depthTexture;
@@ -380,7 +402,6 @@ export class PostPass {
 	render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera): void {
 		const u = this.uniforms;
 		u.uFogOn.value = this.fogEnabled && this.fogWanted ? 1 : 0;
-		u.uInvProjection.value.copy(camera.projectionMatrixInverse);
 		u.uCameraWorld.value.copy(camera.matrixWorld);
 		u.uCameraPos.value.setFromMatrixPosition(camera.matrixWorld);
 		u.uLogFar.value = Math.log2(camera.far + 1);
@@ -405,6 +426,10 @@ export class PostPass {
 		renderer.setRenderTarget(this.target);
 		renderer.render(scene, camera);
 		renderer.setRenderTarget(null);
+		// After drawing: three turns the camera's projection to a reversed depth buffer's when it first draws with it.
+		const p = camera.projectionMatrix.elements;
+		u.uDepthDecode.value.set(p[10], p[14]);
+		u.uInvProjection.value.copy(camera.projectionMatrixInverse);
 		renderer.render(this.quadScene, this.quadCamera);
 	}
 }

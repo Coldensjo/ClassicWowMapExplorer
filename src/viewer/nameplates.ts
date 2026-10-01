@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Reaction, SpawnInfo } from '../explorer/spawns';
+import { behindCamera } from './screen';
 
 export type Side = 'alliance' | 'horde';
 
@@ -59,7 +60,7 @@ export class Nameplates {
 			if (plate.visible === false) continue;
 			this.projected.copy(plate.position).project(camera);
 			// Behind the camera or off screen.
-			if (this.projected.z > 1 || Math.abs(this.projected.x) > 1.1 || Math.abs(this.projected.y) > 1.1) continue;
+			if (behindCamera(this.projected, camera) || Math.abs(this.projected.x) > 1.1 || Math.abs(this.projected.y) > 1.1) continue;
 			const el = this.element(shown++);
 			const reaction: Reaction = plate.info.reaction?.[side] ?? 'neutral';
 			const [name, sub] = el.children as unknown as [HTMLElement, HTMLElement];

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { TextureData, TextureFormat } from '../formats/blp';
 
-const COMPRESSED_FORMATS: Record<Exclude<TextureFormat, 'rgba'>, THREE.CompressedPixelFormat> = {
+export const COMPRESSED_FORMATS: Record<Exclude<TextureFormat, 'rgba'>, THREE.CompressedPixelFormat> = {
 	dxt1: THREE.RGB_S3TC_DXT1_Format,
 	dxt3: THREE.RGBA_S3TC_DXT3_Format,
 	dxt5: THREE.RGBA_S3TC_DXT5_Format,

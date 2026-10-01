@@ -218,6 +218,14 @@ async function loadTriggers(): Promise<Map<number, AreaTrigger[]>> {
 	return byMap;
 }
 
+/** Whether the GPU can draw with a reversed depth buffer (EXT_clip_control), asked of a throwaway context. */
+function supportsClipControl(): boolean {
+	const gl = document.createElement('canvas').getContext('webgl2');
+	const supported = !!gl?.getExtension('EXT_clip_control');
+	gl?.getExtension('WEBGL_lose_context')?.loseContext();
+	return supported;
+}
+
 /** WoW world coordinates (x north, y west, z up) on a map -> where that map sits in the world. */
 function worldFromWow(placement: ContinentPlacement, x: number, y: number, z: number): THREE.Vector3 {
 	return new THREE.Vector3(MAP_ORIGIN - y + placement.offsetX * TILE_SIZE, z, MAP_ORIGIN - x + placement.offsetY * TILE_SIZE);
@@ -332,7 +340,11 @@ export class Viewer {
 		this.nameplates = plateContainer ? new Nameplates(plateContainer) : null;
 		this.highlights = plateContainer ? new Highlights(plateContainer, storage.loadLockKinds()) : null;
 		this.mapLabels = plateContainer ? new MapLabels(plateContainer) : null;
-		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, logarithmicDepthBuffer: true });
+		// Depth from half a yard to the horizon: a reversed float depth buffer where the GPU has
+		// it, else a logarithmic one. The logarithmic one writes each pixel's depth from its shader,
+		// so nothing hidden can be skipped before it's shaded; the reversed one lets the GPU do that.
+		const reversed = supportsClipControl();
+		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, reversedDepthBuffer: reversed, logarithmicDepthBuffer: !reversed });
 		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 		this.camera = new THREE.PerspectiveCamera(60, 1, 0.5, 400000);
 		this.controls = new FlyControls(this.camera, canvas);
@@ -361,7 +373,8 @@ export class Viewer {
 		this.sun.shadow.mapSize.set(2048, 2048);
 		this.sun.shadow.camera.near = 1;
 		this.sun.shadow.camera.far = SHADOW_RANGE;
-		this.sun.shadow.bias = -0.0003;
+		// Towards the light: down a normal depth buffer, up a reversed one (three's filtered shadows don't flip it themselves).
+		this.sun.shadow.bias = this.renderer.capabilities.reversedDepthBuffer ? 0.0003 : -0.0003;
 		this.sun.shadow.normalBias = 0.15;
 		this.sun.shadow.radius = 2;
 		this.sun.shadow.intensity = SHADOW_INTENSITY;

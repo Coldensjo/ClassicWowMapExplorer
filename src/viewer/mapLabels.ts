@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { behindCamera } from './screen';
 
 interface Label {
 	position: THREE.Vector3;
@@ -46,7 +47,7 @@ export class MapLabels {
 			const distance = label.position.distanceTo(camera.position);
 			const el = label.element;
 			this.projected.copy(label.position).project(camera);
-			const show = this.enabled && this.visible && distance > label.radius && distance < RANGE && this.projected.z < 1 && Math.abs(this.projected.x) < 1.1 && Math.abs(this.projected.y) < 1.1;
+			const show = this.enabled && this.visible && distance > label.radius && distance < RANGE && !behindCamera(this.projected, camera) && Math.abs(this.projected.x) < 1.1 && Math.abs(this.projected.y) < 1.1;
 			if (!show) {
 				if (!el.hidden) el.hidden = true;
 				continue;

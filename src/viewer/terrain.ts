@@ -9,6 +9,7 @@ import type { ClutterManager } from './clutter';
 import type { ObjectLevel, ObjectManager } from './objects';
 import { TextureCache } from './textureCache';
 import { createAlphaTexture, createFarMaterial, createSplatMaterial, liquidMaterial, releaseLiquidMaterial, seaMask, type FlowBinding } from './terrainMaterials';
+import { FAR_BATCH_LAYERS, FarBatch, type FarEntry } from './farBatch';
 import { perf } from './perf';
 import { useShadows } from './shadows';
 import { createTexture } from './textures';
@@ -47,8 +48,8 @@ interface TileState {
 	originZ: number;
 	hasAdt: boolean;
 	maxHeight: number;
-	/** Low-detail mesh and heights; null on a WMO-only map's tiles, which only carry objects. */
-	far: THREE.Mesh<THREE.BufferGeometry, THREE.MeshLambertMaterial> | null;
+	/** Low-detail mesh (its batch and place in it) and heights; null on a WMO-only map's tiles, which only carry objects. */
+	far: { batch: FarBatch; id: number } | null;
 	farHeights: Float32Array | null;
 	near: NearState | null;
 	nearHeights: Float32Array | null;
@@ -138,8 +139,6 @@ export class TerrainManager {
 	private nearInFlight = 0;
 	private farTexturesLoaded = 0;
 	private farTexturesTotal = 0;
-	/** A textured low-detail material, compiled before the first tile is given its texture. */
-	private farTexturedWarm: THREE.MeshLambertMaterial | null = null;
 	private readonly layerTextures: TextureCache;
 	/** Ground clutter is handed each detailed tile's clutter map. */
 	clutter: ClutterManager | null = null;
@@ -163,19 +162,39 @@ export class TerrainManager {
 	}
 
 	addContinent(continent: ContinentPlacement, farTiles: FarTile[]): void {
+		// Batches of tiles in the order given (rows of the map), each with at most so many textures.
+		const batches: FarTile[][] = [];
+		let textured = Infinity;
 		for (const t of farTiles) {
+			if (t.hasAdt && textured >= FAR_BATCH_LAYERS) {
+				batches.push([]);
+				textured = 0;
+			}
+			if (!batches.length) batches.push([]);
+			batches[batches.length - 1].push(t);
+			if (t.hasAdt) textured++;
+		}
+		for (const tiles of batches) this.addFarBatch(continent, tiles);
+	}
+
+	private addFarBatch(continent: ContinentPlacement, farTiles: FarTile[]): void {
+		const entries = farTiles.map((t): FarEntry => ({
+			geometry: toBufferGeometry(t.geometry),
+			position: new THREE.Vector3((t.x + continent.offsetX) * TILE_SIZE, 0, (t.y + continent.offsetY) * TILE_SIZE),
+			// Sea-floor tiles without an ADT get a colour close to deep water so they don't show as blocks.
+			color: t.hasAdt ? 0x5f6d48 : 0x14303f,
+			textured: t.hasAdt,
+		}));
+		const batch = new FarBatch(entries, this.anisotropy);
+		batch.mesh.matrixAutoUpdate = false;
+		// Shadows only reach a short way; the near tiles there cast them. Hundreds of far tiles
+		// in the sun's view would each cost draws in the shadow pass.
+		batch.mesh.receiveShadow = true;
+		this.group.add(batch.mesh);
+		farTiles.forEach((t, i) => {
 			const gx = t.x + continent.offsetX;
 			const gy = t.y + continent.offsetY;
-			// Sea-floor tiles without an ADT get a colour close to deep water so they don't show as blocks.
-			const material = createFarMaterial(t.hasAdt ? 0x5f6d48 : 0x14303f);
-			const far = new THREE.Mesh(toBufferGeometry(t.geometry), material);
-			far.position.set(gx * TILE_SIZE, 0, gy * TILE_SIZE);
-			far.matrixAutoUpdate = false;
-			far.updateMatrix();
-			// Shadows only reach a short way; the near tiles there cast them. Hundreds of far tiles
-			// in the sun's view would each cost draws in the shadow pass.
-			useShadows(far, 'receive');
-			this.group.add(far);
+			const far = { batch, id: batch.ids[i] };
 
 			let maxHeight = -Infinity;
 			for (const h of t.heights) maxHeight = Math.max(maxHeight, h);
@@ -199,7 +218,7 @@ export class TerrainManager {
 				distance: Infinity,
 				objectLevel: 'none',
 			});
-		}
+		});
 	}
 
 	/**
@@ -383,21 +402,11 @@ export class TerrainManager {
 			}
 			await Promise.all([...byContinent].map(async ([wdt, list]) => {
 				const results = await this.storage.loadTileTextures(wdt, list.map((t) => [t.x, t.y]), FAR_TEXTURE_SIZE, this.compressed);
-				// Textured, the tiles draw with another shader; the first one shown waits for it.
-				const first = results.findIndex((r) => r.texture);
-				if (!this.farTexturedWarm && first >= 0) {
-					// Kept, so its program is too until the tiles take it up.
-					this.farTexturedWarm = createFarMaterial(0xffffff);
-					this.farTexturedWarm.map = createTexture(results[first].texture!, this.anisotropy);
-					await this.prepare(new THREE.Mesh(list[first].far!.geometry, this.farTexturedWarm));
-				}
 				results.forEach((r, k) => {
 					if (!r.texture) return;
-					const material = list[k].far!.material;
-					material.map = createTexture(r.texture, this.anisotropy);
-					material.color.set(0xffffff);
-					material.needsUpdate = true;
-					this.farTexturesLoaded++;
+					const { batch, id } = list[k].far!;
+					if (batch.setTexture(id, r.texture)) this.farTexturesLoaded++;
+					else console.warn(`Tile ${list[k].continent.name} ${list[k].x}_${list[k].y}: its map texture doesn't fit its batch's`);
 				});
 			}));
 		}
@@ -499,7 +508,7 @@ export class TerrainManager {
 			t.seaChunks = tile.sea;
 			this.clutter?.addTile(TerrainManager.objectKey(t), t.originX, t.originZ, tile.clutter);
 			if (this.applySea(t)) this.sea!.texture.needsUpdate = true;
-			if (t.far) t.far.visible = false;
+			if (t.far) t.far.batch.setVisible(t.far.id, false);
 		} catch (e) {
 			console.warn(`Tile ${t.continent.name} ${t.x}_${t.y}:`, e);
 			t.nearFailed = true;
@@ -578,7 +587,7 @@ export class TerrainManager {
 		t.nearHeights = null;
 		t.nearHoles = null;
 		t.areaIds = null;
-		if (t.far) t.far.visible = true;
+		if (t.far) t.far.batch.setVisible(t.far.id, true);
 	}
 	private tileAt(x: number, z: number): TileState | undefined {
 		return this.tiles.get(TerrainManager.key(Math.floor(x / TILE_SIZE), Math.floor(z / TILE_SIZE)));

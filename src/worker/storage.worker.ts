@@ -1,6 +1,7 @@
 import { FileListSource, DirectoryHandleSource, HttpSource, type FileSource } from '../casc/source';
 import { CascStorage } from '../casc/storage';
 import { describeError, MapExplorer } from '../explorer/maps';
+import { setPageUrl } from '../explorer/spawns';
 import { WorldLoader } from '../explorer/world';
 import type { AsyncStorageApi, Request, Response, SourceInit } from './protocol';
 
@@ -23,6 +24,9 @@ function send(message: Response, transfer: Transferable[] = []): void {
 }
 
 const api: AsyncStorageApi = {
+	async setPageUrl(url) {
+		setPageUrl(url);
+	},
 	async setSource(init: SourceInit) {
 		source = init.kind === 'handle' ? new DirectoryHandleSource(init.handle) : init.kind === 'http' ? new HttpSource(init.base) : new FileListSource(init.files);
 		explorer = null;

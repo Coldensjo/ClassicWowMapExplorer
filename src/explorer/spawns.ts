@@ -100,6 +100,15 @@ function continentPath(points: number[]): number[] {
 
 export type ReactionLookup = (factionTemplate: number) => { alliance: Reaction; horde: Reaction };
 
+/** The page's URL; the spawn files sit beside it, not beside this worker's script. */
+let pageUrl = '';
+
+export function setPageUrl(url: string): void {
+	pageUrl = url;
+}
+
+const spawnFile = (name: string) => new URL(`spawns/${name}`, pageUrl || location.href).href;
+
 const tileOf = (x: number, y: number) => ({ tx: Math.floor(32 - y / TILE_SIZE), ty: Math.floor(32 - x / TILE_SIZE) });
 
 /**
@@ -113,7 +122,7 @@ export class SpawnSource {
 
 	static async load(mapId: number): Promise<SpawnSource | null> {
 		try {
-			const response = await fetch(`spawns/map${mapId}.json`);
+			const response = await fetch(spawnFile(`map${mapId}.json`));
 			if (!response.ok) return null;
 			return new SpawnSource(await response.json());
 		} catch {
@@ -518,7 +527,7 @@ export class DisplayResolver {
 
 	/** SD hair textures by race and colour, from public/spawns/hair.json (built from the listfile). */
 	private hairTextures(): Promise<Record<number, number[]>> {
-		this.hair ??= fetch('spawns/hair.json').then((r) => (r.ok ? r.json() : {}), () => ({}));
+		this.hair ??= fetch(spawnFile('hair.json')).then((r) => (r.ok ? r.json() : {}), () => ({}));
 		return this.hair;
 	}
 

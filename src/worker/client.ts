@@ -26,6 +26,8 @@ export function createStorageClient(onProgress: (message: string) => void): Asyn
 			worker.postMessage({ id, method, args } satisfies Request);
 		});
 
+	// Sent first; the worker handles messages in order.
+	void call('setPageUrl', [location.href]);
 	return new Proxy({} as AsyncStorageApi, {
 		get: (_, method: string) => (...args: unknown[]) => call(method as keyof StorageApi, args),
 	});

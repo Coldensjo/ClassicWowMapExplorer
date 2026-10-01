@@ -133,6 +133,14 @@ export function standPose(bytes: Uint8Array, md20: number): Mat4[] | null {
 	return s ? poseAt(s, 0) : null;
 }
 
+/** Bone matrices sampled over the Stand loop (duration in seconds), or null without a Stand. */
+export function standPoses(bytes: Uint8Array, md20: number): { duration: number; poses: Mat4[][] } | null {
+	const s = findStand(bytes, md20);
+	if (!s || s.duration < 50) return null;
+	const frames = Math.max(2, Math.min(MAX_FRAMES, Math.round((s.duration / 1000) * SAMPLES_PER_SECOND)));
+	return { duration: s.duration / 1000, poses: Array.from({ length: frames }, (_, f) => poseAt(s, (f / frames) * s.duration)) };
+}
+
 /** A loop within the sampled frames: its first frame row, frame count and length in seconds. */
 export interface AnimationClip {
 	row: number;

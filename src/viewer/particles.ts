@@ -42,6 +42,10 @@ interface Particle {
 /** Per placed emitter: world frames, and the fractional particle carried to the next frame. */
 interface EmitterState {
 	frames: THREE.Matrix4[];
+	/** World frames over the loop, for emitters on moving bones. */
+	motion: (THREE.Matrix4[] | null)[];
+	/** Where in the loop this copy is, 0-1, so neighbours don't turn in step. */
+	phase: number;
 	scales: number[];
 	carry: number[];
 	seen: number;
@@ -157,6 +161,8 @@ export class ParticleSystem {
 	private readonly states = new Map<string, EmitterState>();
 	private readonly groups = new Map<string, Group>();
 	private frame = 0;
+	/** Seconds simulated, for emitters that move with their bone's loop. */
+	private time = 0;
 	private readonly warmMaterials: THREE.ShaderMaterial[] = [];
 
 	/**
@@ -182,6 +188,7 @@ export class ParticleSystem {
 	update(dt: number, sources: EmitterSource[]): void {
 		dt = Math.min(dt, MAX_STEP);
 		const frame = ++this.frame;
+		this.time += dt;
 		for (const source of sources) {
 			let state = this.states.get(source.key);
 			if (!state) {
@@ -206,9 +213,12 @@ export class ParticleSystem {
 	}
 
 	private createState(source: EmitterSource): EmitterState {
-		const frames = source.emitters.map((e) => source.matrix.clone().multiply(new THREE.Matrix4().fromArray(e.def.frame)));
+		const place = (frame: ArrayLike<number>) => source.matrix.clone().multiply(new THREE.Matrix4().fromArray(frame));
+		const frames = source.emitters.map((e) => place(e.def.frame));
 		return {
 			frames,
+			motion: source.emitters.map((e) => e.def.motion?.frames.map(place) ?? null),
+			phase: Math.random(),
 			scales: frames.map((m) => new THREE.Vector3().setFromMatrixColumn(m, 0).length()),
 			// Start part-way, so emitters that come into range together don't pulse together.
 			carry: source.emitters.map(() => Math.random()),
@@ -249,16 +259,20 @@ export class ParticleSystem {
 		const def = e.def;
 		const g = this.groupFor(e, frame);
 		state.carry[i] += def.rate * dt;
-		const m = state.frames[i].elements;
+		const motion = state.motion[i];
+		const loop = def.motion?.duration ?? 1;
+		const m = (motion ? motion[Math.floor((((this.time / loop + state.phase) % 1) * motion.length)) % motion.length] : state.frames[i]).elements;
 		const scale = state.scales[i];
 		const cells = def.rows * def.cols;
 		while (state.carry[i] >= 1) {
 			state.carry[i] -= 1;
 			if (g.particles.length >= MAX_PER_GROUP) continue;
-			// Direction: within the emitter's vertical cone, any way round horizontally.
+			// Direction: within the emitter's vertical cone, any way round horizontally. Azimuth
+			// counts from y: a sphere with no horizontal range is a ring across the model's x axis
+			// (instance portals spin it about x to swirl, and loop with a jump only that hides).
 			const polar = rand(def.verticalRange);
 			const azimuth = rand(def.horizontalRange);
-			let dx = Math.sin(polar) * Math.cos(azimuth), dy = Math.sin(polar) * Math.sin(azimuth), dz = Math.cos(polar);
+			let dx = Math.sin(polar) * Math.sin(azimuth), dy = Math.sin(polar) * Math.cos(azimuth), dz = Math.cos(polar);
 			let px: number, py: number, pz: number;
 			if (def.type === EMITTER_SPHERE) {
 				const radius = def.areaLength + Math.random() * (def.areaWidth - def.areaLength);

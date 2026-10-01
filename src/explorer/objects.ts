@@ -420,7 +420,12 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 	const packed = packForShadows(indices, batches);
 	const anim = prepared.animation;
 	// Fresh frames: the arrays are transferred to the main thread, which would empty the cached ones.
-	const emitters = parts.flatMap((p) => p.prepared.emitters.map((e) => ({ ...e, frame: p.rest ? multiply(p.rest, e.frame) : e.frame.slice() })));
+	const place = (p: (typeof parts)[number], frame: Mat4) => (p.rest ? multiply(p.rest, frame) : frame.slice());
+	const emitters = parts.flatMap((p) => p.prepared.emitters.map((e) => ({
+		...e,
+		frame: place(p, e.frame),
+		motion: e.motion && { duration: e.motion.duration, frames: e.motion.frames.map((f) => place(p, f)) },
+	})));
 	return {
 		fdid, positions, normals, uvs, baked: null, indices: packed.indices, batches: mergeBatches(packed.batches),
 		radius: prepared.m2.bounds.radius || boundingRadius(positions), height: topOf(positions, packed.indices, packed.batches),

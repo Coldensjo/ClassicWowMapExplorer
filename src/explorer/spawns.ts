@@ -72,7 +72,8 @@ const WORLD_BASIS: Mat4 = (() => {
 	return m;
 })();
 
-function spawnMatrix(x: number, y: number, z: number, rotation: Mat4, scale: number): Mat4 {
+/** A model placed at WoW world coordinates (x north, y west, z up), turned by a rotation about its own axes. */
+export function spawnMatrix(x: number, y: number, z: number, rotation: Mat4, scale: number): Mat4 {
 	return compose(translation(MAP_ORIGIN - y, z, MAP_ORIGIN - x), WORLD_BASIS, rotation, scaling(scale));
 }
 
@@ -107,9 +108,10 @@ export function setPageUrl(url: string): void {
 	pageUrl = url;
 }
 
-const spawnFile = (name: string) => new URL(`spawns/${name}`, pageUrl || location.href).href;
+export const spawnFile = (name: string) => new URL(`spawns/${name}`, pageUrl || location.href).href;
 
-const tileOf = (x: number, y: number) => ({ tx: Math.floor(32 - y / TILE_SIZE), ty: Math.floor(32 - x / TILE_SIZE) });
+/** The ADT tile WoW world coordinates fall on. */
+export const tileOf = (x: number, y: number) => ({ tx: Math.floor(32 - y / TILE_SIZE), ty: Math.floor(32 - x / TILE_SIZE) });
 
 /**
  * Creature and game object spawns from the VMaNGOS world database, served as extra placements

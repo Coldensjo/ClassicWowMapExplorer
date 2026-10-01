@@ -392,7 +392,8 @@ export class ObjectManager {
 	}
 
 	private async build(entry: ModelEntry, data: ModelData | null): Promise<void> {
-		if (!data || data.batches.length === 0) {
+		// Some models are only their particles (instance portals: a hidden quad and the swirl).
+		if (!data || (data.batches.length === 0 && !data.emitters?.length)) {
 			entry.state = 'failed';
 			return;
 		}

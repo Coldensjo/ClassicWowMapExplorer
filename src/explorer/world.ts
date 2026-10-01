@@ -12,6 +12,7 @@ import { loadPlaces, type Place } from './places';
 import { KNOWN_MAPS } from './maps';
 import { globalWmoPlacement, globalWmoTiles, loadM2, loadWmo, parsePlacements, type ModelData, type ObjectKind, type Placement } from './objects';
 import { GroundEffects, type ClutterSource } from './groundEffects';
+import { PortalSource } from './portals';
 import { DisplayResolver, parseWeapons, SpawnSource } from './spawns';
 import { buildSplatTerrain, type SplatTerrain } from './splatMesh';
 import { buildTerrainMesh, type TerrainGeometry } from './terrainMesh';
@@ -235,16 +236,27 @@ export class WorldLoader {
 	async loadTileObjects(wdtFdid: number, x: number, y: number): Promise<Placement[]> {
 		const wdt = await this.maps.wdt(wdtFdid);
 		const tile = wdt.tiles[y * 64 + x];
-		const [placements, spawns] = await Promise.all([
+		const [placements, spawns, portals] = await Promise.all([
 			tile?.files.obj0 ? this.storage.readFile(tile.files.obj0).then(parsePlacements) : ([] as Placement[]),
 			this.tileSpawns(wdtFdid, x, y),
+			this.tilePortals(wdtFdid, x, y),
 		]);
 		// A WMO-only map's building is listed by every tile it covers (placed once, by its key).
 		const global = wdt.globalWmo;
 		if (global && globalWmoTiles(global).some(([tx, ty]) => tx === x && ty === y)) placements.push(globalWmoPlacement(global));
 		// Spawn placements are cached per tile; send copies of their matrices, since the
 		// transfer to the main thread empties the originals.
-		return placements.concat(spawns.map((p) => ({ ...p, matrix: p.matrix.slice() })));
+		return placements.concat(spawns.map((p) => ({ ...p, matrix: p.matrix.slice() })), portals);
+	}
+
+	private portalSource: Promise<PortalSource> | null = null;
+
+	/** Instance portals added at dungeon doors the map files leave without one. */
+	private async tilePortals(wdtFdid: number, x: number, y: number): Promise<Placement[]> {
+		const mapId = await this.mapIdOf(wdtFdid);
+		if (mapId === null) return [];
+		this.portalSource ??= PortalSource.load();
+		return (await this.portalSource).placements(mapId, x, y);
 	}
 
 	private readonly spawnSources = new Map<number, Promise<SpawnSource | null>>();

@@ -1,5 +1,5 @@
 import { multiply, translation, type Mat4 } from '../explorer/mat4';
-import { standPose } from './m2Pose';
+import { standPose, standPoses } from './m2Pose';
 
 const EMITTER_SIZE = 0x1ec;
 const TRACK_SIZE = 20;
@@ -21,6 +21,11 @@ export interface LifeKeys {
 export interface ParticleEmitter {
 	/** Emitter frame in model space: the bone's resting pose, moved to the emitter's position. */
 	frame: Mat4;
+	/**
+	 * The frame over the Stand loop, when the emitter's bone moves (instance portals spin theirs
+	 * to sweep a ring of particles into a swirl); frames[0] is frame.
+	 */
+	motion?: { duration: number; frames: Mat4[] };
 	texture: number;
 	blend: number;
 	type: number;
@@ -65,7 +70,8 @@ export function parseParticleEmitters(bytes: Uint8Array, md20: number, textureFd
 	const count = u32(0x128);
 	if (!count) return [];
 	const offset = u32(0x12c);
-	const bones = standPose(bytes, md20);
+	const loop = standPoses(bytes, md20);
+	const bones = loop?.poses[0] ?? standPose(bytes, md20);
 
 	// The Stand sequence's index, for picking each track's keys.
 	let stand = 0;
@@ -121,9 +127,12 @@ export function parseParticleEmitters(bytes: Uint8Array, md20: number, textureFd
 		const bone = view.getUint16(o + 0x14, true);
 		const position = translation(f32(o + 8), f32(o + 12), f32(o + 16));
 		const pose = bones?.[bone];
+		const frames = loop && pose ? loop.poses.map((p) => multiply(p[bone], position)) : [];
+		const moves = frames.some((m) => m.some((v, k) => Math.abs(v - frames[0][k]) > 1e-3));
 		const track = (at: number, fallback = 0) => trackAverage(o + 0x34 + at * TRACK_SIZE, 4, f32, fallback);
 		out.push({
 			frame: pose ? multiply(pose, position) : position,
+			motion: moves ? { duration: loop!.duration, frames } : undefined,
 			texture,
 			blend: view.getUint8(o + 0x28),
 			type: view.getUint8(o + 0x29),

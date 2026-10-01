@@ -12,6 +12,7 @@ import { MapLabels } from './mapLabels';
 import { DAY, Lighting, Sky, sunDirection } from './lighting';
 import { MusicPlayer, type MusicTarget } from './music';
 import { Nameplates, type Plate, type Side } from './nameplates';
+import { ClutterManager } from './clutter';
 import { ObjectManager } from './objects';
 import { perf } from './perf';
 import { TerrainManager, type ContinentPlacement } from './terrain';
@@ -183,6 +184,8 @@ export class Viewer {
 	private readonly controls: FlyControls;
 	private terrain!: TerrainManager;
 	private objects!: ObjectManager;
+	/** Grass, flowers and pebbles near the camera (V toggles). */
+	private clutter!: ClutterManager;
 	private readonly fog = new THREE.Fog(SKY, 1000, 8000);
 	private continents: ContinentPlacement[] = [];
 	private frames = 0;
@@ -349,7 +352,9 @@ export class Viewer {
 		this.terrain = new TerrainManager(this.storage, this.usesCompressedTextures, anisotropy, this.objects, prepare);
 		// Walking creatures follow the ground.
 		this.objects.groundAt = (x, z) => this.terrain.heightAt(x, z);
-		this.scene.add(this.terrain.group, this.objects.group);
+		this.clutter = new ClutterManager(this.storage, this.usesCompressedTextures, anisotropy, prepare);
+		this.terrain.clutter = this.clutter;
+		this.scene.add(this.terrain.group, this.objects.group, this.clutter.group);
 
 		const loaded: { map: (typeof KNOWN_MAPS)[number]; tiles: FarTile[] }[] = [];
 		for (const map of KNOWN_MAPS) {
@@ -687,6 +692,7 @@ export class Viewer {
 		else if (e.code === 'KeyF') this.side = this.side === 'alliance' ? 'horde' : 'alliance';
 		else if (e.code === 'KeyM' && this.music) this.music.enabled = !this.music.enabled;
 		else if (e.code === 'KeyI' && this.mapLabels) this.mapLabels.enabled = !this.mapLabels.enabled;
+		else if (e.code === 'KeyV') this.clutter.enabled = !this.clutter.enabled;
 	}
 
 	private startPosition(): THREE.Vector3 {
@@ -775,6 +781,7 @@ export class Viewer {
 			perf.time('lod.update', () => this.terrain.update(pos));
 		}
 		perf.time('objects.update', () => this.objects.update(now, pos));
+		this.clutter.update(now, pos, this.terrain.surfaceAt(pos.x, pos.z));
 		// Under water the surface is seen from below, where its depth isn't used.
 		if (!this.underwater) perf.time('groundDistance', () => this.groundPass.render(this.renderer, this.terrain.group, this.camera));
 		perf.time('render', () => this.renderer.render(this.scene, this.camera));

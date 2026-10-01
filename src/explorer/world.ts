@@ -10,6 +10,7 @@ import { MusicTables, type MusicData, type WmoArea } from './music';
 import type { MapExplorer } from './maps';
 import { KNOWN_MAPS } from './maps';
 import { globalWmoPlacement, globalWmoTiles, loadM2, loadWmo, parsePlacements, type ModelData, type ObjectKind, type Placement } from './objects';
+import { GroundEffects, type ClutterSource } from './groundEffects';
 import { DisplayResolver, parseWeapons, SpawnSource } from './spawns';
 import { buildSplatTerrain, type SplatTerrain } from './splatMesh';
 import { buildTerrainMesh, type TerrainGeometry } from './terrainMesh';
@@ -76,6 +77,8 @@ export interface NearTile {
 	sea: Uint8Array;
 	/** AreaTable ID per chunk (y * 16 + x). */
 	areaIds: Uint32Array;
+	/** What grows on the ground (grass, flowers, pebbles), or null for none. */
+	clutter: ClutterSource | null;
 }
 
 export interface LoadedTexture {
@@ -184,10 +187,11 @@ export class WorldLoader {
 		const wdt = await this.maps.wdt(wdtFdid);
 		const tile = wdt.tiles[y * 64 + x];
 		if (!tile) throw new Error(`Map has no tile ${x}_${y}`);
-		const [rootBytes, texBytes, kindOf] = await Promise.all([
+		const [rootBytes, texBytes, kindOf, groundEffects] = await Promise.all([
 			this.storage.readFile(tile.files.root),
 			tile.files.tex0 ? this.storage.readFile(tile.files.tex0).catch(() => null) : null,
 			this.liquidKind(),
+			this.groundEffects(),
 		]);
 		const root = parseAdtRoot(rootBytes);
 		const liquids = buildLiquidMeshes(root.liquids, kindOf);
@@ -201,7 +205,8 @@ export class WorldLoader {
 		if (texBytes) {
 			const tex = parseAdtTex(texBytes, (wdt.flags & MPHD_BIG_ALPHA) !== 0, (i) => !(root.chunks[i]?.flags & MCNK_DO_NOT_FIX_ALPHA));
 			const terrain = buildSplatTerrain(root, tex);
-			return { x, y, terrain, fallback: null, heights: terrain.heights, holes: terrain.holes, liquids, sea, areaIds };
+			const clutter = groundEffects?.source(root, tex, terrain.heights, tileGrids(root).inner, terrain.holes) ?? null;
+			return { x, y, terrain, fallback: null, heights: terrain.heights, holes: terrain.holes, liquids, sea, areaIds, clutter };
 		}
 		const grids = tileGrids(root);
 		return {
@@ -217,6 +222,7 @@ export class WorldLoader {
 			liquids,
 			sea,
 			areaIds,
+			clutter: null,
 		};
 	}
 
@@ -332,6 +338,17 @@ export class WorldLoader {
 	/** Terrain layer textures at full resolution. */
 	async loadTextures(fdids: number[], compressed: boolean): Promise<LoadedTexture[]> {
 		return Promise.all(fdids.map(async (fdid) => ({ fdid, texture: await this.readTexture(fdid, Infinity, compressed) })));
+	}
+
+	private groundEffectsPromise: Promise<GroundEffects | null> | null = null;
+
+	/** Ground clutter tables; null (no clutter) if they can't be read. */
+	private groundEffects(): Promise<GroundEffects | null> {
+		this.groundEffectsPromise ??= GroundEffects.load(this.storage).catch((e) => {
+			console.warn('Ground clutter tables unavailable:', e);
+			return null;
+		});
+		return this.groundEffectsPromise;
 	}
 
 	private liquidKindPromise: Promise<(type: number) => LiquidKind> | null = null;

@@ -17,6 +17,8 @@ export interface TexLayer {
 	/** Index into the tile's texture lists. */
 	texture: number;
 	flags: number;
+	/** GroundEffectTexture ID: the grass, flowers or pebbles that grow on this texture (0 for none). */
+	effect: number;
 }
 
 export interface TexChunk {
@@ -86,7 +88,7 @@ function parseChunk(bytes: Uint8Array, view: DataView, start: number, end: numbe
 		if (sub.id === 'MCLY') {
 			for (let l = 0; l < sub.size / 16; l++) {
 				const o = sub.offset + l * 16;
-				chunk.layers.push({ texture: view.getUint32(o, true), flags: view.getUint32(o + 4, true) });
+				chunk.layers.push({ texture: view.getUint32(o, true), flags: view.getUint32(o + 4, true), effect: view.getUint32(o + 12, true) });
 				alphaOffsets.push(view.getUint32(o + 8, true));
 			}
 		} else if (sub.id === 'MCAL') {

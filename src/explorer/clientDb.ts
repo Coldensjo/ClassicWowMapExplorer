@@ -5,6 +5,8 @@ import type { LiquidKind } from '../formats/mh2o';
 /** File IDs of client database tables (DBFilesClient/*.db2); they're unnamed in the root. */
 export const DB2_FILES = {
 	AreaTable: 1353545,
+	GroundEffectDoodad: 1308057,
+	GroundEffectTexture: 1308499,
 	Light: 1375579,
 	LightData: 1375580,
 	LightParams: 1334669,

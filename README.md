@@ -52,6 +52,7 @@ On any system with Chrome or Edge, and **[Node.js](https://nodejs.org)** (the LT
 - The whole world at once: distant terrain for both continents, with full detail streamed in around you
 - Terrain textures, water and other liquids, with the game's underwater look and sound
 - Buildings and props placed as in the game, with animated fire, smoke and sparks
+- Ground clutter: the grass, flowers and pebbles that grow on each terrain texture, swaying in the wind
 - Sky, fog and lighting from the game's own light data, with a time-of-day control
 - Zone names and zone music, including inside inns, Ironforge and other buildings
 - Creatures and objects from VMaNGOS: clickable, with Wowhead links, name plates, their gear and
@@ -76,6 +77,7 @@ On any system with Chrome or Edge, and **[Node.js](https://nodejs.org)** (the LT
 | T / Shift+T | Time of day forward / back |
 | N | Reset time to the local clock |
 | L | Torch light on / off |
+| V | Ground clutter (grass, flowers, pebbles) on / off |
 | F | Switch name plate colours between Alliance and Horde |
 | M | Music and sound on / off |
 | I | Names of dungeons, raids and other maps in the sea on / off (off by default) |

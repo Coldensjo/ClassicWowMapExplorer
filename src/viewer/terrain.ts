@@ -5,6 +5,7 @@ import { ALPHA_ATLAS_SIZE, type SplatGeometry } from '../explorer/splatMesh';
 import type { FarTile, NearTile } from '../explorer/world';
 import type { TerrainGeometry } from '../explorer/terrainMesh';
 import type { AsyncStorageApi } from '../worker/protocol';
+import type { ClutterManager } from './clutter';
 import type { ObjectLevel, ObjectManager } from './objects';
 import { TextureCache } from './textureCache';
 import { createAlphaTexture, createFarMaterial, createSplatMaterial, liquidMaterial, seaMask } from './terrainMaterials';
@@ -135,6 +136,8 @@ export class TerrainManager {
 	private farTexturesLoaded = 0;
 	private farTexturesTotal = 0;
 	private readonly layerTextures: TextureCache;
+	/** Ground clutter is handed each detailed tile's clutter map. */
+	clutter: ClutterManager | null = null;
 
 	constructor(
 		private readonly storage: AsyncStorageApi,
@@ -478,6 +481,7 @@ export class TerrainManager {
 			t.areaIds = tile.areaIds;
 			// Kept after the tile drops back to low detail: it's what the map says, not a guess.
 			t.seaChunks = tile.sea;
+			this.clutter?.addTile(TerrainManager.objectKey(t), t.originX, t.originZ, tile.clutter);
 			if (this.applySea(t)) this.sea!.texture.needsUpdate = true;
 			if (t.far) t.far.visible = false;
 		} catch (e) {
@@ -537,6 +541,7 @@ export class TerrainManager {
 		for (const tex of near.ownTextures) tex.dispose();
 		this.layerTextures.release(near.sharedTextures);
 		perf.record('near.drop', 0);
+		this.clutter?.removeTile(TerrainManager.objectKey(t));
 		t.near = null;
 		t.nearHeights = null;
 		t.nearHoles = null;

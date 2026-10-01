@@ -19,6 +19,10 @@ export interface AdtChunk {
 	heights: Float32Array;
 	/** Vertex colour multipliers (1 = neutral), 145 x RGB in MCVT order, or null. */
 	colors: Float32Array | null;
+	/** Per cell (row * 8 + col): the texture layer that covers most of it, which picks its ground clutter. */
+	effectLayers: Uint8Array;
+	/** One byte per cell row; bit n set = no ground clutter in cell n. */
+	noEffect: Uint8Array;
 }
 
 export interface AdtRoot {
@@ -29,6 +33,13 @@ export interface AdtRoot {
 }
 
 const FLAG_HIGH_RES_HOLES = 0x10000;
+
+/** The 2-bit-per-cell dominant layer map (MCNK +0x40), lowest bits first. */
+function readEffectLayers(bytes: Uint8Array, header: number): Uint8Array {
+	const layers = new Uint8Array(64);
+	for (let i = 0; i < 64; i++) layers[i] = (bytes[header + 0x40 + (i >> 2)] >> ((i & 3) * 2)) & 3;
+	return layers;
+}
 
 function readHoles(view: DataView, header: number): Uint8Array {
 	const holes = new Uint8Array(8);
@@ -69,6 +80,8 @@ export function parseAdtRoot(bytes: Uint8Array): AdtRoot {
 			position: [view.getFloat32(h + 0x68, true), view.getFloat32(h + 0x6c, true), view.getFloat32(h + 0x70, true)],
 			heights: new Float32Array(CHUNK_HEIGHTS),
 			colors: null,
+			effectLayers: readEffectLayers(bytes, h),
+			noEffect: bytes.slice(h + 0x50, h + 0x58),
 		};
 		for (const sub of chunks(bytes, h + 0x80, c.offset + c.size)) {
 			if (sub.id === 'MCVT') {

@@ -100,6 +100,9 @@ void main() {
 }
 `;
 
+/** Yards of each view ray the height fog gathers over. */
+const FOG_REACH = 1500;
+
 /** Steps the sun-shaft march takes through the shadow map, per pixel. */
 const SHAFT_STEPS = 24;
 
@@ -143,16 +146,26 @@ vec3 grade(vec3 c) {
 	return mix(s0, s1, b - b0);
 }
 
-// Fog thickness at a height: densest at the base (the ground around the camera), thinning upwards.
+// Fog thickness at a height: densest at the base (the lowest ground around), thinning upwards,
+// and no denser below it (the sea floor, down through the water).
 float fogDensity(float y) {
-	return uFog.x * exp(clamp(-uFog.y * (y - uFog.z), -40.0, 4.0));
+	return uFog.x * exp(clamp(-uFog.y * (y - uFog.z), -40.0, 0.0));
 }
 
-// Fog along the view ray from the camera to distance t (dir.y = dy), worked out exactly.
+// Fog along the view ray from the camera to distance t (dir.y = dy), worked out exactly: the
+// thinning part above the base, then even fog for any stretch below it.
 float opticalDepth(float t, float dy) {
-	float k = fogDensity(uCameraPos.y);
-	float x = uFog.y * dy * t;
-	return abs(x) < 1e-3 ? k * t : k * (1.0 - exp(clamp(-x, -40.0, 40.0))) / (uFog.y * dy);
+	float above = uCameraPos.y - uFog.z;
+	if (above <= 0.0) return uFog.x * t;
+	// Where a downward ray reaches the base.
+	float toBase = dy < 0.0 ? above / -dy : 1e9;
+	float upper = min(t, toBase);
+	// The density at either end of the part above the base, relative to the base's: both at most 1,
+	// so nothing overflows however high the camera is.
+	float near = exp(-uFog.y * above);
+	float far = exp(-uFog.y * max(uCameraPos.y + dy * upper - uFog.z, 0.0));
+	float depth = abs(uFog.y * dy * upper) < 1e-3 ? uFog.x * near * upper : uFog.x * (near - far) / (uFog.y * dy);
+	return depth + uFog.x * max(t - toBase, 0.0);
 }
 
 #ifdef FOG_SHAFTS
@@ -184,7 +197,14 @@ void main() {
 		float forward = max(-viewDir.z, 1e-4);
 		// Logarithmic depth back to view depth, then to distance along the ray.
 		float dist = sky ? 20000.0 : (exp2(depth * uLogFar) - 1.0) / forward;
-		float transmit = exp(-opticalDepth(dist, dir.y));
+		// The fog ends at the sea's surface (which writes no depth): below it is water, not air,
+		// whether it's the sea floor or nothing at all.
+		if (dir.y < 0.0 && uCameraPos.y > 0.0 && uCameraPos.y + dir.y * dist < 0.0) dist = uCameraPos.y / -dir.y;
+		// Height fog is a local thing, gathering over the first stretch of view; past that the game's
+		// own distance fog takes over. Without the limit, low views skim kilometres of it and white out.
+		// (Eased in, so there's no visible edge where it stops.)
+		float fogDist = ${FOG_REACH.toFixed(1)} * (1.0 - exp(-dist / ${FOG_REACH.toFixed(1)}));
+		float transmit = exp(-opticalDepth(fogDist, dir.y));
 
 		// Light scattered towards the eye: mostly the sky's fog colour, plus sunlight, strongest looking
 		// towards the sun, and only where the sun reaches the fog.
@@ -202,7 +222,7 @@ void main() {
 				lit += fogDensity(p.y) * exp(-opticalDepth(t, dir.y)) * sunReaches(p, t * forward) * stepLength;
 			}
 			// Past the shadow maps, all lit.
-			sunlit = lit + max(exp(-opticalDepth(reach, dir.y)) - transmit, 0.0);
+			sunlit = lit + max(exp(-opticalDepth(min(reach, fogDist), dir.y)) - transmit, 0.0);
 		#endif
 		color = color * transmit + uFogColor * (1.0 - transmit) * 0.75 + uSunColor * phase * sunlit * uFog.w;
 	}

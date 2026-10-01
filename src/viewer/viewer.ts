@@ -80,7 +80,7 @@ const SHADOW_INTENSITY = 0.8;
 /** Height of the sun (y of its direction) below which the moon lights the world instead. */
 const SUN_TO_MOON = 0.08;
 /** Height fog: thickness per yard at the lowest ground around (times the zone's), and how fast it thins with height. */
-const FOG_DENSITY = 0.0012;
+const FOG_DENSITY = 0.0008;
 const FOG_FALLOFF = 1 / 40;
 /** How strongly the sun lights the fog. */
 const FOG_SUNLIGHT = 2;
@@ -1135,7 +1135,7 @@ export class Viewer {
 		};
 	}
 
-	/** The lowest ground on a grid around a point (for the fog to lie at); the point's own height if there's none. */
+	/** The lowest ground on a grid around a point (for the fog to lie at); sea level over open sea, where there's none. */
 	private lowestGroundAround(p: THREE.Vector3): number {
 		let lowest = Infinity;
 		const half = (FOG_BASE_SAMPLES - 1) / 2;
@@ -1145,7 +1145,7 @@ export class Viewer {
 				if (h > -Infinity && h < lowest) lowest = h;
 			}
 		}
-		return lowest < Infinity ? lowest : p.y;
+		return lowest < Infinity ? lowest : 0;
 	}
 
 	/** Sun, ambient, sky and fog from the game's light zones for the current place and time. */

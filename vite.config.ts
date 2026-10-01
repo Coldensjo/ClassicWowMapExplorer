@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import { wowFiles } from './tools/wowFiles';
+import { wowFiles } from './tools/wowFiles.ts';
 
 export default defineConfig({
 	plugins: [wowFiles()],

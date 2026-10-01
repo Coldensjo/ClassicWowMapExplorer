@@ -45,7 +45,8 @@ On any system with Chrome or Edge, and **[Node.js](https://nodejs.org)** (the LT
 1. `git clone https://github.com/Coldensjo/ClassicWowMapExplorer.git` (or **Code → Download ZIP**)
 2. In the project folder, run `npm install`, then `npm run dev`.
 3. Open **http://localhost:5173** in Chrome or Edge. The dev server finds World of Warcraft as the
-   portable version does (set `WOW_DIR` to point it elsewhere); if it can't, choose the folder as above.
+   portable version does, and on Linux in the Wine prefixes of Lutris, Bottles, Steam (Proton),
+   Heroic and `~/.wine` (set `WOW_DIR` to point it elsewhere); if it can't, choose the folder as above.
 
 ## Features
 

@@ -169,7 +169,14 @@ export interface ViewSettings {
 	shadows: boolean;
 	/** Fog lying in the valleys, lit by the sun where it reaches it (Z). */
 	fog: boolean;
+	/** Multiplies the flying speed, from 1/8 to 8 (Y faster, Shift+Y slower). */
+	flySpeed: number;
 }
+
+/** Steps of the flying speed: each Y press or slider notch multiplies it by 2^(1/4). */
+export const FLY_SPEED_STEP = 0.25;
+/** The flying speed's range, as powers of two either side of normal. */
+export const FLY_SPEED_RANGE = 3;
 
 /** A setting, or the time of day or the sound, changed by its key. */
 export type ViewChange = keyof ViewSettings | 'time' | 'sound';
@@ -451,6 +458,7 @@ export class Viewer {
 			grading: this.post.gradingOn,
 			shadows: this.sun.castShadow,
 			fog: this.post.fogOn,
+			flySpeed: this.controls.speedScale,
 		};
 	}
 
@@ -465,6 +473,11 @@ export class Viewer {
 		if (next.grading !== undefined) this.post.gradingOn = next.grading;
 		if (next.shadows !== undefined) this.sun.castShadow = next.shadows;
 		if (next.fog !== undefined) this.post.fogOn = next.fog;
+		if (typeof next.flySpeed === 'number' && next.flySpeed > 0) {
+			// Snapped to the slider's notches, so a remembered or stepped value lands on one.
+			const notches = Math.round(Math.log2(next.flySpeed) / FLY_SPEED_STEP) * FLY_SPEED_STEP;
+			this.controls.speedScale = 2 ** THREE.MathUtils.clamp(notches, -FLY_SPEED_RANGE, FLY_SPEED_RANGE);
+		}
 	}
 
 	/** Music and sound on, or null until the music tables are read. */
@@ -860,6 +873,9 @@ export class Viewer {
 		else if (e.code === 'KeyT') {
 			this.timeOffset += e.shiftKey ? -TIME_STEP : TIME_STEP;
 			this.onChange('time');
+		} else if (e.code === 'KeyY') {
+			this.settings = { flySpeed: this.controls.speedScale * 2 ** (e.shiftKey ? -FLY_SPEED_STEP : FLY_SPEED_STEP) };
+			this.onChange('flySpeed');
 		} else if (e.code === 'KeyN') {
 			this.resetTime();
 			this.onChange('time');

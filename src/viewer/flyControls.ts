@@ -79,6 +79,9 @@ export class FlyControls {
 	/** Turning glides after the mouse instead of following it at once (J toggles, in the viewer). */
 	cinematic = false;
 
+	/** Multiplies the flying speed (the View panel's slider, Y in the viewer). */
+	speedScale = 1;
+
 	lock(): void {
 		if (this.locked) return;
 		// Raw mouse movement skips the OS pointer acceleration, which is also where the spurious
@@ -156,7 +159,7 @@ export class FlyControls {
 
 			const k = this.keys;
 			const boost = k.has('ShiftLeft') || k.has('ShiftRight') ? 5 : 1;
-			this.speed = THREE.MathUtils.clamp(this.altitude * 0.8, 25, 25000) * boost;
+			this.speed = THREE.MathUtils.clamp(this.altitude * 0.8, 25, 25000) * boost * this.speedScale;
 
 			const forward = this.forward();
 			const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));

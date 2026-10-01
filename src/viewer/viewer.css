@@ -732,15 +732,20 @@ kbd {
 	min-width: 0;
 }
 
-#time-out {
+#time-out, #fly-speed-out {
 	font-variant-numeric: tabular-nums;
 }
 
-#time-out.shifted {
+#fly-speed-out {
+	min-width: 38px;
+	text-align: right;
+}
+
+#time-out.shifted, #fly-speed-out.shifted {
 	color: var(--accent);
 }
 
-#time-now {
+#time-now, #fly-speed-reset {
 	padding: 1px 8px;
 	font-size: 12px;
 }

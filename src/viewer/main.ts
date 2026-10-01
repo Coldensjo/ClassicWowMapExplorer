@@ -7,7 +7,7 @@ import type { MapCategory, MapListing } from '../explorer/world';
 import type { HighlightGroup, HighlightSettings } from './highlights';
 import { Minimap } from './minimap';
 import { isTyping } from './typing';
-import { Viewer, type HudInfo, type ViewSettings } from './viewer';
+import { FLY_SPEED_RANGE, FLY_SPEED_STEP, Viewer, type HudInfo, type ViewSettings } from './viewer';
 import { setVolume, volumeSetting, type VolumeChannel } from './volume';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -259,6 +259,11 @@ function clock(minutes: number): string {
 	return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 }
 
+/** A speed multiplier as ×1, ×2.4, ×0.59 and so on. */
+function speedLabel(scale: number): string {
+	return `×${Number(scale.toPrecision(2))}`;
+}
+
 // --- Keys belong to the world ---
 
 // Text boxes and lists keep keys while in use; everything else hands them back once used, and
@@ -348,10 +353,37 @@ function setUpView(viewer: Viewer): void {
 	syncTime();
 	hudFollowers.push(syncTime);
 
+	// The flying speed: a slider in powers of two either side of normal.
+	const speed = $<HTMLInputElement>('fly-speed');
+	const speedOut = $('fly-speed-out');
+	const speedReset = $<HTMLButtonElement>('fly-speed-reset');
+	speed.min = String(-FLY_SPEED_RANGE);
+	speed.max = String(FLY_SPEED_RANGE);
+	speed.step = String(FLY_SPEED_STEP);
+	const syncSpeed = () => {
+		const scale = viewer.settings.flySpeed;
+		speed.value = String(Math.log2(scale));
+		speedOut.textContent = speedLabel(scale);
+		speedOut.classList.toggle('shifted', scale !== 1);
+		speedReset.disabled = scale === 1;
+	};
+	speed.addEventListener('input', () => {
+		viewer.settings = { flySpeed: 2 ** Number(speed.value) };
+		syncSpeed();
+		remember();
+	});
+	speedReset.addEventListener('click', () => {
+		viewer.settings = { flySpeed: 1 };
+		syncSpeed();
+		remember();
+	});
+	syncSpeed();
+
 	viewer.onChange = (change) => {
 		const s = viewer.settings;
 		sync();
 		syncTime();
+		syncSpeed();
 		syncSound(viewer);
 		remember();
 		notify({
@@ -364,6 +396,7 @@ function setUpView(viewer: Viewer): void {
 			grading: () => `Colour grading ${onOff(s.grading)}`,
 			shadows: () => `Shadows ${onOff(s.shadows)}`,
 			fog: () => `Fog and sun shafts ${onOff(s.fog)}`,
+			flySpeed: () => `Flying speed ${speedLabel(s.flySpeed)}`,
 			time: () => (viewer.timeIsLocal ? `Local time, ${clock(viewer.timeMinutes)}` : `Time of day ${clock(viewer.timeMinutes)}`),
 			sound: () => `Music and sound ${onOff(viewer.soundOn ?? false)}`,
 		}[change]());

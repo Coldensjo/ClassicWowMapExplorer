@@ -90,6 +90,12 @@
 				<output id="time-out"></output>
 				<button id="time-now" title="Back to local time (N)">Now</button>
 			</div>
+			<div class="time-row">
+				<span>Speed</span>
+				<input type="range" id="fly-speed" aria-label="Flying speed" title="Faster: Y · Slower: Shift+Y">
+				<output id="fly-speed-out"></output>
+				<button id="fly-speed-reset" title="Back to normal flying speed">Reset</button>
+			</div>
 			<label><input type="checkbox" data-setting="torch"> Torch <kbd>L</kbd></label>
 			<label><input type="checkbox" data-setting="clutter"> Grass and flowers <kbd>V</kbd></label>
 			<label><input type="checkbox" data-setting="collision"> Collision with walls <kbd>G</kbd></label>
@@ -143,6 +149,7 @@
 					<div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly</div>
 					<div><kbd>Space</kbd> / <kbd>C</kbd> up / down</div>
 					<div><kbd>Shift</kbd> fast · <kbd>Wheel</kbd> zoom</div>
+					<div><kbd>Y</kbd> / <kbd>Shift</kbd><kbd>Y</kbd> faster / slower all the time</div>
 					<div><kbd>G</kbd> fly through walls · <kbd>J</kbd> cinematic camera</div>
 				</section>
 				<section>

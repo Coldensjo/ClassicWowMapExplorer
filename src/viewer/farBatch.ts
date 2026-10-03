@@ -13,7 +13,8 @@ const INFO_WIDTH = 64;
 /**
  * ms; tile textures that arrive are sent to the GPU together, at most this often. Each update
  * of an array texture the GPU may still be drawing with can stall it; thousands of one-layer
- * updates as the world's textures stream in made the first seconds crawl.
+ * updates as the world's textures stream in made the first seconds crawl. So each upload is a
+ * new array texture instead (see upload).
  */
 const UPLOAD_INTERVAL = 500;
 
@@ -98,23 +99,37 @@ export class FarBatch {
 		return true;
 	}
 
-	/** Sends the array texture, every layer at once, and the tiles' info with it. */
+	/**
+	 * Sends the array texture, every layer at once, and the tiles' info with it. Once sent, the
+	 * array goes to a new texture over the same data rather than being updated in place: on
+	 * Direct3D (Chrome's default on Windows) each write to a texture the GPU may still be using
+	 * cost as much as copying all of it, seconds of frozen frames as the world's textures came in.
+	 */
 	private upload(): void {
 		this.uploadTimer = null;
+		const old = this.maps;
+		if (old?.version) {
+			// A new image, so three gives it a texture of its own.
+			const { width, height, depth } = old.image;
+			this.maps = this.configure(old instanceof THREE.CompressedArrayTexture
+				? new THREE.CompressedArrayTexture(old.mipmaps, width, height, depth, old.format)
+				: new THREE.DataArrayTexture((old.image as { data: Uint8Array }).data, width, height, depth));
+			old.dispose();
+		}
 		if (this.maps) this.maps.needsUpdate = true;
 		this.uniforms.uFarInfo.value.needsUpdate = true;
 	}
 
 	/** The array texture, laid out after the first tile texture that arrives. */
 	private createMaps(first: TextureData): THREE.CompressedArrayTexture | THREE.DataArrayTexture {
-		let maps: THREE.CompressedArrayTexture | THREE.DataArrayTexture;
-		if (first.format === 'rgba') {
-			maps = new THREE.DataArrayTexture(new Uint8Array(first.width * first.height * 4 * this.layers), first.width, first.height, this.layers);
-			maps.generateMipmaps = true;
-		} else {
-			const mipmaps = first.mips.map((m) => ({ data: new Uint8Array(m.data.length * this.layers), width: m.width, height: m.height }));
-			maps = new THREE.CompressedArrayTexture(mipmaps as unknown as THREE.CompressedTextureMipmap[], first.width, first.height, this.layers, COMPRESSED_FORMATS[first.format]);
-		}
+		if (first.format === 'rgba') return this.configure(new THREE.DataArrayTexture(new Uint8Array(first.width * first.height * 4 * this.layers), first.width, first.height, this.layers));
+		const mipmaps = first.mips.map((m) => ({ data: new Uint8Array(m.data.length * this.layers), width: m.width, height: m.height }));
+		return this.configure(new THREE.CompressedArrayTexture(mipmaps as unknown as THREE.CompressedTextureMipmap[], first.width, first.height, this.layers, COMPRESSED_FORMATS[first.format]));
+	}
+
+	/** Sets up a new array texture and has the material draw with it. */
+	private configure<T extends THREE.CompressedArrayTexture | THREE.DataArrayTexture>(maps: T): T {
+		if (maps instanceof THREE.DataArrayTexture) maps.generateMipmaps = true;
 		maps.colorSpace = THREE.SRGBColorSpace;
 		maps.wrapS = maps.wrapT = THREE.ClampToEdgeWrapping;
 		maps.magFilter = THREE.LinearFilter;

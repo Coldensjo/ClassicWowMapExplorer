@@ -26,6 +26,8 @@ export interface SplatGeometry {
 	colors: Float32Array;
 	/** Chunk index (y * 16 + x) per vertex, so the shader can find the chunk's alpha map. */
 	chunks: Float32Array;
+	/** Per vertex, how far below the terrain edge it hangs (see TerrainGeometry). */
+	skirt: Float32Array;
 	indices: Uint32Array;
 }
 
@@ -69,6 +71,7 @@ export function buildSplatTerrain(root: AdtRoot, tex: AdtTex, skirtDepth = 30): 
 	const uvs = new Float32Array(vertexCount * 2);
 	const colors = new Float32Array(vertexCount * 3).fill(1);
 	const chunkIds = new Float32Array(vertexCount);
+	const skirt = new Float32Array(vertexCount);
 	let next = 0;
 
 	const addVertex = (sharedIndex: number, chunkId: number, color: Float32Array | null, colorIndex: number, drop = 0): number => {
@@ -80,6 +83,7 @@ export function buildSplatTerrain(root: AdtRoot, tex: AdtTex, skirtDepth = 30): 
 		uvs.set(shared.uvs.subarray(sharedIndex * 2, sharedIndex * 2 + 2), v * 2);
 		if (color) colors.set(color.subarray(colorIndex * 3, colorIndex * 3 + 3), v * 3);
 		chunkIds[v] = chunkId;
+		skirt[v] = drop;
 		return v;
 	};
 
@@ -176,7 +180,7 @@ export function buildSplatTerrain(root: AdtRoot, tex: AdtTex, skirtDepth = 30): 
 		if (l.height) textures.add(l.height);
 	}
 	return {
-		geometry: { positions, normals, uvs, colors, chunks: chunkIds, indices: new Uint32Array(indices) },
+		geometry: { positions, normals, uvs, colors, chunks: chunkIds, skirt, indices: new Uint32Array(indices) },
 		groups,
 		alpha,
 		textures: [...textures],

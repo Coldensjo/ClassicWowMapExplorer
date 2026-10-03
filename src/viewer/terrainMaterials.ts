@@ -57,8 +57,10 @@ const VERTEX_PARS = /* glsl */ `
 	flat varying vec4 vFarInfo;
 	varying vec2 vFarUv;
 #endif
+attribute float skirt;
 varying float vWorldY;
 varying vec2 vWorldXZ;
+varying float vSkirt;
 `;
 
 const VERTEX_MAIN = /* glsl */ `
@@ -82,12 +84,14 @@ const VERTEX_MAIN = /* glsl */ `
 	vec4 terrainWorld = modelMatrix * terrainLocal;
 	vWorldY = terrainWorld.y;
 	vWorldXZ = terrainWorld.xz;
+	vSkirt = skirt;
 `;
 
 const FRAGMENT_PARS = /* glsl */ `
 uniform vec3 uDeepWater;
 varying float vWorldY;
 varying vec2 vWorldXZ;
+varying float vSkirt;
 ${SEA_MASK}
 #ifdef TERRAIN_SPLAT
 	uniform sampler2D uAlpha;
@@ -117,6 +121,9 @@ ${SEA_MASK}
 // Replaces <map_fragment>: blends up to four layers with the chunk's alpha maps, like the
 // client's terrain shader (weights 1 - sum(a), a1, a2, a3, optionally sharpened by height).
 const FRAGMENT_MAP = /* glsl */ `
+	// Skirts only fill cracks seen from above. From below the terrain's edge (under the ground)
+	// they'd stand as walls around the tiles, so they go. vWorldY + vSkirt is the edge's height here.
+	if (vSkirt > 0.0 && cameraPosition.y < vWorldY + vSkirt) discard;
 #ifdef TERRAIN_SPLAT
 {
 	float ci = floor(vChunk + 0.5);

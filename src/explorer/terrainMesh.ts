@@ -6,6 +6,8 @@ export interface TerrainGeometry {
 	positions: Float32Array;
 	normals: Float32Array;
 	uvs: Float32Array;
+	/** Per vertex, how far below the terrain edge it hangs: 0 on the surface, the skirt's depth at its foot. */
+	skirt: Float32Array;
 	indices: Uint32Array;
 }
 
@@ -28,6 +30,7 @@ export function buildTerrainMesh(
 	const vertexCount = outerCount + innerCount + perimeter;
 	const positions = new Float32Array(vertexCount * 3);
 	const uvs = new Float32Array(vertexCount * 2);
+	const skirt = new Float32Array(vertexCount);
 	const cell = size / n;
 
 	const setVertex = (i: number, x: number, y: number, z: number) => {
@@ -53,6 +56,7 @@ export function buildTerrainMesh(
 	const skirtStart = outerCount + innerCount;
 	ring.forEach((v, k) => {
 		setVertex(skirtStart + k, positions[v * 3], positions[v * 3 + 1] - skirtDepth, positions[v * 3 + 2]);
+		skirt[skirtStart + k] = skirtDepth;
 	});
 
 	const indices: number[] = [];
@@ -78,7 +82,7 @@ export function buildTerrainMesh(
 	}
 
 	const index = new Uint32Array(indices);
-	return { positions, normals: computeNormals(positions, index, outerCount + innerCount), uvs, indices: index };
+	return { positions, normals: computeNormals(positions, index, outerCount + innerCount), uvs, skirt, indices: index };
 }
 
 /** Area-weighted vertex normals from the surface triangles; skirt vertices copy their top vertex. */

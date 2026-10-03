@@ -92,6 +92,7 @@ function toBufferGeometry(g: TerrainGeometry | SplatGeometry): THREE.BufferGeome
 	geometry.setAttribute('position', new THREE.BufferAttribute(g.positions, 3));
 	geometry.setAttribute('normal', new THREE.BufferAttribute(g.normals, 3));
 	geometry.setAttribute('uv', new THREE.BufferAttribute(g.uvs, 2));
+	geometry.setAttribute('skirt', new THREE.BufferAttribute(g.skirt, 1));
 	if ('colors' in g) {
 		geometry.setAttribute('color', new THREE.BufferAttribute(g.colors, 3));
 		geometry.setAttribute('chunkIndex', new THREE.BufferAttribute(g.chunks, 1));

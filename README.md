@@ -128,7 +128,7 @@ Press **Ctrl+C** in the terminal to stop it. To update later, run `git pull` and
 | 1, 2 | Jump to a continent |
 | O | Overview of the whole world |
 | R | Return to the start position |
-| T / Shift+T | Time of day forward / back |
+| T / Shift+T | Hold to run the time of day forward / back |
 | N | Reset time to the local clock |
 | L | Torch light on / off |
 | V | Ground clutter (grass, flowers, pebbles) on / off |

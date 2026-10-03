@@ -101,8 +101,8 @@ const SHOT_SETTLE = 500;
 const SHOT_TIMEOUT = 180000;
 /** How far above the camera (yards) to look for a liquid surface. */
 const LIQUID_PROBE = 400;
-/** Half-minutes the T key moves the time of day (15 minutes). */
-const TIME_STEP = 30;
+/** Half-minutes a second that holding T moves the time of day (3 hours, a day in 8 seconds). */
+const TIME_RATE = 360;
 /** Yards; NPC names show within this distance, like the game's name plates. */
 const NAMEPLATE_RANGE = 45;
 /** Yards; clicks further than this don't select anything. */
@@ -290,6 +290,9 @@ export class Viewer {
 	private readonly areas = new Map<number, AreaInfo>();
 	/** Half-minutes added to the local clock (T / Shift+T, N resets). */
 	private timeOffset = 0;
+	/** Which way the time of day is running while T is held: 1 forward, -1 back (Shift), 0 not held. */
+	private timeRunning = 0;
+	private lastTimeChange = 0;
 	private lastLightUpdate = 0;
 	/** Warm light carried with the camera, like holding a torch (L toggles it). */
 	private readonly torch = new THREE.PointLight(TORCH_COLOR, 0, TORCH_RANGE, 2);
@@ -399,6 +402,10 @@ export class Viewer {
 
 		window.addEventListener('resize', () => this.resize());
 		window.addEventListener('keydown', (e) => this.onKey(e));
+		window.addEventListener('keyup', (e) => {
+			if (e.code === 'KeyT') this.stopTime();
+		});
+		window.addEventListener('blur', () => this.stopTime());
 		canvas.addEventListener('click', (e) => this.onClick(e));
 		canvas.addEventListener('mousemove', (e) => this.onHover(e));
 		this.resize();
@@ -881,11 +888,10 @@ export class Viewer {
 		else if (e.code === 'KeyO') this.overview();
 		else if (e.code === 'KeyR') this.controls.flyTo(this.startPosition(), 0, -0.3, 2.5);
 		else if (e.code.startsWith('Digit')) this.goToContinent(Number(e.code.slice(5)) - 1);
-		// Letters rather than [ ] \, which need AltGr on many layouts. Holding T keeps going.
-		else if (e.code === 'KeyT') {
-			this.timeOffset += e.shiftKey ? -TIME_STEP : TIME_STEP;
-			this.onChange('time');
-		} else if (e.code === 'KeyY') {
+		// Letters rather than [ ] \, which need AltGr on many layouts. The sun moves while T is
+		// held; key repeats only pick up Shift being pressed or let go along the way.
+		else if (e.code === 'KeyT') this.timeRunning = e.shiftKey ? -1 : 1;
+		else if (e.code === 'KeyY') {
 			this.settings = { flySpeed: this.controls.speedScale * 2 ** (e.shiftKey ? -FLY_SPEED_STEP : FLY_SPEED_STEP) };
 			this.onChange('flySpeed');
 		} else if (e.code === 'KeyN') {
@@ -1035,7 +1041,15 @@ export class Viewer {
 			this.lastTriggerCheck = now;
 			this.checkTriggers();
 		}
-		if (now - this.lastLightUpdate > 100) {
+		// While T is held the light follows every frame, so the sun glides rather than steps.
+		if (this.timeRunning) {
+			this.timeOffset += this.timeRunning * TIME_RATE * dt;
+			this.updateLighting();
+			if (now - this.lastTimeChange > 100) {
+				this.lastTimeChange = now;
+				this.onChange('time');
+			}
+		} else if (now - this.lastLightUpdate > 100) {
 			this.lastLightUpdate = now;
 			this.updateLighting();
 		}
@@ -1169,7 +1183,13 @@ export class Viewer {
 	/** Game time in half-minutes: the local clock, shifted with T and Shift+T. */
 	private timeOfDay(): number {
 		const t = this.clockTime() + this.timeOffset;
-		return ((Math.round(t) % DAY) + DAY) % DAY;
+		return ((t % DAY) + DAY) % DAY;
+	}
+
+	private stopTime(): void {
+		if (!this.timeRunning) return;
+		this.timeRunning = 0;
+		this.onChange('time');
 	}
 
 	/** Position in WoW world coordinates (x north, y west) and the continent's map ID. */

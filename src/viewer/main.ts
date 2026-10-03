@@ -7,6 +7,7 @@ import type { MapCategory, MapListing } from '../explorer/world';
 import type { HighlightGroup, HighlightSettings } from './highlights';
 import { Minimap } from './minimap';
 import { isTyping } from './typing';
+import { loadUiAssets } from './uiAssets';
 import { FLY_SPEED_RANGE, FLY_SPEED_STEP, Viewer, type HudInfo, type ViewSettings } from './viewer';
 import { setVolume, volumeSetting, type VolumeChannel } from './volume';
 
@@ -172,22 +173,6 @@ $('pick-direct').addEventListener('click', async () => {
 
 $('explore').addEventListener('click', () => void explore());
 
-/** Fonts\FRIZQT__.TTF, Friz Quadrata: the game's font for names over heads and most of its interface. */
-const GAME_FONT = 615960;
-
-/**
- * Takes the game's own font from the install for the names over NPCs, as the game draws them.
- * Without it they fall back to a font of this computer's.
- */
-async function loadGameFont(): Promise<void> {
-	try {
-		const face = new FontFace('Friz Quadrata', new Uint8Array(await storage.loadFont(GAME_FONT)));
-		document.fonts.add(await face.load());
-	} catch (e) {
-		console.warn('Game font unavailable:', e);
-	}
-}
-
 /** Opens the chosen game version and starts the viewer. */
 async function explore(): Promise<void> {
 	const button = $<HTMLButtonElement>('explore');
@@ -195,19 +180,19 @@ async function explore(): Promise<void> {
 	for (const id of ['pick', 'pick-direct']) $<HTMLButtonElement>(id).disabled = true;
 	try {
 		await storage.open($<HTMLSelectElement>('product').value);
-		const font = loadGameFont();
+		const ui = loadUiAssets(storage);
 		const viewer = new Viewer($('view'), storage, showHud, showInfo, $('nameplates'));
 		// For poking at the scene from the console (and test scripts) while developing.
 		if (import.meta.env.DEV) (globalThis as unknown as { mapExplorerViewer: Viewer }).mapExplorerViewer = viewer;
 		viewer.onShotStatus = showShotStatus;
 		await viewer.load((text) => showProgress(text));
-		await font;
+		const { minimapArrow } = await ui;
 		showProgress('Starting');
 		$('start').hidden = true;
-		$('hud').hidden = $('side').hidden = $('help-hint').hidden = false;
+		$('top-left').hidden = $('side').hidden = $('help-hint').hidden = false;
 		setUpView(viewer);
 		viewer.start();
-		setUpMinimap(viewer);
+		setUpMinimap(viewer, minimapArrow);
 		void setUpGoTo(viewer);
 		setUpHighlights(viewer);
 		setUpSound(viewer);
@@ -275,10 +260,19 @@ document.addEventListener('click', (e) => {
 	// Space flies up; it mustn't fold a panel or press a button again.
 	(e.target as Element).closest<HTMLElement>('summary, button')?.blur();
 });
-$('view').addEventListener('pointerdown', () => (document.activeElement as HTMLElement | null)?.blur());
+$('view').addEventListener('pointerdown', () => {
+	(document.activeElement as HTMLElement | null)?.blur();
+	closeMenu();
+});
 document.addEventListener('keydown', (e) => {
 	if (e.code === 'Escape' && isTyping(e)) (e.target as HTMLElement).blur();
+	else if (e.code === 'Escape') closeMenu();
 });
+
+/** Folds away whichever of View, Sound and Highlight is open in the top-left menu. */
+function closeMenu(): void {
+	for (const menu of document.querySelectorAll<HTMLDetailsElement>('#menu details[open]')) menu.open = false;
+}
 
 // --- The View panel and the HUD ---
 
@@ -428,8 +422,8 @@ function fillList(id: string, rows: [string, string][]): void {
 
 // --- The minimap ---
 
-function setUpMinimap(viewer: Viewer): void {
-	const minimap = new Minimap($('minimap'), storage, () => viewer.minimapView(), (mapId, x, y) => viewer.flyOver(mapId, x, y));
+function setUpMinimap(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
+	const minimap = new Minimap($('minimap'), storage, () => viewer.minimapView(), (mapId, x, y) => viewer.flyOver(mapId, x, y), arrow);
 	$('minimap-in').addEventListener('click', () => minimap.zoomBy(-1));
 	$('minimap-out').addEventListener('click', () => minimap.zoomBy(1));
 }
@@ -804,6 +798,8 @@ function announceZone(zone: string | null, subzone: string | null): void {
 function showHud(info: HudInfo): void {
 	announceZone(info.zone, info.subzone);
 	$('highlight-status').textContent = info.highlights;
+	// The minimap's zone line, as GetMinimapZoneText: the subzone if there is one.
+	$('minimap-zone').textContent = info.subzone ?? info.zone ?? info.location;
 	$('hud-location').textContent = info.zone ? [info.zone, info.subzone].filter(Boolean).join(' · ') : info.location;
 	$('hud-coords').textContent = info.zone ? `${info.location} · ${info.coordinates}` : info.coordinates;
 	fillList('hud-view', [

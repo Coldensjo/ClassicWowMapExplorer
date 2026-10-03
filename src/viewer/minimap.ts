@@ -38,6 +38,8 @@ export class Minimap {
 		private readonly storage: AsyncStorageApi,
 		private readonly where: () => MinimapView | null,
 		private readonly onPick: (mapId: number, x: number, y: number) => void,
+		/** The game's player arrow (pointing up); without it, one is drawn. */
+		private readonly arrow: HTMLCanvasElement | null = null,
 	) {
 		try {
 			const saved = Number(localStorage.getItem(ZOOM_KEY));
@@ -152,17 +154,21 @@ export class Minimap {
 		ctx.translate(size / 2, size / 2);
 		ctx.rotate(-(view?.yaw ?? 0));
 		ctx.scale(ratio, ratio);
-		ctx.beginPath();
-		ctx.moveTo(0, -9);
-		ctx.lineTo(6, 7);
-		ctx.lineTo(0, 3);
-		ctx.lineTo(-6, 7);
-		ctx.closePath();
-		ctx.fillStyle = '#ffd35a';
-		ctx.strokeStyle = '#000';
-		ctx.lineWidth = 1.5;
-		ctx.fill();
-		ctx.stroke();
+		if (this.arrow) {
+			ctx.drawImage(this.arrow, -this.arrow.width / 2, -this.arrow.height / 2);
+		} else {
+			ctx.beginPath();
+			ctx.moveTo(0, -9);
+			ctx.lineTo(6, 7);
+			ctx.lineTo(0, 3);
+			ctx.lineTo(-6, 7);
+			ctx.closePath();
+			ctx.fillStyle = '#ffd35a';
+			ctx.strokeStyle = '#000';
+			ctx.lineWidth = 1.5;
+			ctx.fill();
+			ctx.stroke();
+		}
 		ctx.restore();
 	}
 }

@@ -97,6 +97,9 @@ const api: AsyncStorageApi = {
 	async loadFont(fdid) {
 		return requireWorld().loadFont(fdid);
 	},
+	async loadInterfaceImages(paths) {
+		return requireWorld().loadInterfaceImages(paths);
+	},
 	async loadSound(fdid) {
 		return requireWorld().loadSound(fdid);
 	},

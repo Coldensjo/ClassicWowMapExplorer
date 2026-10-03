@@ -174,10 +174,66 @@ button.big {
 	cursor: pointer;
 }
 
-#hud {
+/* Top left: the settings menu with the camera's whereabouts under it. */
+#top-left {
 	position: fixed;
 	top: 12px;
 	left: 12px;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 8px;
+	pointer-events: none;
+}
+
+/* View, Sound and Highlight: tabs whose panels drop down over the HUD, one open at a time. */
+#menu {
+	position: relative;
+	display: flex;
+	gap: 4px;
+	pointer-events: auto;
+}
+
+#menu summary {
+	list-style: none;
+	cursor: pointer;
+	user-select: none;
+	font-size: 13px;
+	font-weight: 600;
+	background: var(--panel);
+	border: 1px solid transparent;
+	border-radius: 6px;
+	padding: 5px 12px;
+}
+
+#menu summary::-webkit-details-marker {
+	display: none;
+}
+
+#menu summary:hover, #menu details[open] > summary {
+	color: var(--accent);
+}
+
+#menu details[open] > summary {
+	border-color: var(--accent);
+}
+
+#menu .menu-body {
+	position: absolute;
+	left: 0;
+	top: calc(100% + 6px);
+	width: 300px;
+	max-height: calc(100vh - 70px);
+	overflow-y: auto;
+	scrollbar-width: thin;
+}
+
+/* The HUD steps aside while a menu is open over it. */
+#top-left:has(#menu details[open]) #hud {
+	visibility: hidden;
+}
+
+#hud {
 	background: var(--panel);
 	border-radius: 6px;
 	padding: 8px 12px;
@@ -421,8 +477,8 @@ kbd {
 }
 
 /*
- * The right column: minimap and Go to at the top, settings at the bottom, and the info for
- * what was clicked between them, scrolling rather than covering anything.
+ * The right column: minimap and Go to at the top, and the info for what was clicked under
+ * them, scrolling rather than covering anything.
  */
 #side {
 	position: fixed;
@@ -441,11 +497,6 @@ kbd {
 #side > * {
 	pointer-events: auto;
 	flex: none;
-}
-
-#side > .spacer {
-	flex: 1 1 0;
-	pointer-events: none;
 }
 
 #minimap-wrap {
@@ -480,6 +531,11 @@ kbd {
 	display: grid;
 	place-items: center;
 	pointer-events: none;
+}
+
+/* The game's ring and zone bar; only with its interface pictures (.wow-ui, below). */
+#minimap-wrap .ring, #minimap-zone {
+	display: none;
 }
 
 #minimap-wrap .zoom {
@@ -666,7 +722,7 @@ kbd {
 	top: 0;
 	text-align: center;
 	white-space: nowrap;
-	font: 700 15px/1.2 'Trebuchet MS', system-ui, sans-serif;
+	font: 400 15px/1.2 'Friz Quadrata', 'Trebuchet MS', system-ui, sans-serif;
 	color: #ffd100;
 	text-shadow: 1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000, 0 0 6px #000;
 	will-change: transform;
@@ -679,22 +735,16 @@ kbd {
 }
 
 /* Alt+Z or U: only the world. */
-.ui-hidden :is(#hud, #help, #help-hint, #side, #zone-banner, #crosshair, #nameplates) {
+.ui-hidden :is(#top-left, #help, #help-hint, #side, #zone-banner, #crosshair, #nameplates) {
 	display: none !important;
 }
 
-/* The panels at the bottom right; View and Sound fold away until wanted. */
+/* The menu's panels. */
 .panel {
 	background: var(--panel);
 	border-radius: 6px;
-	padding: 6px 12px;
+	padding: 6px 12px 10px;
 	font-size: 13px;
-}
-
-.panel summary {
-	cursor: pointer;
-	user-select: none;
-	font-weight: 600;
 }
 
 .panel input[type='checkbox'], .panel input[type='range'] {
@@ -775,7 +825,7 @@ kbd {
 }
 
 /* What to highlight on the ground. */
-#highlight {
+#highlight .menu-body {
 	padding: 8px 12px;
 	display: grid;
 	gap: 6px;
@@ -846,7 +896,7 @@ kbd {
 	left: 0;
 	top: 0;
 	white-space: nowrap;
-	font: 700 12px/1.2 'Trebuchet MS', system-ui, sans-serif;
+	font: 400 12px/1.2 'Friz Quadrata', 'Trebuchet MS', system-ui, sans-serif;
 	color: var(--beacon);
 	text-shadow: 1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000;
 	will-change: transform;
@@ -897,7 +947,7 @@ kbd {
 }
 
 /* The interface stays above the names, which can grow large up close. */
-:is(#hud, #side, #help-hint, #help, #notice, #shot-status, #zone-banner) {
+:is(#top-left, #side, #help-hint, #help, #notice, #shot-status, #zone-banner) {
 	z-index: 1;
 }
 
@@ -924,4 +974,326 @@ kbd {
 /* The <Title> line takes the name's colour and size; hidden when there's none. */
 .plate-sub:empty {
 	display: none;
+}
+
+/*
+ * The game's own look, once uiAssets.ts has read its interface pictures from the install and
+ * set them as --wow-* variables: Friz Quadrata throughout, gold labels (GameFontNormal), panels
+ * in the tooltip's backdrop, dialogs in the dialog box's, and the red buttons, checkboxes,
+ * sliders and input boxes of the default interface.
+ */
+body.wow-ui {
+	--accent: #ffd100;
+	--text: #ffffff;
+	--muted: #b4b4b4;
+	--line: #5c5c5c;
+	--tooltip: rgba(9, 9, 24, 0.86);
+	font-family: 'Friz Quadrata', 'Trebuchet MS', system-ui, sans-serif;
+}
+
+/* Tooltip backdrop: 16-unit edges, the dark blue fill inset under them. */
+.wow-ui :is(#hud, #goto, #info, .panel, #help-hint, #notice, #shot-status) {
+	border: 5px solid transparent;
+	border-radius: 6px;
+	border-image: var(--wow-tooltip-border) 16 / 16px / 0 round;
+	background: var(--tooltip);
+}
+
+/* Dialog box backdrop: 32-unit edges over the dark tiled fill, inset 11. */
+.wow-ui :is(.help-card, .card) {
+	border: 11px solid transparent;
+	border-radius: 14px;
+	border-image: var(--wow-dialog-border) 32 / 32px / 0 round;
+	background: var(--wow-dialog-background) repeat, rgba(0, 0, 0, 0.6);
+}
+
+.wow-ui :is(h1, h2, h3, #hud-location) {
+	color: var(--accent);
+	font-weight: 400;
+}
+
+.wow-ui .card h1, .wow-ui .help-card h2 {
+	text-align: center;
+	text-shadow: 1px 1px 0 #000;
+}
+
+.wow-ui .help-card h3 {
+	text-transform: none;
+	letter-spacing: 0;
+	font-size: 13px;
+}
+
+.wow-ui #info-pages {
+	font: 15px/1.45 Morpheus, Georgia, serif;
+}
+
+/* The ring picture reaches past the column's edge; its scroll bar in the interface's greys. */
+.wow-ui #side {
+	overflow-x: hidden;
+	scrollbar-color: #5c5c5c transparent;
+}
+
+.wow-ui #menu .menu-body {
+	scrollbar-color: #5c5c5c transparent;
+}
+
+.wow-ui kbd {
+	font-family: 'Arial Narrow', ui-monospace, monospace;
+	font-size: 12px;
+	color: var(--text);
+	background: rgba(0, 0, 0, 0.6);
+	border-color: #5c5c5c;
+}
+
+/* UIPanelButtonTemplate: the red button, gold text, its pressed picture while held. */
+.wow-ui button:not(.plain, #minimap-in, #minimap-out, #info-close) {
+	border-style: solid;
+	border-width: 0 10px;
+	border-radius: 0;
+	border-image: var(--wow-button-up) 0 12 fill / 0 10px stretch;
+	background: none;
+	color: var(--accent);
+	text-shadow: 1px 1px 0 #000;
+	padding: 3px 2px;
+	min-height: 22px;
+}
+
+.wow-ui button:not(.plain, #minimap-in, #minimap-out, #info-close):hover:not(:disabled) {
+	color: #fff;
+	filter: brightness(1.25);
+}
+
+.wow-ui button:not(.plain, #minimap-in, #minimap-out, #info-close):active:not(:disabled) {
+	border-image-source: var(--wow-button-down);
+	padding: 4px 1px 2px 3px;
+}
+
+.wow-ui button:not(.plain, #minimap-in, #minimap-out, #info-close):disabled {
+	color: #808080;
+	filter: grayscale(0.8);
+}
+
+/* The menu's tabs as the same buttons, held down while open. */
+.wow-ui #menu summary {
+	border-style: solid;
+	border-width: 0 10px;
+	border-radius: 0;
+	border-image: var(--wow-button-up) 0 12 fill / 0 10px stretch;
+	background: none;
+	color: var(--accent);
+	font-weight: 400;
+	text-shadow: 1px 1px 0 #000;
+	padding: 4px 6px;
+}
+
+.wow-ui #menu summary:hover {
+	color: #fff;
+	filter: brightness(1.25);
+}
+
+.wow-ui #menu details[open] > summary {
+	border-image-source: var(--wow-button-down);
+	color: #fff;
+	padding: 5px 5px 3px 7px;
+}
+
+.wow-ui button.primary {
+	font-weight: 400;
+}
+
+.wow-ui button.big {
+	padding: 8px 6px;
+}
+
+/* UICheckButtonTemplate: the box, its tick, and the glow under the mouse. */
+.wow-ui input[type='checkbox'] {
+	appearance: none;
+	flex: none;
+	width: 26px;
+	height: 26px;
+	margin: -4px -2px -4px -4px;
+	background: var(--wow-checkbox-up) center / 100% no-repeat;
+	cursor: pointer;
+}
+
+.wow-ui input[type='checkbox']:checked {
+	background-image: var(--wow-checkbox-check), var(--wow-checkbox-up);
+}
+
+.wow-ui input[type='checkbox']:hover {
+	background-image: var(--wow-checkbox-highlight), var(--wow-checkbox-up);
+}
+
+.wow-ui input[type='checkbox']:checked:hover {
+	background-image: var(--wow-checkbox-check), var(--wow-checkbox-highlight), var(--wow-checkbox-up);
+}
+
+/* OptionsSliderTemplate: an 8-unit edged groove and the gold-capped thumb. */
+.wow-ui input[type='range'] {
+	appearance: none;
+	height: 17px;
+	background: none;
+	cursor: pointer;
+}
+
+.wow-ui input[type='range']::-webkit-slider-runnable-track {
+	height: 17px;
+	border-style: solid;
+	border-width: 6px 3px;
+	border-image: var(--wow-slider-border) 8 / 8px round;
+	background: var(--wow-slider-background) repeat;
+}
+
+.wow-ui input[type='range']::-webkit-slider-thumb {
+	appearance: none;
+	width: 32px;
+	height: 32px;
+	margin-top: -13.5px;
+	background: var(--wow-slider-thumb) center / 100% no-repeat;
+}
+
+.wow-ui input[type='range']::-moz-range-track {
+	height: 5px;
+	border-style: solid;
+	border-width: 6px 3px;
+	border-image: var(--wow-slider-border) 8 / 8px round;
+	background: var(--wow-slider-background) repeat;
+}
+
+.wow-ui input[type='range']::-moz-range-thumb {
+	width: 32px;
+	height: 32px;
+	border: none;
+	background: var(--wow-slider-thumb) center / 100% no-repeat;
+}
+
+/* InputBoxTemplate: the framed text box. */
+.wow-ui :is(#goto-query, #highlight-query) {
+	border-style: solid;
+	border-width: 0 8px;
+	border-radius: 0;
+	border-image: var(--wow-input-border) 0 8 fill / 0 8px stretch;
+	background: none;
+	font-family: 'Arial Narrow', 'Friz Quadrata', sans-serif;
+	font-size: 14px;
+	padding-left: 2px;
+}
+
+.wow-ui select {
+	background: rgba(0, 0, 0, 0.7);
+	border-color: #5c5c5c;
+	color: var(--accent);
+}
+
+.wow-ui #goto-results li[aria-selected='true'] {
+	background: linear-gradient(90deg, rgba(255, 209, 0, 0.28), rgba(255, 209, 0, 0.05));
+}
+
+.wow-ui :is(#info-close, #help-close) {
+	color: var(--accent);
+}
+
+/*
+ * The minimap as MinimapCluster draws it: UI-Minimap-Border holds both the ring (centre
+ * 168.5, 106.5, inner radius 65 in its 256 units) and the zone bar above it (84–254, 2–26).
+ * --mm-s scales those units so the ring's inside covers the map's edge; the box is the bar's
+ * width by bar top to ring bottom, and everything is placed in those units.
+ */
+.wow-ui #minimap-wrap {
+	--mm-s: 1.27;
+	--mm-d: calc(134px * var(--mm-s));
+	--mm-cx: calc(84.5px * var(--mm-s));
+	--mm-cy: calc(104.5px * var(--mm-s));
+	width: calc(170px * var(--mm-s));
+	height: calc(178px * var(--mm-s));
+}
+
+.wow-ui #minimap {
+	position: absolute;
+	left: calc(var(--mm-cx) - var(--mm-d) / 2);
+	top: calc(var(--mm-cy) - var(--mm-d) / 2);
+	width: var(--mm-d);
+	height: var(--mm-d);
+	border: none;
+	box-shadow: none;
+}
+
+.wow-ui #minimap-wrap .ring {
+	display: block;
+	position: absolute;
+	left: calc(-84px * var(--mm-s));
+	top: calc(-2px * var(--mm-s));
+	width: calc(256px * var(--mm-s));
+	height: calc(256px * var(--mm-s));
+	background: var(--wow-minimap-border) 0 0 / 100% no-repeat;
+	pointer-events: none;
+}
+
+/* MinimapZoneText: GameFontNormal in the bar. */
+.wow-ui #minimap-zone {
+	display: block;
+	position: absolute;
+	left: calc(8px * var(--mm-s));
+	right: calc(8px * var(--mm-s));
+	top: 0;
+	height: calc(24px * var(--mm-s));
+	line-height: calc(24px * var(--mm-s));
+	text-align: center;
+	font-size: 12px;
+	color: var(--accent);
+	text-shadow: 1px 1px 0 #000;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	pointer-events: none;
+}
+
+/* MinimapNorthTag on the top of the ring. */
+.wow-ui #minimap-wrap .north {
+	top: calc(var(--mm-cy) - 79px * var(--mm-s));
+	left: var(--mm-cx);
+	width: calc(16px * var(--mm-s));
+	height: calc(16px * var(--mm-s));
+	border: none;
+	border-radius: 0;
+	background: var(--wow-minimap-north) center / 100% no-repeat;
+	font-size: 0;
+}
+
+/* MinimapZoomIn and MinimapZoomOut, on the ring at the lower right. */
+.wow-ui #minimap-wrap .zoom {
+	display: contents;
+}
+
+.wow-ui #minimap-wrap .zoom button {
+	position: absolute;
+	width: calc(30px * var(--mm-s));
+	height: calc(30px * var(--mm-s));
+	margin: calc(-15px * var(--mm-s)) 0 0 calc(-15px * var(--mm-s));
+	border: none;
+	border-radius: 50%;
+	background: var(--zoom-up) center / 107% no-repeat;
+	font-size: 0;
+}
+
+.wow-ui #minimap-in {
+	--zoom-up: var(--wow-zoom-in-up);
+	--zoom-down: var(--wow-zoom-in-down);
+	left: calc(var(--mm-cx) + 67px * var(--mm-s));
+	top: calc(var(--mm-cy) + 22px * var(--mm-s));
+}
+
+.wow-ui #minimap-out {
+	--zoom-up: var(--wow-zoom-out-up);
+	--zoom-down: var(--wow-zoom-out-down);
+	left: calc(var(--mm-cx) + 46px * var(--mm-s));
+	top: calc(var(--mm-cy) + 52px * var(--mm-s));
+}
+
+.wow-ui #minimap-wrap .zoom button:hover {
+	background-image: var(--wow-zoom-highlight), var(--zoom-up);
+}
+
+.wow-ui #minimap-wrap .zoom button:active {
+	background-image: var(--zoom-down);
 }

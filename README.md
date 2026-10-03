@@ -143,7 +143,7 @@ Press **Ctrl+C** in the terminal to stop it. To update later, run `git pull` and
 | ? or F1 | List of controls |
 
 Every key that switches something shows what it did, low in the middle of the screen. All of them are
-also under **View** and **Sound** at the bottom right, which remember your choices between visits.
+also in the **View** and **Sound** menus at the top left, which remember your choices between visits.
 
 **Go to** (top right, or press /) finds any zone, town or landmark by name, and every map in the
 install, including ones nothing leads to. Empty, it lists the maps by kind. The other maps also sit
@@ -153,7 +153,7 @@ Maps that are a single building (most dungeons) lie under the sea until you fly 
 The **minimap** above it shows the game's own map around you, north up. Click it to fly there, and
 zoom it with the wheel or its + and − buttons.
 
-**Highlight** (bottom right) marks chests, herbs, ore and fishing pools within 1000 yards, through
+**Highlight** (top left) marks chests, herbs, ore and fishing pools within 1000 yards, through
 terrain and buildings; typing a name marks every creature or object with that name on the map, however far away.
 The spawn data lists every place a herb or vein can appear, so there are more marks than nodes up at any one time.
 

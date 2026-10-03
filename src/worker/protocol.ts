@@ -41,6 +41,7 @@ export interface StorageApi {
 	wmoArea(wmoId: number, nameSet: number, groupId: number): WmoArea | null;
 	loadSound(fdid: number): Uint8Array;
 	loadFont(fdid: number): Uint8Array;
+	loadInterfaceImages(paths: string[]): (Image | null)[];
 }
 
 export type AsyncStorageApi = {

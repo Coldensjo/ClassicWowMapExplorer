@@ -1,6 +1,6 @@
 import { parseAdtRoot, TILE_CELLS, TILE_SIZE, tileGrids } from '../formats/adt';
 import { parseAdtTex } from '../formats/adtTex';
-import { blpTexture, type TextureData } from '../formats/blp';
+import { blpTexture, decodeBlp, type Image, type TextureData } from '../formats/blp';
 import type { LiquidKind } from '../formats/mh2o';
 import { parseWdl, WDL_CELLS } from '../formats/wdl';
 import { DB2_FILES, liquidKinds, liquidLooks, loadTable, lockKinds, type LiquidLooks, type LockKind } from './clientDb';
@@ -350,12 +350,26 @@ export class WorldLoader {
 		return this.music.wmoArea(wmoId, nameSet, groupId);
 	}
 
-	/** A sound file's bytes (the music tracks are MP3s). */
 	/** A font file from the game (Fonts\*.ttf), as it is. */
 	async loadFont(fdid: number): Promise<Uint8Array> {
 		return (await this.storage.readFile(fdid)).slice();
 	}
 
+	/** Pictures of the game's own interface by path ("interface/minimap/ui-minimap-border.blp"); null for any it lacks. */
+	async loadInterfaceImages(paths: string[]): Promise<(Image | null)[]> {
+		return Promise.all(paths.map(async (path) => {
+			const fdid = this.storage.lookupPath(path);
+			if (fdid === null) return null;
+			try {
+				return decodeBlp(await this.storage.readFile(fdid));
+			} catch (e) {
+				console.warn(`Interface image ${path} unreadable:`, e);
+				return null;
+			}
+		}));
+	}
+
+	/** A sound file's bytes (the music tracks are MP3s). */
 	async loadSound(fdid: number): Promise<Uint8Array> {
 		// A copy: the result is transferred to the main thread, and the storage may cache what it read.
 		return (await this.storage.readFile(fdid)).slice();

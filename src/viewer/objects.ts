@@ -4,6 +4,7 @@ import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
 import type { SpawnInfo } from '../explorer/spawns';
 import type { AsyncStorageApi } from '../worker/protocol';
 import { createModelMaterial, createSkinnedDepthMaterial, type SkinUniforms } from './modelMaterials';
+import { applyWalkable } from './walkable';
 import { Mover, type GroundAt } from './movers';
 import { perf } from './perf';
 import { PARTICLE_RANGE, SHOT_PARTICLE_RANGE, ParticleSystem, type EmitterSource, type LoadedEmitter } from './particles';
@@ -428,7 +429,10 @@ export class ObjectManager {
 		const batches = [...data.batches].sort((a, b) => a.order - b.order);
 		entry.materials = batches.map((b, i) => {
 			geometry.addGroup(b.start, b.count, i);
-			return createModelMaterial(b.material, textures.get(b.material.texture) ?? null, !!data.baked, skin);
+			const material = createModelMaterial(b.material, textures.get(b.material.texture) ?? null, !!data.baked, skin);
+			// Buildings are what the camera collides with (see sweep); doodads aren't solid.
+			if (entry.kind === 'wmo') applyWalkable(material);
+			return material;
 		});
 		geometry.computeBoundingSphere();
 		if (data.bvh) {

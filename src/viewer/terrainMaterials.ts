@@ -3,6 +3,7 @@ import type { SplatLayer } from '../explorer/splatMesh';
 import type { LiquidLooks } from '../explorer/clientDb';
 import type { LiquidKind } from '../formats/mh2o';
 import { applyTerrainShadow } from './terrainShadow';
+import { applyWalkable } from './walkable';
 
 /** Colour the sea floor fades to with depth below sea level. */
 const DEEP_WATER = new THREE.Color(0x0e2c3c);
@@ -170,6 +171,7 @@ function patch(material: THREE.MeshLambertMaterial, uniforms: Record<string, THR
 	};
 	material.customProgramCacheKey = () => key;
 	applyTerrainShadow(material);
+	applyWalkable(material);
 }
 
 /** Low-detail terrain: the baked map texture, with the underwater tint. */

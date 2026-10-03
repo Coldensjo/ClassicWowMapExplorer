@@ -13,6 +13,8 @@ export interface HighlightSettings {
 	groups: HighlightGroup[];
 	/** Also any object or NPC whose name contains this (any case); empty for none. */
 	query: string;
+	/** Tint terrain and buildings by whether their slopes can be walked on (see walkable.ts). */
+	walkable: boolean;
 }
 
 /** A spawn that can be highlighted, in continent space (before the map's offset in the world). */
@@ -58,7 +60,7 @@ const LIFT = 1;
  * node can appear, while the server only fills some of them at a time.
  */
 export class Highlights {
-	private settings: HighlightSettings = { on: false, groups: [], query: '' };
+	private settings: HighlightSettings = { on: false, groups: [], query: '', walkable: false };
 	private readonly maps = new Map<number, Target[] | 'pending' | null>();
 	private readonly pool: HTMLDivElement[] = [];
 	private readonly projected = new THREE.Vector3();

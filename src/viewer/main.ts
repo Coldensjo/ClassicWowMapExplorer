@@ -589,10 +589,12 @@ function setUpHighlights(viewer: Viewer): void {
 	const panel = $('highlight');
 	const on = $<HTMLInputElement>('highlight-on');
 	const query = $<HTMLInputElement>('highlight-query');
+	const walkable = $<HTMLInputElement>('highlight-walkable');
 	const boxes = [...panel.querySelectorAll<HTMLInputElement>('#highlight-groups input')];
 	const saved = readSaved<HighlightSettings>(HIGHLIGHT_KEY);
 	on.checked = saved.on ?? false;
 	query.value = saved.query ?? '';
+	walkable.checked = saved.walkable ?? false;
 	for (const box of boxes) box.checked = saved.groups?.includes(box.value as HighlightGroup) ?? false;
 
 	const apply = () => {
@@ -600,12 +602,14 @@ function setUpHighlights(viewer: Viewer): void {
 			on: on.checked,
 			groups: boxes.filter((b) => b.checked).map((b) => b.value as HighlightGroup),
 			query: query.value,
+			walkable: walkable.checked,
 		};
 		panel.classList.toggle('off', !settings.on);
+		panel.classList.toggle('walkable', settings.walkable);
 		viewer.setHighlights(settings);
 		save(HIGHLIGHT_KEY, settings);
 	};
-	for (const box of [on, ...boxes]) {
+	for (const box of [on, walkable, ...boxes]) {
 		box.addEventListener('change', () => {
 			// Choosing a kind turns highlighting on.
 			if (box !== on && box.checked) on.checked = true;

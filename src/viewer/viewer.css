@@ -847,7 +847,8 @@ kbd {
 }
 
 #highlight.off #highlight-groups,
-#highlight.off #highlight-query {
+#highlight.off #highlight-query,
+#highlight.off #walkable-key {
 	opacity: 0.5;
 }
 
@@ -859,6 +860,38 @@ kbd {
 	border: 1px solid var(--line);
 	border-radius: 4px;
 	padding: 3px 6px;
+}
+
+/* The walkable slope tints' key (see walkable.ts), shown while they're on. */
+#walkable-key {
+	display: none;
+	gap: 10px;
+}
+
+#highlight.walkable #walkable-key {
+	display: flex;
+}
+
+#walkable-key span::before {
+	content: '';
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	margin-right: 4px;
+	border-radius: 2px;
+	background: var(--slope);
+}
+
+#walkable-key [data-slope='flat'] {
+	--slope: #40e64d;
+}
+
+#walkable-key [data-slope='near'] {
+	--slope: #ffbf26;
+}
+
+#walkable-key [data-slope='steep'] {
+	--slope: #f23326;
 }
 
 #highlight-status:empty {

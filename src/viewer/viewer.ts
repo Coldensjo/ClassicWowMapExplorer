@@ -10,6 +10,7 @@ import type { Place } from '../explorer/places';
 import type { SpawnInfo } from '../explorer/spawns';
 import { FlyControls } from './flyControls';
 import { Highlights, type HighlightSettings } from './highlights';
+import { setWalkableShown } from './walkable';
 import { MapLabels } from './mapLabels';
 import { DAY, Lighting, Sky, sunDirection } from './lighting';
 import { MusicPlayer, type MusicTarget } from './music';
@@ -455,6 +456,7 @@ export class Viewer {
 	/** What to highlight on the ground (chests, herbs, ore, fishing pools, names). */
 	setHighlights(settings: HighlightSettings): void {
 		this.highlights?.set(settings);
+		setWalkableShown(settings.on && settings.walkable);
 	}
 
 	/** Called when a key changes a setting, the time or the sound, for the page to show and remember. */

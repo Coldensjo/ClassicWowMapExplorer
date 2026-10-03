@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { SplatLayer } from '../explorer/splatMesh';
 import type { LiquidLooks } from '../explorer/clientDb';
 import type { LiquidKind } from '../formats/mh2o';
+import { applyRegions } from './regionOverlay';
 import { applyTerrainShadow } from './terrainShadow';
 import { applyWalkable } from './walkable';
 
@@ -175,6 +176,7 @@ function patch(material: THREE.MeshLambertMaterial, uniforms: Record<string, THR
 		shader.fragmentShader = shader.fragmentShader
 			.replace('#include <common>', `#include <common>\n${FRAGMENT_PARS}`)
 			.replace('#include <map_fragment>', FRAGMENT_MAP);
+		applyRegions(shader);
 	};
 	material.customProgramCacheKey = () => key;
 	applyTerrainShadow(material);

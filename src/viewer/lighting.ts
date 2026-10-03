@@ -208,4 +208,11 @@ export class Sky {
 		u.uSunDir.value.copy(sunDir);
 		this.mesh.position.copy(camera);
 	}
+
+	/** Clouds the sky over (weather): every band pulled towards one colour, the sun hidden as much. Call after update. */
+	overcast(color: THREE.Color, amount: number): void {
+		const u = this.uniforms;
+		for (const c of [u.uTop, u.uMiddle, u.uBand1, u.uBand2, u.uSmog, u.uFog]) c.value.lerp(color, amount);
+		u.uSun.value.multiplyScalar(1 - amount);
+	}
 }

@@ -9,6 +9,12 @@ import type { WmoArea } from '../explorer/music';
 import type { Place } from '../explorer/places';
 import type { SpawnInfo } from '../explorer/spawns';
 import { FlyControls } from './flyControls';
+import { Flights, type FlightMaster } from './flights';
+import { RegionData } from './regionData';
+import { RegionOverlay } from './regionOverlay';
+import { RestedAreas } from './restedAreas';
+import { SNOWFLAKE_TEXTURE, Weather, type WeatherSetting } from './weather';
+import type { WorldMapView } from './worldMap';
 import { Highlights, type HighlightSettings } from './highlights';
 import { setWalkableShown } from './walkable';
 import { MapLabels } from './mapLabels';
@@ -51,6 +57,8 @@ const INSTANCE_SPACING = 70;
 const MAP_ORDER: MapCategory[] = ['dungeon', 'raid', 'battleground', 'other'];
 /** Yards above the ground the camera must be for the maps' names to show. */
 const LABEL_ALTITUDE = 40;
+/** Yards above the ground under which the camera counts as having explored the area it's over (the world map). */
+const EXPLORE_ALTITUDE = 150;
 /** Where the light of the open sea between the laid-out maps is taken from (see updateLighting). */
 const OPEN_SEA_LIGHT = { mapId: 0, x: 1e6, y: 1e6 };
 const CATEGORY_NAMES: Record<MapCategory, string> = { continent: 'Continent', dungeon: 'Dungeon', raid: 'Raid', battleground: 'Battleground', other: 'Other map' };
@@ -146,6 +154,10 @@ export interface HudInfo {
 	music: string;
 	/** Highlighted spawns on this map, or '' when nothing is being highlighted. */
 	highlights: string;
+	/** The weather now, or '' when it's off. */
+	weather: string;
+	/** The flight being ridden, or ''. */
+	flight: string;
 	/** Whether walls, floors and the ground stop the camera (G toggles). */
 	collision: string;
 }
@@ -178,6 +190,8 @@ export interface ViewSettings {
 	spiritHealers: boolean;
 	/** Multiplies the flying speed, from 1/8 to 8 (Y faster, Shift+Y slower). */
 	flySpeed: number;
+	/** Rain, snow and sandstorms: each zone's own, none, or one kind everywhere. */
+	weather: WeatherSetting;
 }
 
 /** Steps of the flying speed: each Y press or slider notch multiplies it by 2^(1/4). */
@@ -186,7 +200,7 @@ export const FLY_SPEED_STEP = 0.25;
 export const FLY_SPEED_RANGE = 3;
 
 /** A setting, or the time of day or the sound, changed by its key. */
-export type ViewChange = keyof ViewSettings | 'time' | 'sound';
+export type ViewChange = keyof ViewSettings | 'time' | 'sound' | 'flight';
 
 /** Where the camera is for the minimap: a map's tile grid, in fractional local tiles. */
 export interface MinimapView {
@@ -303,6 +317,19 @@ export class Viewer {
 	private readonly nameplates: Nameplates | null;
 	/** Markers over chests, herbs, ore and anything found by name. */
 	private readonly highlights: Highlights | null;
+	/** The ground tinted by graveyard, territory, levels, subzones or fishing; rested areas; flight paths. */
+	private readonly regionOverlay: RegionOverlay | null;
+	private readonly restedAreas: RestedAreas | null;
+	private readonly flights: Flights | null;
+	private readonly weather = new Weather();
+	private regionData: RegionData | null = null;
+	/** The flight being ridden: where to, and how long is left. */
+	private flight: { to: string; remaining: () => number } | null = null;
+	private lastExploreCheck = 0;
+	private lastWeatherRoomCheck = 0;
+	private weatherIndoors = false;
+	/** Called with the area under the camera (and its parents) when the camera is down among it, for the world map. */
+	onExplore: (areas: number[]) => void = () => {};
 	/** Names over the maps laid out in the sea. */
 	private readonly mapLabels: MapLabels | null;
 	private lastLabelCheck = 0;
@@ -356,6 +383,9 @@ export class Viewer {
 	) {
 		this.nameplates = plateContainer ? new Nameplates(plateContainer) : null;
 		this.highlights = plateContainer ? new Highlights(plateContainer, storage.loadLockKinds()) : null;
+		this.regionOverlay = plateContainer ? new RegionOverlay(plateContainer, (x, z) => this.terrain?.surfaceAt(x, z) ?? -Infinity) : null;
+		this.restedAreas = plateContainer ? new RestedAreas(plateContainer) : null;
+		this.flights = plateContainer ? new Flights(plateContainer) : null;
 		this.mapLabels = plateContainer ? new MapLabels(plateContainer) : null;
 		// Depth from half a yard to the horizon: a reversed float depth buffer where the GPU has
 		// it, else a logarithmic one. The logarithmic one writes each pixel's depth from its shader,
@@ -457,6 +487,9 @@ export class Viewer {
 	setHighlights(settings: HighlightSettings): void {
 		this.highlights?.set(settings);
 		setWalkableShown(settings.on && settings.walkable);
+		this.regionOverlay?.setMode(settings.on ? settings.tint || null : null);
+		this.regionOverlay?.setLevel(settings.level);
+		if (this.restedAreas) this.restedAreas.shown = settings.on && settings.rested;
 	}
 
 	/** Called when a key changes a setting, the time or the sound, for the page to show and remember. */
@@ -477,6 +510,7 @@ export class Viewer {
 			gameObjects: this.objects?.kindShown('object') ?? true,
 			spiritHealers: this.objects?.kindShown('spiritHealer') ?? true,
 			flySpeed: this.controls.speedScale,
+			weather: this.weather.setting,
 		};
 	}
 
@@ -485,7 +519,12 @@ export class Viewer {
 		if (next.torch !== undefined && next.torch !== this.torchOn) this.setTorch(next.torch);
 		if (next.clutter !== undefined && this.clutter) this.clutter.enabled = next.clutter;
 		if (next.collision !== undefined) this.controls.ghost = !next.collision;
-		if (next.side) this.side = next.side;
+		if (next.side) {
+			this.side = next.side;
+			this.regionOverlay?.setSide(next.side);
+			this.flights?.setSide(next.side);
+		}
+		if (next.weather) this.weather.setting = next.weather;
 		if (next.mapNames !== undefined && this.mapLabels) this.mapLabels.enabled = next.mapNames;
 		if (next.cinematic !== undefined) this.controls.cinematic = next.cinematic;
 		if (next.grading !== undefined) this.post.gradingOn = next.grading;
@@ -570,6 +609,7 @@ export class Viewer {
 		await this.placeMaps();
 		this.terrain.buildSeaMask();
 		this.addOcean();
+		this.loadRegions();
 
 		onStatus('Reading lighting and zone names');
 		this.triggers = await loadTriggers();
@@ -602,6 +642,7 @@ export class Viewer {
 			(data) => {
 				this.music = new MusicPlayer(this.storage, data);
 				this.underwaterAudio = new UnderwaterAudio(this.music);
+				this.weather.setMusic(this.music);
 			},
 			(e) => console.warn('Music unavailable:', e),
 		);
@@ -922,6 +963,131 @@ export class Viewer {
 		}
 	}
 
+	/** Reads the regions (areas, graveyards, inns, weather) and flight paths, and lays them over the continents. */
+	private loadRegions(): void {
+		if (this.restedAreas) this.scene.add(this.restedAreas.group);
+		if (this.flights) this.scene.add(this.flights.group);
+		this.scene.add(this.weather.group);
+		RegionData.load().then((data) => {
+			if (!data) return;
+			this.regionData = data;
+			this.regionOverlay?.setData(data, this.continents);
+			this.restedAreas?.setData(data, this.continents);
+		}, (e) => console.warn('Regions unavailable:', e));
+		if (this.flights) {
+			Flights.loadFile().then((file) => {
+				if (file) this.flights!.setData(file, this.continents);
+			}, (e) => console.warn('Flight paths unavailable:', e));
+		}
+		this.storage.loadTextures([SNOWFLAKE_TEXTURE], this.usesCompressedTextures).then(
+			([flake]) => {
+				if (flake?.texture) this.weather.setSnowflake(createTexture(flake.texture, 1));
+			},
+			(e) => console.warn('Snowflake texture unavailable:', e),
+		);
+	}
+
+	/** The weather for the zone under the camera, drawn round it outdoors and above water. */
+	private updateWeather(dt: number, now: number): void {
+		const pos = this.camera.position;
+		const continent = this.terrain.locate(pos.x, pos.z)?.continent;
+		const area = continent && this.regionData ? this.regionData.areaAt(continent, pos.x, pos.z) : null;
+		const zone = area ? this.regionData!.areas.get(area.zone) ?? area : null;
+		if (now - this.lastWeatherRoomCheck > 250) {
+			this.lastWeatherRoomCheck = now;
+			this.weatherIndoors = !!this.objects.roomAt(pos);
+		}
+		const open = !this.underwater && !this.weatherIndoors;
+		this.weather.update(dt, this.camera, zone ? { id: zone.id, name: zone.name } : null, zone ? this.regionData!.weather(zone.id) : null, open);
+	}
+
+	/** The area under the camera and its parents count as explored once the camera is down among them. */
+	private explore(): void {
+		if (this.controls.altitude > EXPLORE_ALTITUDE) return;
+		const areas: number[] = [];
+		for (let id = this.areaHere() ?? 0, i = 0; id && i < 8; i++) {
+			areas.push(id);
+			id = this.areas.get(id)?.parent ?? 0;
+		}
+		if (areas.length) this.onExplore(areas);
+	}
+
+	/** What the ground tint's colours mean, for the panel's key. */
+	get tintKey(): [string, string][] {
+		return this.regionOverlay?.key ?? [];
+	}
+
+	/** Flight masters the side shown can use. */
+	get flightMasters(): FlightMaster[] {
+		return this.flights?.list ?? [];
+	}
+
+	/** Called when the flight masters on offer change (the side changed, or they were read). */
+	set onFlightsChange(fn: () => void) {
+		if (this.flights) this.flights.onChange = fn;
+	}
+
+	/** Whether the flight paths are drawn. */
+	set flightPathsShown(shown: boolean) {
+		if (this.flights) this.flights.shown = shown;
+	}
+
+	/** The flight master nearest the camera on this map, for the side shown. */
+	nearestFlightMaster(): FlightMaster | null {
+		const pos = this.camera.position;
+		const continent = this.terrain.locate(pos.x, pos.z)?.continent;
+		return continent && this.flights ? this.flights.nearest(pos, continent.mapId) : null;
+	}
+
+	/**
+	 * Takes the flight from one flight master to another, the way the game would route it, at a
+	 * multiple of the mounts' speed. The reason it can't, or null once under way.
+	 */
+	takeFlight(from: number, to: number, speedScale = 1): string | null {
+		const flights = this.flights;
+		if (!flights) return 'No flight paths';
+		const plan = flights.plan(from, to);
+		if (!plan) return 'No route between those for this side';
+		const ride = flights.ride(plan.points, speedScale);
+		const start = plan.points[0];
+		const destination = flights.list.find((m) => m.id === to)?.name ?? '';
+		this.triggersArmed = false;
+		this.controls.set(start.clone().setY(start.y + 2), this.controls.yaw, this.controls.pitch);
+		this.flight = { to: destination, remaining: ride.remaining };
+		this.controls.ride(ride, () => {
+			this.flight = null;
+			this.triggersArmed = false;
+			this.onChange('flight');
+		});
+		this.onChange('flight');
+		return null;
+	}
+
+	/** Gets off the flight being ridden. */
+	stopFlight(): void {
+		this.controls.endRide(false);
+	}
+
+	get onFlight(): boolean {
+		return this.flight !== null;
+	}
+
+	/** Where the camera is, for the world map. */
+	worldMapView(): WorldMapView | null {
+		const w = this.wowPosition();
+		return w ? { ...w, facing: this.controls.yaw } : null;
+	}
+
+	/** The area's name at a point on a continent (WoW coordinates), for the world map. */
+	areaNameAt(mapId: number, x: number, y: number): string | null {
+		return this.regionData?.areaAtWow(mapId, x, y)?.name ?? null;
+	}
+
+	/** Flies over a point of a map in WoW coordinates. */
+	flyOverWow(mapId: number, x: number, y: number): void {
+		this.flyOver(mapId, (MAP_ORIGIN - y) / TILE_SIZE, (MAP_ORIGIN - x) / TILE_SIZE);
+	}
+
 	/** Where in which map's tile grid the camera is, for the minimap; null over the open sea. */
 	minimapView(): MinimapView | null {
 		const pos = this.camera.position;
@@ -1082,7 +1248,18 @@ export class Viewer {
 			}
 			this.mapLabels.update(this.camera, this.canvas.clientWidth, this.canvas.clientHeight);
 		}
-		perf.time('highlights', () => this.highlights?.update(now, this.camera, this.terrain.locate(pos.x, pos.z)?.continent ?? null, this.canvas.clientWidth, this.canvas.clientHeight));
+		perf.time('highlights', () => {
+			const continent = this.terrain.locate(pos.x, pos.z)?.continent ?? null;
+			this.highlights?.update(now, this.camera, continent, this.canvas.clientWidth, this.canvas.clientHeight);
+			this.regionOverlay?.update(now, this.camera, continent, this.terrain.surfaceAt(pos.x, pos.z), this.canvas.clientWidth, this.canvas.clientHeight);
+			this.restedAreas?.update(now, this.camera, this.canvas.clientWidth, this.canvas.clientHeight);
+			this.flights?.update(this.camera, continent, this.canvas.clientWidth, this.canvas.clientHeight);
+		});
+		this.updateWeather(dt, now);
+		if (now - this.lastExploreCheck > 250) {
+			this.lastExploreCheck = now;
+			this.explore();
+		}
 		if (this.music) {
 			if (now - this.lastMusicCheck > 250) {
 				this.lastMusicCheck = now;
@@ -1206,6 +1383,29 @@ export class Viewer {
 		};
 	}
 
+	/**
+	 * Rain, snow and sandstorms dim the sun, cloud the sky over and bring the fog in, its colour
+	 * as bright as the sky's fog would be (so a rainy night stays dark).
+	 */
+	private applyWeatherLight(skyFog: THREE.Color | null): void {
+		const look = this.weather.lightLook;
+		if (!look || !skyFog) return;
+		const brightness = THREE.MathUtils.clamp((skyFog.r * 0.3 + skyFog.g * 0.59 + skyFog.b * 0.11) * 2.5, 0.06, 1);
+		const color = look.fogColor.clone().multiplyScalar(brightness);
+		this.sun.color.multiplyScalar(1 - look.darken);
+		this.ambient.color.multiplyScalar(1 - look.darken * 0.4);
+		this.sky.overcast(color, look.fogMix);
+		const fog = this.fogLook;
+		fog.color.lerp(color, look.fogMix);
+		fog.sunColor.multiplyScalar(1 - look.darken);
+		fog.density *= look.fogDensity;
+		this.fog.color.lerp(color, look.fogMix);
+		(this.scene.background as THREE.Color).lerp(color, look.fogMix);
+		const alt = this.controls.altitude;
+		this.fog.far = Math.min(this.fog.far, look.fogFar + alt * 4);
+		this.fog.near = Math.min(this.fog.near, this.fog.far * 0.15);
+	}
+
 	/** The lowest ground on a grid around a point (for the fog to lie at); sea level over open sea, where there's none. */
 	private lowestGroundAround(p: THREE.Vector3): number {
 		let lowest = Infinity;
@@ -1269,6 +1469,7 @@ export class Viewer {
 		// Clear from high up so the overview shows everything.
 		this.fog.near = Math.max(fogNear, 1200 + alt * 2);
 		this.fog.far = Math.max(fogFar, 9000 + alt * 14);
+		this.applyWeatherLight(state?.colors.skyFog ?? null);
 
 		// Under water, as in the game: the view closes in and fades to the water's colour, darker
 		// the deeper you are.
@@ -1443,7 +1644,9 @@ export class Viewer {
 			...this.zoneNames(),
 			side: this.side === 'alliance' ? 'Alliance' : 'Horde',
 			music: this.music?.status ?? 'unavailable',
-			highlights: this.highlights?.status ?? '',
+			highlights: [this.highlights?.status, this.regionOverlay?.status, this.restedAreas?.status].filter(Boolean).join('\n'),
+			weather: this.weather.status,
+			flight: this.flight ? `To ${this.flight.to}, ${formatDuration(this.flight.remaining())} left (Esc or move to get off)` : '',
 			collision: this.controls.ghost ? 'Off: through walls' : 'On',
 		};
 	}
@@ -1508,4 +1711,10 @@ function layoutContinents(loaded: { map: (typeof KNOWN_MAPS)[number]; tiles: Far
 		placements.push({ name: map.name, mapId: map.mapId, wdt: map.wdt, offsetX, offsetY: Math.round(anchor.midY - e.midY) });
 	}
 	return placements;
+}
+
+/** Seconds as m:ss. */
+function formatDuration(seconds: number): string {
+	const s = Math.round(seconds);
+	return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }

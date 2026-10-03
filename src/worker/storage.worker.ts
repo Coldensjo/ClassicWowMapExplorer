@@ -103,6 +103,12 @@ const api: AsyncStorageApi = {
 	async loadSound(fdid) {
 		return requireWorld().loadSound(fdid);
 	},
+	async loadImages(fdids) {
+		return requireWorld().loadImages(fdids);
+	},
+	async loadWorldMaps(mapIds) {
+		return requireWorld().loadWorldMaps(mapIds);
+	},
 };
 
 /** Collects typed-array buffers in a result so they move to the main thread instead of being copied. */

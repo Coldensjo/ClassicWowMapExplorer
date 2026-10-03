@@ -113,6 +113,12 @@ Press **Ctrl+C** in the terminal to stop it. To update later, run `git pull` and
 - Every other map in the install (dungeons, raids, battlegrounds, unused and test maps) laid out in
   the sea south of the continents, optionally named from afar, to fly to or walk into through their entrances
 - Highlights for chests, herbs, ore veins, fishing pools or anything by name, seen from afar
+- Ground tints read from the game's and server's data: the graveyard dying there sends you to,
+  faction territory, creature levels against yours, subzones with their exploration XP, and fishing skill
+- Inns and cities where resting builds up, drawn as the server's own trigger shapes
+- The flight network, drawn over the world, and rides along it the way the game routes you
+- Rain, snow and sandstorms from each zone's seasonal chances, with the game's weather sounds
+- The game's world map, its explored parts filled in as you fly over them, with a click to go anywhere
 - A minimap from the game's own map images, and a search to go to any zone, town or map
 
 ## Controls
@@ -136,6 +142,8 @@ Press **Ctrl+C** in the terminal to stop it. To update later, run `git pull` and
 | M | Music and sound on / off |
 | I | Names of dungeons, raids and other maps in the sea on / off (off by default) |
 | H | Highlights on / off |
+| Tab | World map |
+| Esc | Get off a flight |
 | / | Go to a zone, town or map |
 | K | Performance stats on / off |
 | P | Screenshot, with everything in view loaded in full detail |
@@ -156,6 +164,24 @@ zoom it with the wheel or its + and − buttons.
 **Highlight** (top left) marks chests, herbs, ore and fishing pools within 1000 yards, through
 terrain and buildings; typing a name marks every creature or object with that name on the map, however far away.
 The spawn data lists every place a herb or vein can appear, so there are more marks than nodes up at any one time.
+**Ground** tints the terrain by region, and the panel says what applies under the camera:
+- *Graveyards*: where you'd be sent after dying there, as the server picks it (the graveyards linked to
+  the zone you die in, the nearest of those); dark lines mark where two meet.
+- *Territory*: friendly, hostile, contested or free-for-all, as the PvP status names it.
+- *Creature levels*: each area's typical creature levels, coloured as their names would be for the level you set.
+- *Subzones and exploration*: every subzone in its own colour, with the XP for discovering it.
+- *Fishing skill*: the skill each zone's waters are rated at, and from what skill nothing gets away.
+
+Graveyards, territory and flight paths are for the side chosen under *Name colours* (<kbd>F</kbd>).
+**Rested areas** shows the inns and cities where resting builds up.
+
+**Travel** shows the flight paths and flies you along them, from one flight master to another through
+any in between, as the game would; move or press <kbd>Esc</kbd> to get off. It also opens the
+**world map** (<kbd>Tab</kbd>): the game's zone maps, filled in where the camera has been down among
+an area (remembered between visits), with the camera's place on it; click a zone to fly there.
+
+**Weather** (View menu) follows each zone's chances for the season, rolled again every ten minutes as
+on the realms, or is set to one kind everywhere.
 
 The camera position is kept in the URL, so a link brings you back to the same spot; click the coordinates
 (top left) to copy it. Add `?time=HH:MM` to set the time of day.
@@ -186,6 +212,16 @@ npm run spawns -- path/to/mangos.sqlite
 
 This needs `sqlite3` on the PATH. NPC hair textures come from the community listfile, expected at `.cache/listfile.csv`.
 
+Regions in `public/spawns/regions.json` and the flight network in `public/spawns/flights.json` come from
+VMaNGOS (areas, graveyard links, inns, weather, fishing), each map chunk's area read from the game's map
+files, creature levels from the spawn files (run `npm run spawns` first), the client's TaxiNodes,
+TaxiPath and TaxiPathNode tables, and graveyard positions (WorldSafeLocs from classic 1.13.2, downloaded
+from [wago.tools](https://wago.tools) on first run, as this client no longer ships it):
+
+```sh
+npm run regions -- [wowDir] [product] [path/to/mangos.sqlite]
+```
+
 ### Scripts
 
 - `npm run dev`: start the dev server
@@ -193,6 +229,7 @@ This needs `sqlite3` on the PATH. NPC hair textures come from the community list
 - `npm run typecheck`: type-check only
 - `npm run probe`: inspect game data from Node
 - `npm run spawns`: rebuild the spawn files
+- `npm run regions`: rebuild the regions and flight paths
 - `npm run portable`: build the portable version into `release/` (the zip for a GitHub release);
   needs mingw-w64 (gcc, windres), ImageMagick and 7-Zip on the PATH. The launcher is
   `tools/portable/launcher.c`, its icon `public/icon.svg`

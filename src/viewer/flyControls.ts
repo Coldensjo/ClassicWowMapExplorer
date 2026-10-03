@@ -7,6 +7,19 @@ const MIN_CLEARANCE = 2;
 /** How quickly the cinematic camera catches up with the mouse: about 1/e of the way left after 1/rate seconds. */
 const CINEMATIC_TURN_RATE = 3;
 
+/** A path the camera rides along (a flight path), set with ride(). */
+export interface Ride {
+	/** Moves along by dt seconds; the new position, or null at the end. */
+	step(dt: number): THREE.Vector3 | null;
+	/** Which way the ride is heading now (unit vector). */
+	heading(): THREE.Vector3;
+}
+
+/** Seconds after the mouse last moved before a ride's view turns back to face the way it's going. */
+const RIDE_LOOK_HOLD = 3;
+/** How quickly the view turns to face the way the ride's going. */
+const RIDE_TURN_RATE = 1.5;
+
 interface Flight {
 	from: THREE.Vector3;
 	to: THREE.Vector3;
@@ -33,6 +46,7 @@ export class FlyControls {
 	private readonly keys = new Set<string>();
 	private zoomVelocity = 0;
 	private flight: Flight | null = null;
+	private riding: { ride: Ride; onEnd: (completed: boolean) => void; looked: number } | null = null;
 	/** Ground height under the camera at the end of the last update. */
 	private lastGround = -Infinity;
 	/** How far below the ground the camera may still be while it eases up after the ground popped. */
@@ -52,6 +66,7 @@ export class FlyControls {
 			// would snap the view; no real flick covers a third of the window in one event.
 			if (Math.abs(e.movementX) > window.innerWidth / 3 || Math.abs(e.movementY) > window.innerHeight / 3) return;
 			this.flight = null;
+			if (this.riding) this.riding.looked = 0;
 			this.lookYaw -= e.movementX * LOOK_SENSITIVITY;
 			this.lookPitch = THREE.MathUtils.clamp(this.lookPitch - e.movementY * LOOK_SENSITIVITY, -MAX_PITCH, MAX_PITCH);
 		});
@@ -63,7 +78,12 @@ export class FlyControls {
 		window.addEventListener('keydown', (e) => {
 			if (isTyping(e)) return;
 			this.keys.add(e.code);
-			if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC'].includes(e.code)) this.flight = null;
+			if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC'].includes(e.code)) {
+				this.flight = null;
+				// Moving yourself gets you off a ride, as does Escape.
+				this.endRide(false);
+			}
+			if (e.code === 'Escape') this.endRide(false);
 			if (e.code === 'Space') e.preventDefault();
 		});
 		window.addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -107,7 +127,30 @@ export class FlyControls {
 		this.flight = { from: this.camera.position.clone(), to: position.clone(), fromYaw, toYaw: yaw, fromPitch: this.pitch, toPitch: pitch, t: 0, duration };
 	}
 
+	/**
+	 * Rides along a path: the camera follows it, the mouse still looks around, and the view turns
+	 * back to face the way it's going a few seconds after the mouse stops. Moving gets you off.
+	 * onEnd says whether the ride reached its end.
+	 */
+	ride(ride: Ride, onEnd: (completed: boolean) => void = () => {}): void {
+		this.endRide(false);
+		this.flight = null;
+		this.riding = { ride, onEnd, looked: RIDE_LOOK_HOLD };
+	}
+
+	get onRide(): boolean {
+		return this.riding !== null;
+	}
+
+	endRide(completed: boolean): void {
+		const r = this.riding;
+		if (!r) return;
+		this.riding = null;
+		r.onEnd(completed);
+	}
+
 	set(position: THREE.Vector3, yaw: number, pitch: number): void {
+		this.endRide(false);
 		this.camera.position.copy(position);
 		this.yaw = this.lookYaw = yaw;
 		this.pitch = this.lookPitch = pitch;
@@ -137,6 +180,31 @@ export class FlyControls {
 		// ground only stops the camera when it comes from above.
 		const aboveGround = pos.y >= surface - 0.5;
 
+		if (this.riding) {
+			const r = this.riding;
+			const next = r.ride.step(dt);
+			if (next) pos.copy(next);
+			r.looked += dt;
+			if (r.looked > RIDE_LOOK_HOLD) {
+				const h = r.ride.heading();
+				let yaw = Math.atan2(-h.x, -h.z);
+				while (yaw - this.lookYaw > Math.PI) yaw -= Math.PI * 2;
+				while (this.lookYaw - yaw > Math.PI) yaw += Math.PI * 2;
+				// Looking a little down over the side, as a passenger does.
+				const pitch = Math.asin(THREE.MathUtils.clamp(h.y, -1, 1)) - 0.15;
+				const ease = 1 - Math.exp(-dt * RIDE_TURN_RATE);
+				this.lookYaw += (yaw - this.lookYaw) * ease;
+				this.lookPitch += (pitch - this.lookPitch) * ease;
+			}
+			const ease = 1 - Math.exp(-dt * CINEMATIC_TURN_RATE * 2);
+			this.yaw += (this.lookYaw - this.yaw) * ease;
+			this.pitch += (this.lookPitch - this.pitch) * ease;
+			this.speed = 0;
+			if (!next) this.endRide(true);
+			this.lastGround = groundHeight(pos.x, pos.z);
+			this.apply();
+			return;
+		}
 		if (this.flight) {
 			const f = this.flight;
 			f.t = Math.min(1, f.t + dt / f.duration);

@@ -6,10 +6,12 @@ import type { SpawnInfo } from '../explorer/spawns';
 import type { MapCategory, MapListing } from '../explorer/world';
 import type { HighlightGroup, HighlightSettings } from './highlights';
 import { Minimap } from './minimap';
+import type { TintMode } from './regionOverlay';
 import { isTyping } from './typing';
 import { loadUiAssets } from './uiAssets';
 import { FLY_SPEED_RANGE, FLY_SPEED_STEP, Viewer, type HudInfo, type ViewSettings } from './viewer';
 import { setVolume, volumeSetting, type VolumeChannel } from './volume';
+import { WorldMap } from './worldMap';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = $('status');
@@ -195,6 +197,7 @@ async function explore(): Promise<void> {
 		setUpMinimap(viewer, minimapArrow);
 		void setUpGoTo(viewer);
 		setUpHighlights(viewer);
+		setUpTravel(viewer, minimapArrow);
 		setUpSound(viewer);
 		setUpHelp();
 	} catch (e) {
@@ -394,6 +397,8 @@ function setUpView(viewer: Viewer): void {
 			gameObjects: () => `Objects ${onOff(s.gameObjects)}`,
 			spiritHealers: () => `Spirit healers ${onOff(s.spiritHealers)}`,
 			flySpeed: () => `Flying speed ${speedLabel(s.flySpeed)}`,
+			weather: () => ({ auto: 'Weather: each zone\'s own', off: 'Weather: always clear', rain: 'Weather: rain', snow: 'Weather: snow', sandstorm: 'Weather: sandstorm' }[s.weather]),
+			flight: () => (viewer.onFlight ? 'Taking flight: Esc or moving gets you off' : 'Landed'),
 			time: () => (viewer.timeIsLocal ? `Local time, ${clock(viewer.timeMinutes)}` : `Time of day ${clock(viewer.timeMinutes)}`),
 			sound: () => `Music and sound ${onOff(viewer.soundOn ?? false)}`,
 		}[change]());
@@ -426,6 +431,88 @@ function setUpMinimap(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
 	const minimap = new Minimap($('minimap'), storage, () => viewer.minimapView(), (mapId, x, y) => viewer.flyOver(mapId, x, y), arrow);
 	$('minimap-in').addEventListener('click', () => minimap.zoomBy(-1));
 	$('minimap-out').addEventListener('click', () => minimap.zoomBy(1));
+}
+
+// --- Travel: flight paths and the world map ---
+
+/** The Travel menu: flight paths to show and take, and the world map (Tab). */
+function setUpTravel(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
+	const shown = $<HTMLInputElement>('flights-shown');
+	const from = $<HTMLSelectElement>('flight-from');
+	const to = $<HTMLSelectElement>('flight-to');
+	const speed = $<HTMLSelectElement>('flight-speed');
+	const go = $<HTMLButtonElement>('flight-go');
+	const stop = $<HTMLButtonElement>('flight-stop');
+	const saved = readSaved<{ shown?: boolean; from?: number; to?: number; speed?: string }>(TRAVEL_KEY);
+	shown.checked = saved.shown ?? false;
+	speed.value = saved.speed ?? '1';
+	viewer.flightPathsShown = shown.checked;
+	const remember = () => save(TRAVEL_KEY, { shown: shown.checked, from: Number(from.value), to: Number(to.value), speed: speed.value });
+
+	const fill = () => {
+		const keep = [Number(from.value) || saved.from, Number(to.value) || saved.to];
+		const masters = viewer.flightMasters;
+		for (const [select, value] of [[from, keep[0]], [to, keep[1]]] as const) {
+			select.replaceChildren(...masters.map((m) => new Option(m.name, String(m.id))));
+			if (masters.some((m) => m.id === value)) select.value = String(value);
+		}
+		go.disabled = masters.length < 2;
+	};
+	viewer.onFlightsChange = fill;
+	fill();
+	shown.addEventListener('change', () => {
+		viewer.flightPathsShown = shown.checked;
+		remember();
+	});
+	for (const s of [from, to, speed]) s.addEventListener('change', remember);
+	$('flight-nearest').addEventListener('click', () => {
+		const m = viewer.nearestFlightMaster();
+		if (m) from.value = String(m.id);
+		else notify('No flight master on this map for this side');
+		remember();
+	});
+	go.addEventListener('click', () => {
+		const problem = viewer.takeFlight(Number(from.value), Number(to.value), Number(speed.value));
+		if (problem) notify(problem);
+		else ($('travel') as HTMLDetailsElement).open = false;
+	});
+	stop.addEventListener('click', () => viewer.stopFlight());
+	hudFollowers.push(() => {
+		stop.disabled = !viewer.onFlight;
+	});
+
+	const map = new WorldMap($('worldmap'), $<HTMLCanvasElement>('worldmap-canvas'), storage, () => viewer.worldMapView(), (mapId, x, y) => viewer.flyOverWow(mapId, x, y), (mapId, x, y) => viewer.areaNameAt(mapId, x, y), arrow, {
+		title: $('worldmap-title'),
+		up: $<HTMLButtonElement>('worldmap-up'),
+		count: $('worldmap-count'),
+		all: $<HTMLInputElement>('worldmap-all'),
+		forget: $<HTMLButtonElement>('worldmap-forget'),
+		close: $<HTMLButtonElement>('worldmap-close'),
+		hover: $('worldmap-hover'),
+	});
+	viewer.onExplore = (areas) => map.explore(areas);
+	hudFollowers.push(() => map.update());
+	$('worldmap-open').addEventListener('click', () => {
+		($('travel') as HTMLDetailsElement).open = false;
+		map.toggle();
+	});
+	window.addEventListener('keydown', (e) => {
+		if (e.code !== 'Tab' || isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+		e.preventDefault();
+		map.toggle();
+	});
+}
+
+const TRAVEL_KEY = 'mapExplorer.travel';
+
+/** The tint's key under the Ground choice: what its colours mean. */
+function showTintKey(viewer: Viewer): void {
+	$('tint-key').replaceChildren(...viewer.tintKey.map(([color, label]) => {
+		const span = document.createElement('span');
+		span.style.setProperty('--key', color);
+		span.textContent = label;
+		return span;
+	}));
 }
 
 // --- Going places ---
@@ -590,11 +677,19 @@ function setUpHighlights(viewer: Viewer): void {
 	const on = $<HTMLInputElement>('highlight-on');
 	const query = $<HTMLInputElement>('highlight-query');
 	const walkable = $<HTMLInputElement>('highlight-walkable');
+	const tint = $<HTMLSelectElement>('highlight-tint');
+	const level = $<HTMLInputElement>('tint-level');
+	const levelOut = $('tint-level-out');
+	const rested = $<HTMLInputElement>('highlight-rested');
 	const boxes = [...panel.querySelectorAll<HTMLInputElement>('#highlight-groups input')];
 	const saved = readSaved<HighlightSettings>(HIGHLIGHT_KEY);
 	on.checked = saved.on ?? false;
 	query.value = saved.query ?? '';
 	walkable.checked = saved.walkable ?? false;
+	// Saved before the tints came in: the graveyards had a box of their own.
+	tint.value = saved.tint ?? ((saved as { graveyards?: boolean }).graveyards ? 'graveyards' : '');
+	level.value = String(saved.level ?? 20);
+	rested.checked = saved.rested ?? false;
 	for (const box of boxes) box.checked = saved.groups?.includes(box.value as HighlightGroup) ?? false;
 
 	const apply = () => {
@@ -603,16 +698,22 @@ function setUpHighlights(viewer: Viewer): void {
 			groups: boxes.filter((b) => b.checked).map((b) => b.value as HighlightGroup),
 			query: query.value,
 			walkable: walkable.checked,
+			tint: tint.value as TintMode | '',
+			level: Number(level.value),
+			rested: rested.checked,
 		};
+		levelOut.textContent = level.value;
+		panel.dataset.tint = settings.tint;
 		panel.classList.toggle('off', !settings.on);
 		panel.classList.toggle('walkable', settings.walkable);
 		viewer.setHighlights(settings);
 		save(HIGHLIGHT_KEY, settings);
+		showTintKey(viewer);
 	};
-	for (const box of [on, walkable, ...boxes]) {
+	for (const box of [on, walkable, rested, tint, ...boxes]) {
 		box.addEventListener('change', () => {
 			// Choosing a kind turns highlighting on.
-			if (box !== on && box.checked) on.checked = true;
+			if (box !== on && (box instanceof HTMLSelectElement ? box.value : box.checked)) on.checked = true;
 			apply();
 		});
 	}
@@ -620,6 +721,7 @@ function setUpHighlights(viewer: Viewer): void {
 		if (query.value.trim()) on.checked = true;
 		apply();
 	});
+	level.addEventListener('input', apply);
 	query.addEventListener('keydown', (e) => {
 		if (e.code === 'Enter') query.blur();
 	});
@@ -810,7 +912,10 @@ function showHud(info: HudInfo): void {
 		['Time', info.time],
 		['Altitude', `${info.altitude.toFixed(0)} yd above ground`],
 		['Music', info.music],
+		...(info.weather ? [['Weather', info.weather] as [string, string]] : []),
+		...(info.flight ? [['Flight', info.flight] as [string, string]] : []),
 	]);
+	$('flight-status').textContent = info.flight;
 	if (!$('hud-stats').hidden) {
 		fillList('hud-stats', [
 			['Speed', `${info.speed.toFixed(0)} yd/s`],

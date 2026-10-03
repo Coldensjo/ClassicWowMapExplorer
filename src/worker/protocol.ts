@@ -5,6 +5,7 @@ import type { MapSummary, TileDetails } from '../explorer/maps';
 import type { LiquidLooks, LockKind } from '../explorer/clientDb';
 import type { MusicData, WmoArea } from '../explorer/music';
 import type { Place } from '../explorer/places';
+import type { WorldMapInfo } from '../explorer/worldMap';
 import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
 import type { FarTile, InstanceMap, LoadedTexture, MapListing, NearTile, TileTexture } from '../explorer/world';
 import type { Image } from '../formats/blp';
@@ -42,6 +43,8 @@ export interface StorageApi {
 	loadSound(fdid: number): Uint8Array;
 	loadFont(fdid: number): Uint8Array;
 	loadInterfaceImages(paths: string[]): (Image | null)[];
+	loadImages(fdids: number[]): (Image | null)[];
+	loadWorldMaps(mapIds: number[]): WorldMapInfo[];
 }
 
 export type AsyncStorageApi = {

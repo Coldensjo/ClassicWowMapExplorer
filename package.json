@@ -9,6 +9,7 @@
 		"typecheck": "tsc --noEmit",
 		"probe": "tsx tools/probe.ts",
 		"spawns": "tsx tools/buildSpawns.ts",
+		"regions": "tsx tools/buildRegions.ts",
 		"portable": "tsx tools/buildPortable.ts"
 	},
 	"dependencies": {

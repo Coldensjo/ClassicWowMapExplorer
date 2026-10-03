@@ -8,6 +8,7 @@ import { loadAreas, loadLighting, type AreaInfo, type LightingData } from './lig
 import { buildLiquidMeshes, type LiquidMesh } from './liquidMesh';
 import { MusicTables, type MusicData, type WmoArea } from './music';
 import type { MapExplorer } from './maps';
+import { loadWorldMaps, type WorldMapInfo } from './worldMap';
 import { loadPlaces, type Place } from './places';
 import { KNOWN_MAPS } from './maps';
 import { globalWmoPlacement, globalWmoTiles, loadM2, loadWmo, parsePlacements, type ModelData, type ObjectKind, type Placement } from './objects';
@@ -364,6 +365,23 @@ export class WorldLoader {
 				return decodeBlp(await this.storage.readFile(fdid));
 			} catch (e) {
 				console.warn(`Interface image ${path} unreadable:`, e);
+				return null;
+			}
+		}));
+	}
+
+	/** The world map's continents and zones on the continents (see worldMap.ts). */
+	loadWorldMaps(mapIds: number[]): Promise<WorldMapInfo[]> {
+		return loadWorldMaps(this.storage, mapIds);
+	}
+
+	/** Pictures from the install by file ID, decoded; null for any it can't read. */
+	async loadImages(fdids: number[]): Promise<(Image | null)[]> {
+		return Promise.all(fdids.map(async (fdid) => {
+			try {
+				return decodeBlp(await this.storage.readFile(fdid));
+			} catch (e) {
+				console.warn(`Image ${fdid} unreadable:`, e);
 				return null;
 			}
 		}));

@@ -949,6 +949,10 @@ kbd {
 	display: none;
 }
 
+#highlight-status {
+	white-space: pre-line;
+}
+
 /* The colours of the markers: gold treasure, green herbs, copper ore, blue fishing pools. */
 #highlight-groups [data-group='chest'], .beacon[data-group='chest'] {
 	--beacon: #ffd100;
@@ -997,6 +1001,19 @@ kbd {
 	background: var(--beacon);
 	border: 1px solid #000;
 	box-shadow: 0 0 6px var(--beacon);
+}
+
+/* The spirit healer the ground under the camera sends you to. */
+.beacon.graveyard.current {
+	font-size: 14px;
+	z-index: 1;
+}
+
+.beacon.graveyard.current::before {
+	width: 12px;
+	height: 12px;
+	left: -7px;
+	top: -7px;
 }
 
 .beacon-name {
@@ -1452,4 +1469,181 @@ body.wow-ui {
 	font-weight: 400;
 	color: #fff;
 	text-shadow: 1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000, 0 0 8px #000;
+}
+
+/* The ground tint's key, and the level its creature colours are for (only with that tint). */
+#tint-key {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 2px 10px;
+}
+
+#tint-key:empty {
+	display: none;
+}
+
+#tint-key span::before {
+	content: '';
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	margin-right: 4px;
+	border-radius: 2px;
+	background: var(--key);
+}
+
+#tint-level-row {
+	display: none;
+	align-items: center;
+	gap: 6px;
+	font-variant-numeric: tabular-nums;
+}
+
+#highlight[data-tint='levels'] #tint-level-row {
+	display: flex;
+}
+
+#tint-level-row input {
+	flex: 1;
+}
+
+#highlight.off #tint-key,
+#highlight.off #tint-level-row {
+	opacity: 0.5;
+}
+
+/* Area names over the tinted ground: a dot rather than a diamond, the detail in white. */
+.beacon.region::before {
+	width: 6px;
+	height: 6px;
+	left: -4px;
+	top: -4px;
+	border-radius: 50%;
+	transform: none;
+}
+
+.beacon.region .beacon-distance {
+	color: #fff;
+}
+
+/* Inns and flight masters. */
+.beacon.rested {
+	--beacon: #ffd060;
+}
+
+.beacon.rested.current {
+	font-size: 14px;
+}
+
+/* The Travel menu: flight paths and the world map. */
+#travel .menu-body {
+	padding: 8px 12px;
+	display: grid;
+	/* The menu's width, however long a flight master's name. */
+	grid-template-columns: minmax(0, 1fr);
+	gap: 6px;
+}
+
+#travel label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	cursor: pointer;
+	user-select: none;
+}
+
+/* Label, choice, and Nearest beside From; the other choices take the last two columns. */
+.flight-grid {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 6px;
+}
+
+.flight-grid select {
+	width: 100%;
+	min-width: 0;
+	padding: 1px 4px;
+	font-size: 12px;
+	text-overflow: ellipsis;
+}
+
+.flight-grid .span {
+	grid-column: span 2;
+}
+
+#flight-nearest {
+	padding: 1px 8px;
+	font-size: 12px;
+}
+
+.flight-buttons {
+	display: flex;
+	gap: 6px;
+}
+
+.flight-buttons button {
+	flex: 1;
+}
+
+#flight-status:empty {
+	display: none;
+}
+
+/* The world map, over everything but the menus, its picture as big as fits. */
+#worldmap {
+	position: fixed;
+	inset: 0;
+	display: grid;
+	place-items: center;
+	padding: 16px;
+	background: rgba(0, 0, 0, 0.35);
+	z-index: 5;
+}
+
+#worldmap[hidden] {
+	display: none;
+}
+
+.worldmap-frame {
+	width: min(1040px, 100%);
+	max-height: calc(100vh - 32px);
+	display: grid;
+	gap: 6px;
+	overflow: hidden;
+}
+
+.worldmap-frame header {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.worldmap-frame h2 {
+	margin: 0;
+	flex: 1;
+}
+
+#worldmap-up {
+	color: var(--accent);
+}
+
+#worldmap-close {
+	font-size: 20px;
+	line-height: 1;
+	color: var(--muted);
+}
+
+#worldmap-canvas {
+	width: 100%;
+	height: auto;
+	max-height: calc(100vh - 120px);
+	object-fit: contain;
+	cursor: pointer;
+	image-rendering: auto;
+}
+
+#worldmap-hover {
+	min-height: 1.3em;
 }

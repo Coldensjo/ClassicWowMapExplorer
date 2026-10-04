@@ -6,6 +6,7 @@ import type { LiquidKind } from '../formats/mh2o';
 export const DB2_FILES = {
 	AreaPOI: 1000630,
 	AreaTable: 1353545,
+	FootstepTerrainLookup: 1267647,
 	GroundEffectDoodad: 1308057,
 	GroundEffectTexture: 1308499,
 	Light: 1375579,
@@ -16,6 +17,7 @@ export const DB2_FILES = {
 	Map: 1349477,
 	SoundAmbience: 1310628,
 	SoundKitEntry: 1237435,
+	TerrainType: 1310249,
 	UiMap: 1957206,
 	UiMapAssignment: 1957219,
 	WMOAreaTable: 1355528,
@@ -141,4 +143,47 @@ export async function liquidKinds(storage: CascStorage): Promise<(type: number) 
 		}
 		return kind;
 	};
+}
+
+/** What footsteps sound like, for every kind of creature on every kind of ground. */
+export interface FootstepSounds {
+	/** `creature footstep kind:ground sound group` -> [step files, splash files for shallow water]. */
+	kits: Record<string, [number[], number[]]>;
+	/** TerrainType ID -> ground sound group, for buildings' materials (terrain cells come grouped already). */
+	groups: Record<number, number>;
+}
+
+/** FootstepTerrainLookup's ground column: the TerrainType sound group, counted from here. */
+const FOOTSTEP_GROUND_BASE = 512;
+
+/**
+ * FootstepTerrainLookup (0 creature footstep kind, 1 ground: 512 + TerrainType sound group,
+ * 2 step sound kit, 3 splash kit), with each kit's files (SoundKitEntry 0 kit, 1 file).
+ */
+export async function footstepSounds(storage: CascStorage): Promise<FootstepSounds> {
+	const [lookup, entries, terrainTypes] = await Promise.all([
+		loadTable(storage, DB2_FILES.FootstepTerrainLookup),
+		loadTable(storage, DB2_FILES.SoundKitEntry),
+		loadTable(storage, DB2_FILES.TerrainType),
+	]);
+	const files = new Map<number, number[]>();
+	for (const id of entries.ids()) {
+		const file = entries.getInt(id, 1) ?? 0;
+		if (!file || storage.status(file) !== 'ok') continue;
+		const kit = entries.getInt(id, 0) ?? 0;
+		const list = files.get(kit) ?? [];
+		list.push(file);
+		files.set(kit, list);
+	}
+	const kits: FootstepSounds['kits'] = {};
+	for (const id of lookup.ids()) {
+		const step = files.get(lookup.getInt(id, 2) ?? 0) ?? [];
+		const splash = files.get(lookup.getInt(id, 3) ?? 0) ?? [];
+		if (!step.length && !splash.length) continue;
+		kits[`${lookup.getInt(id, 0) ?? 0}:${(lookup.getInt(id, 1) ?? 0) - FOOTSTEP_GROUND_BASE}`] = [step, splash];
+	}
+	const groups: FootstepSounds['groups'] = {};
+	// TerrainType field 3: its sound group.
+	for (const id of terrainTypes.ids()) groups[id] = terrainTypes.getInt(id, 3) ?? 0;
+	return { kits, groups };
 }

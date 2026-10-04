@@ -111,7 +111,7 @@ Press **Ctrl+C** in the terminal to stop it. To update later, run `git pull` and
 - Each area's background sounds (birds, wind, wildlife, city bustle), by day and by night, cross-faded
   as you fly between areas and fading away high above the ground; inns and other rooms have their own
 - Creatures and objects from VMaNGOS: clickable, with Wowhead links, name plates, their gear and
-  animations, walking their patrols
+  animations, walking their patrols, with the game's footsteps for what they walk on
 - Every other map in the install (dungeons, raids, battlegrounds, unused and test maps) laid out in
   the sea south of the continents, optionally named from afar, to fly to or walk into through their entrances
 - Highlights for chests, herbs, ore veins, fishing pools or anything by name, seen from afar
@@ -123,6 +123,8 @@ Press **Ctrl+C** in the terminal to stop it. To update later, run `git pull` and
 - Rain, snow and sandstorms from each zone's seasonal chances, with the game's weather sounds
 - The game's world map, its explored parts filled in as you fly over them, with a click to go anywhere
 - A minimap from the game's own map images, and a search to go to any zone, town or map
+- Walking: a character of any race the install has models for, dressed as one of its NPCs, run,
+  jumped and swum around the world as in the game, with a camera that follows behind
 
 ## Controls
 
@@ -152,6 +154,36 @@ Press **Ctrl+C** in the terminal to stop it. To update later, run `git pull` and
 | P | Screenshot, with everything in view loaded in full detail |
 | U or Alt+Z | Hide / show the interface |
 | ? or F1 | List of controls |
+
+**Walking** (the key left of 1, labelled <kbd>`</kbd> on US keyboards and <kbd>§</kbd> on Nordic ones,
+or *Walk on the ground* in the Travel menu) drops a character from where the camera is, facing the
+way the camera looks, to the ground below, and moves it as in World of Warcraft. The same key flies again from
+where the walking camera was.
+
+| Key | Action |
+| --- | --- |
+| W / S | Run forward / backpedal |
+| A / D | Turn; strafe while the right mouse button is held |
+| Q / E | Strafe |
+| Space | Jump; in water, swim up, and at the surface jump out |
+| X | In water, swim down |
+| \ (the key left of Enter on many layouts) or numpad / | Walk / run |
+| Left mouse button drag | Hides the mouse and turns the camera round the character (a click still selects creatures and objects) |
+| Right mouse button held | Hides the mouse, which then turns the character too; both buttons run forward |
+| Mouse wheel | Camera nearer / further (up to 35 yards) |
+
+The speeds, the jump and the falling are the game's (the server emulators' constants: 7 yards a
+second running, 4.5 backpedalling, 4.72 swimming). There's no steering in the air beyond the way you
+jumped. Steps up to a yard high are walked up; ground steeper than 50 degrees (see *Walkable slopes*
+in Highlight) can't be climbed, and you slide down it. Buildings, caves and mines are solid and can be
+walked into, up their stairs and across their floors; trees, fences and other props are not.
+Water deeper than about two thirds of your height is swum in, and a shore climbs out of it. Dungeon
+entrances take you in on foot. Nothing fights back: it's a sandbox.
+
+The Travel menu chooses who walks: the race and sex (those the install has models for), the classic
+or HD model, and the outfit: a Stormwind City Guard's, with sword and shield (the default; guards are
+human), or any NPC's look of that race, simply dressed ones first. The choice is remembered.
+Flying anywhere (a flight path, Go to, the minimap, R, O) ends walking.
 
 Every key that switches something shows what it did, low in the middle of the screen. All of them are
 also in the **View** and **Sound** menus at the top left, which remember your choices between visits.
@@ -192,7 +224,9 @@ an area (remembered between visits), with the camera's place on it; click a zone
 on the realms, or is set to one kind everywhere.
 
 The camera position is kept in the URL, so a link brings you back to the same spot; click the coordinates
-(top left) to copy it. Add `?time=HH:MM` to set the time of day.
+(top left) to copy it. Walking, it's the walking camera's place, and the link opens there flying.
+Add `?time=HH:MM` to set the time of day.
+
 
 ## Troubleshooting
 

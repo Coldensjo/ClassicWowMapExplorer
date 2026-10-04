@@ -266,7 +266,27 @@ export class DisplayResolver {
 	 * Model, textures, geosets and gear for a creature look. weapons is [main hand, off hand,
 	 * off hand is a shield] as item display IDs, from the spawn data.
 	 */
-	async creature(displayId: number, weapons: Weapons | null = null): Promise<{ fdid: number; options: M2Options } | null> {
+	async creature(displayId: number, weapons: Weapons | null = null, hd = false): Promise<{ fdid: number; options: M2Options } | null> {
+		const [look, footstep] = await Promise.all([this.creatureLook(displayId, weapons, hd), this.footstep(displayId)]);
+		if (look) look.options.footstep = footstep;
+		return look;
+	}
+
+	private soundData: Promise<Db2> | null = null;
+
+	/**
+	 * Which footsteps a look makes (FootstepTerrainLookup's creature column): CreatureSoundData's,
+	 * from the display's own sound data or else its model's. 0 when it has none.
+	 */
+	private async footstep(displayId: number): Promise<number> {
+		this.soundData ??= loadTable(this.storage, DISPLAY_FILES.CreatureSoundData);
+		const [{ creatureDisplay, creatureModel }, sounds] = await Promise.all([this.load(), this.soundData]);
+		const modelId = creatureDisplay.getInt(displayId, 1) ?? 0;
+		const soundId = creatureDisplay.getInt(displayId, DISPLAY_SOUND) || creatureModel.getInt(modelId, MODEL_SOUND) || 0;
+		return sounds.getInt(soundId, SOUND_FOOTSTEP) ?? 0;
+	}
+
+	private async creatureLook(displayId: number, weapons: Weapons | null, hd: boolean): Promise<{ fdid: number; options: M2Options } | null> {
 		const { creatureDisplay, creatureModel, displayExtra, materials } = await this.load();
 		const modelId = creatureDisplay.getInt(displayId, 1);
 		const fdid = modelId ? creatureModel.getInt(modelId, 2) : null;
@@ -286,7 +306,7 @@ export class DisplayResolver {
 			const geosets = [...gear.geosets, ...looks.geosets.filter((g) => !gearGroups.has(Math.floor(g / 100)))];
 			const attachments = [...gear.attachments, ...held];
 			const cape: Record<number, number> = gear.cape ? { 2: gear.cape } : {};
-			if (sd && sdBake && this.storage.status(sd) === 'ok') {
+			if (!hd && sd && sdBake && this.storage.status(sd) === 'ok') {
 				// SD hair textures are per race and colour (the HD ones don't fit SD geometry). Colours
 				// beyond the old set fall back to the first.
 				const hairSet = (await this.hairTextures())[race];
@@ -539,6 +559,80 @@ export class DisplayResolver {
 		return this.hair;
 	}
 
+	private lookIndex: Promise<Map<string, number[]>> | null = null;
+
+	/**
+	 * Humanoid NPC looks by race, sex and model ('race:sex:sd' or 'race:sex:hd'): display IDs
+	 * whose outfit texture is in the install, simply dressed first (see below), for the walking
+	 * character to wear.
+	 */
+	private looks(): Promise<Map<string, number[]>> {
+		this.lookIndex ??= (async () => {
+			const [{ creatureDisplay, displayExtra, materials }, slots] = await Promise.all([this.load(), this.itemSlots()]);
+			const scored = new Map<string, { id: number; score: number }[]>();
+			const add = (key: string, id: number, score: number) => {
+				const list = scored.get(key) ?? [];
+				list.push({ id, score });
+				scored.set(key, list);
+			};
+			const usable = (material: number) => {
+				const file = materials.get(material);
+				return !!file && this.storage.status(file) === 'ok';
+			};
+			for (const id of creatureDisplay.ids()) {
+				const extra = creatureDisplay.getInt(id, 7) ?? 0;
+				if (!extra || !displayExtra.has(extra)) continue;
+				const race = displayExtra.getInt(extra, 1) ?? 0;
+				const sex = displayExtra.getInt(extra, 2) ?? 0;
+				if (!SD_CHARACTER_MODELS[race] || sex > 1) continue;
+				// Dressed simply: a shirt or chest, trousers and boots, but no helmet, shoulders, cape or tabard.
+				let score = 0;
+				const worn = new Set((slots.get(extra) ?? []).map(([, slot]) => slot));
+				for (const slot of worn) {
+					if (slot === SLOT_HEAD || slot === SLOT_SHOULDER || slot === SLOT_BACK || slot === SLOT_TABARD) score -= 3;
+				}
+				if (worn.has(SLOT_SHIRT) || worn.has(SLOT_CHEST)) score += 1;
+				if (worn.has(SLOT_LEGS)) score += 1;
+				if (worn.has(SLOT_FEET)) score += 1;
+				if (usable(displayExtra.getInt(extra, 5) ?? 0)) add(`${race}:${sex}:sd`, id, score);
+				if (usable(displayExtra.getInt(extra, 6) ?? 0)) add(`${race}:${sex}:hd`, id, score);
+			}
+			const out = new Map<string, number[]>();
+			for (const [key, list] of scored) out.set(key, list.sort((a, b) => b.score - a.score || a.id - b.id).map((l) => l.id));
+			return out;
+		})();
+		return this.lookIndex;
+	}
+
+	/** The races the install has character models for, and how many looks each sex has, classic and HD. */
+	async characterRaces(): Promise<CharacterRace[]> {
+		const looks = await this.looks();
+		const out: CharacterRace[] = [];
+		for (const [race, models] of Object.entries(SD_CHARACTER_MODELS)) {
+			const r = Number(race);
+			const sexes = models.map((sd, sex) => ({
+				sd: this.storage.status(sd) === 'ok' ? looks.get(`${r}:${sex}:sd`)?.length ?? 0 : 0,
+				hd: looks.get(`${r}:${sex}:hd`)?.length ?? 0,
+			})) as CharacterRace['sexes'];
+			if (sexes.some((s) => s.sd || s.hd)) out.push({ race: r, name: RACE_NAMES[r] ?? `Race ${r}`, sexes });
+		}
+		return out;
+	}
+
+	/**
+	 * The walking character: one of a race and sex's NPC looks (wrapping round), on the classic or
+	 * HD model, with the sequences given. Null when there's no such look.
+	 */
+	async character(race: number, sex: number, hd: boolean, look: number, clips: number[], outfit: CharacterOutfit | null = null): Promise<{ fdid: number; options: M2Options; displayId: number; looks: number } | null> {
+		const list = (await this.looks()).get(`${race}:${sex}:${hd ? 'hd' : 'sd'}`) ?? [];
+		if (!list.length) return null;
+		// An outfit is one NPC's whole look, weapons and all; otherwise one of the race's looks.
+		const worn = outfit && CHARACTER_OUTFITS[outfit].race === race ? CHARACTER_OUTFITS[outfit] : null;
+		const displayId = worn ? worn.displays[sex] : list[wrap(look, list.length)];
+		const resolved = await this.creature(displayId, worn?.weapons ?? null, hd);
+		return resolved && { ...resolved, options: { ...resolved.options, clips }, displayId, looks: list.length };
+	}
+
 	async object(displayId: number): Promise<number | null> {
 		const { objectDisplay } = await this.load();
 		return objectDisplay.getInt(displayId, 1) || null;
@@ -567,7 +661,36 @@ const SD_CHARACTER_MODELS: Record<number, [number, number]> = {
 	18: [118798, 118798], // forest troll
 };
 
+/** ChrRaces names for the races with character models. */
+const RACE_NAMES: Record<number, string> = {
+	1: 'Human', 2: 'Orc', 3: 'Dwarf', 4: 'Night Elf', 5: 'Undead', 6: 'Tauren', 7: 'Gnome', 8: 'Troll',
+	9: 'Goblin', 10: 'Blood Elf', 11: 'Draenei', 12: 'Fel Orc', 14: 'Broken', 15: 'Skeleton', 18: 'Forest Troll',
+};
+
+/**
+ * Outfits the walking character can wear whole, as an NPC wears them: the race, the display for
+ * each sex (male, female) and the weapons held, from the creature template (spawn data).
+ */
+export const CHARACTER_OUTFITS = {
+	// creature_template 68.
+	guard: { name: 'Stormwind City Guard', race: 1, displays: [3167, 5446], weapons: [7483, 2080, 1] as Weapons },
+};
+
+export type CharacterOutfit = keyof typeof CHARACTER_OUTFITS;
+
+/** A race the walking character can be: its name, and how many looks each sex (male, female) has, classic and HD. */
+
+export interface CharacterRace {
+	race: number;
+	name: string;
+	sexes: [{ sd: number; hd: number }, { sd: number; hd: number }];
+}
+
+/** Non-negative remainder, for picking round a list. */
+const wrap = (n: number, m: number) => ((n % m) + m) % m;
+
 /** Client tables for display lookups (file IDs from the community listfile). */
+
 export const DISPLAY_FILES = {
 	CreatureDisplayInfo: 1108759,
 	CreatureDisplayInfoExtra: 1264997,
@@ -586,7 +709,13 @@ export const DISPLAY_FILES = {
 	HelmetGeosetData: 2821752,
 	ModelFileData: 1337833,
 	ComponentModelFileData: 1349053,
+	CreatureSoundData: 1344466,
 } as const;
+
+/** CreatureDisplayInfo's and CreatureModelData's sound data (the display's wins), and CreatureSoundData's footstep kind. */
+const DISPLAY_SOUND = 2;
+const MODEL_SOUND = 13;
+const SOUND_FOOTSTEP = 9;
 
 /** NPCModelItemSlotDisplayInfo slots. */
 const SLOT_HEAD = 0;

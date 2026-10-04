@@ -84,13 +84,28 @@
 					<label>Master <input type="range" min="0" max="100" step="1" data-channel="master"><output></output></label>
 					<label>Music <input type="range" min="0" max="100" step="1" data-channel="music"><output></output></label>
 					<label title="Background sounds, weather and under water">Ambience <input type="range" min="0" max="100" step="1" data-channel="ambience"><output></output></label>
-					<label>Splashes <input type="range" min="0" max="100" step="1" data-channel="effects"><output></output></label>
+					<label title="Footsteps and splashes">Effects <input type="range" min="0" max="100" step="1" data-channel="effects"><output></output></label>
 				</div>
 			</details>
 
 			<details id="travel" name="menu">
 				<summary>Travel</summary>
 				<div class="menu-body panel">
+					<button id="walk-toggle" title="A character on the ground under the camera, moved as in the game">Walk on the ground <kbd data-key="Backquote">`</kbd></button>
+					<div class="flight-grid" id="walk-character">
+						<label for="walk-race">Race</label>
+						<select id="walk-race" class="span"></select>
+						<label for="walk-sex">Sex</label>
+						<select id="walk-sex" class="span"><option value="0">Male</option><option value="1">Female</option></select>
+						<label for="walk-model">Model</label>
+						<select id="walk-model" class="span"><option value="sd">Classic</option><option value="hd">HD</option></select>
+						<label for="walk-outfit">Outfit</label>
+						<select id="walk-outfit" class="span"></select>
+						<span>Look</span>
+						<output id="walk-look" title="Which NPC's outfit the character wears"></output>
+						<span class="walk-look-buttons"><button id="walk-look-prev" title="Previous look" aria-label="Previous look">&lt;</button><button id="walk-look-next" title="Next look" aria-label="Next look">&gt;</button></span>
+					</div>
+
 					<button id="worldmap-open">World map <kbd>Tab</kbd></button>
 					<label><input type="checkbox" id="flights-shown"> Show flight paths</label>
 					<div class="flight-grid">
@@ -223,7 +238,17 @@
 					<div><kbd>G</kbd> fly through walls · <kbd>J</kbd> cinematic camera</div>
 				</section>
 				<section>
+					<h3>Walking</h3>
+					<div><kbd data-key="Backquote">`</kbd> drop to the ground from the camera and walk, or fly again</div>
+					<div><kbd>W</kbd> / <kbd>S</kbd> run / backpedal · <kbd>A</kbd> / <kbd>D</kbd> turn</div>
+					<div><kbd>Q</kbd> / <kbd>E</kbd> strafe · <kbd>Space</kbd> jump</div>
+					<div>Drag with the left button to turn the camera; hold the right button to turn yourself too (then <kbd>A</kbd> / <kbd>D</kbd> strafe); both buttons run</div>
+					<div><kbd>Wheel</kbd> zoom · <kbd data-key="Backslash">\</kbd> or numpad <kbd>/</kbd> walk / run</div>
+					<div>In water: <kbd>Space</kbd> / <kbd>X</kbd> up / down; <kbd>Space</kbd> at the surface jumps out</div>
+				</section>
+				<section>
 					<h3>Going places</h3>
+
 					<div><kbd>/</kbd> go to a zone, town, dungeon or raid</div>
 					<div>Click the minimap to fly there</div>
 					<div><kbd>O</kbd> whole world · <kbd>1</kbd> / <kbd>2</kbd> continents</div>
@@ -234,7 +259,7 @@
 					<h3>The world</h3>
 					<div><kbd>T</kbd> / <kbd>Shift</kbd>+<kbd>T</kbd> later / earlier · <kbd>N</kbd> local time</div>
 					<div><kbd>L</kbd> torch · <kbd>V</kbd> grass and flowers</div>
-					<div><kbd>B</kbd> colour grading · <kbd>X</kbd> shadows · <kbd>Z</kbd> fog</div>
+					<div><kbd>B</kbd> colour grading · <kbd>X</kbd> shadows (when flying) · <kbd>Z</kbd> fog</div>
 					<div><kbd>F</kbd> name colours for Alliance or Horde</div>
 					<div><kbd>I</kbd> dungeon and raid names · <kbd>M</kbd> music and sound</div>
 					<div><kbd>H</kbd> highlight chests, herbs, ore, fishing pools or anything by name</div>

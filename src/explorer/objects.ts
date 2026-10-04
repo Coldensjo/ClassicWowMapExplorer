@@ -3,7 +3,7 @@ import { MeshBVH } from 'three-mesh-bvh';
 import type { CascStorage } from '../casc/storage';
 import { chunks } from '../formats/chunks';
 import { Blend, M2_MATERIAL_TWO_SIDED, M2_MATERIAL_UNFOGGED, M2_MATERIAL_UNLIT, parseM2, parseSkin, type M2File, type M2Skin } from '../formats/m2';
-import { attachmentPoints, skinVertex, standAnimation, standPose, type AnimationClip, type AttachmentPoint, type BoneAnimation } from '../formats/m2Pose';
+import { attachmentPoints, sequenceAnimation, skinVertex, standAnimation, standPose, type AnimationClip, type AttachmentPoint, type BoneAnimation } from '../formats/m2Pose';
 import { parseParticleEmitters, type ParticleEmitter } from '../formats/m2Particles';
 import {
 	parseWmoGroup, parseWmoRoot, WMO_GROUP_INTERIOR, WMO_LIQUID_CELL, type WmoGroup, visibleWmoGroups, WMO_MATERIAL_TWO_SIDED, WMO_MATERIAL_UNFOGGED, WMO_MATERIAL_UNLIT,
@@ -49,6 +49,10 @@ export interface ModelMaterial {
 	opacity: number;
 	/** Steady texture scroll in texture units per second (fire, lava, waterfalls). */
 	uvScroll?: [number, number];
+	/** Never drawn: a building's collision-only triangles, there to be walked on and bumped into. */
+	collision?: true;
+	/** Buildings: the TerrainType it's made of, for what footsteps on it sound like (0 none). */
+	ground?: number;
 }
 
 export interface ModelBatch {
@@ -82,6 +86,8 @@ export interface ModelData {
 	areas?: WmoAreas;
 	/** M2 particle emitters (fire, smoke, sparks), including those of worn gear. */
 	emitters?: ParticleEmitter[];
+	/** Creatures: which footsteps they make (FootstepTerrainLookup's creature column; 0 none). */
+	footstep?: number;
 	/** WMOs only: a serialised ray-cast acceleration structure (three-mesh-bvh, indirect), for line of sight. */
 	bvh?: { version: number; roots: ArrayBuffer[]; indirectBuffer: Uint32Array | Uint16Array | null };
 }
@@ -196,8 +202,15 @@ export interface M2Options {
 	geosets?: number[];
 	/** Pose the mesh with the first frame of its Stand animation instead of the bind pose. */
 	stand?: boolean;
+	/**
+	 * Animate with these sequences (AnimationData IDs) rather than Stand and Walk: the walking
+	 * character, whose clips carry their IDs and speeds.
+	 */
+	clips?: number[];
 	/** Gear models to draw at the model's attachment points. */
 	attachments?: GearAttachment[];
+	/** Which footsteps it makes (see ModelData.footstep). */
+	footstep?: number;
 }
 
 /** A gear model (helmet, shoulder, weapon) and its texture, at an M2 attachment point. */
@@ -234,9 +247,9 @@ interface PreparedM2 {
 const preparedM2 = new Map<string, Promise<PreparedM2>>();
 const PREPARED_M2_LIMIT = 600;
 
-/** file: the M2's bytes, when the caller has already read them. */
-function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Uint8Array): Promise<PreparedM2> {
-	const key = `${fdid}:${stand ? 1 : 0}`;
+/** file: the M2's bytes, when the caller has already read them. clips: see M2Options. */
+function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Uint8Array, clips?: number[]): Promise<PreparedM2> {
+	const key = `${fdid}:${stand ? 1 : 0}:${clips?.join('.') ?? ''}`;
 	let entry = preparedM2.get(key);
 	if (entry) {
 		// Refresh its place in the least-recently-used order.
@@ -257,7 +270,7 @@ function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Ui
 		const v = new DataView(vertices.buffer, vertices.byteOffset, vertices.byteLength);
 		// Moving models are skinned on the GPU from bind space; still ones are posed here once.
 		// Creatures (posed standing) also get their walk, for those that roam.
-		const animation = standAnimation(bytes, m2.md20, stand);
+		const animation = clips ? sequenceAnimation(bytes, m2.md20, clips) : standAnimation(bytes, m2.md20, stand);
 		const bones = !animation && stand ? standPose(bytes, m2.md20) : null;
 		const boneIndex = animation ? new Uint16Array(n * 4) : null;
 		const boneWeight = animation ? new Uint8Array(n * 4) : null;
@@ -339,7 +352,7 @@ function dressM2(prepared: PreparedM2, options: M2Options) {
 const brokenGear = new Set<number>();
 
 export async function loadM2(storage: CascStorage, fdid: number, options: M2Options = {}, file?: Uint8Array): Promise<ModelData> {
-	const prepared = await prepareM2(storage, fdid, !!options.stand, file);
+	const prepared = await prepareM2(storage, fdid, !!options.stand, file, options.clips);
 	const animated = prepared.animation !== null;
 	// rest: where the part sits in the resting pose, for its particle emitters.
 	const parts: { prepared: PreparedM2; batches: ModelBatch[]; transform: Mat4 | null; rest: Mat4 | null; bone: number }[] = [
@@ -431,9 +444,11 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 		radius: prepared.m2.bounds.radius || boundingRadius(positions), height: topOf(positions, packed.indices, packed.batches),
 		// The bone data is shared by every look of this model, so it's keyed for reuse on the GPU.
 		animation: anim && boneIndex && boneWeight
-			? { key: `m2:${fdid}`, bones: anim.bones, clips: anim.clips, data: anim.data.slice(), boneIndex, boneWeight }
+			? { key: `m2:${fdid}${options.clips ? ':clips' : ''}`, bones: anim.bones, clips: anim.clips, data: anim.data.slice(), boneIndex, boneWeight }
+
 			: undefined,
 		emitters: emitters.length ? emitters : undefined,
+		footstep: options.footstep,
 	};
 }
 /** file: the root file's bytes, when the caller has already read them. */
@@ -459,6 +474,7 @@ export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type:
 	const toLinear = (g: number) => Math.pow(Math.max(0, g), 2.2);
 	// Triangles per material, so each material becomes one batch.
 	const byMaterial = new Map<number, number[]>();
+	const collision: number[] = [];
 	let base = 0;
 	for (const g of groups) {
 		if (!g) continue;
@@ -479,6 +495,9 @@ export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type:
 			const list = byMaterial.get(batch.material) ?? [];
 			for (let i = batch.indexStart; i < batch.indexStart + batch.indexCount; i++) list.push(g.indices[i] + base);
 			byMaterial.set(batch.material, list);
+		}
+		for (const t of g.collisionOnly) {
+			for (let k = 0; k < 3; k++) collision.push(g.indices[t * 3 + k] + base);
 		}
 		base += count;
 	}
@@ -511,11 +530,22 @@ export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type:
 				unlit: !!(m && m.flags & WMO_MATERIAL_UNLIT),
 				unfogged: !!(m && m.flags & WMO_MATERIAL_UNFOGGED),
 				opacity: 1,
+				ground: m?.ground ?? 0,
 			},
 		});
 	}
 
+	// Last, so the shadow pass's ranges above stay as they are; never drawn, but in the ray-cast structure.
+	if (collision.length) {
+		// Collision has no material: it sounds like what most of the building is made of (ramps over wooden stairs).
+		const byGround = new Map<number, number>();
+		for (const b of batches) if (b.material.ground) byGround.set(b.material.ground, (byGround.get(b.material.ground) ?? 0) + b.count);
+		const ground = [...byGround].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 0;
+		batches.push({ start: indices.length, count: collision.length, order: 0, material: { texture: 0, blend: 0, twoSided: false, unlit: true, unfogged: false, opacity: 1, collision: true, ground } });
+		for (const i of collision) indices.push(i);
+	}
 	const doodadSets = root.doodadSets.map((set) => ({
+
 		name: set.name,
 		doodads: root.doodads.slice(set.start, set.start + set.count).filter((d) => d.fdid).map((d) => ({
 			fdid: d.fdid,

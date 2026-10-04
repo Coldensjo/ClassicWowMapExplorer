@@ -67,6 +67,12 @@ const api: AsyncStorageApi = {
 	async loadModels(models) {
 		return requireWorld().loadModels(models);
 	},
+	async characterRaces() {
+		return requireWorld().characterRaces();
+	},
+	async loadCharacter(race, sex, hd, look, clips, outfit) {
+		return requireWorld().loadCharacter(race, sex, hd, look, clips, outfit);
+	},
 	async loadLighting(mapIds) {
 		return requireWorld().loadLighting(mapIds);
 	},
@@ -81,6 +87,9 @@ const api: AsyncStorageApi = {
 	},
 	async loadLiquidLooks() {
 		return requireWorld().loadLiquidLooks();
+	},
+	async loadFootsteps() {
+		return requireWorld().loadFootsteps();
 	},
 	async loadLockKinds() {
 		return requireWorld().loadLockKinds();

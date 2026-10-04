@@ -11,6 +11,9 @@ export const WMO_GROUP_EXTERIOR = 0x8;
 export const WMO_GROUP_UNREACHABLE = 0x80;
 export const WMO_GROUP_INTERIOR = 0x2000;
 export const WMO_GROUP_ALWAYS_DRAW = 0x10000;
+/** MOPY triangle flag: things collide with it. */
+const MOPY_COLLISION = 0x8;
+
 export const WMO_GROUP_ANTIPORTAL = 0x4000000;
 
 export interface WmoMaterial {
@@ -18,6 +21,8 @@ export interface WmoMaterial {
 	shader: number;
 	blend: number;
 	texture: number;
+	/** TerrainType it's made of, for footsteps (0 none). */
+	ground: number;
 }
 
 export interface WmoDoodad {
@@ -66,6 +71,11 @@ export interface WmoGroup {
 	colors: Uint8Array | null;
 	indices: Uint16Array | Uint32Array;
 	batches: WmoBatch[];
+	/**
+	 * Triangles (indices into indices / 3) that are only there to be walked on or bumped into,
+	 * never drawn (MOPY material 0xFF): ramps over steps, walls closing a cellar's hole in the ground.
+	 */
+	collisionOnly: number[];
 	/** LiquidType ID (or legacy liquid type) of the group's liquid. */
 	liquidType: number;
 	liquid: WmoLiquid | null;
@@ -100,7 +110,7 @@ export function parseWmoRoot(bytes: Uint8Array): WmoRoot {
 	if (momt) {
 		for (let i = 0; i < momt.size / 64; i++) {
 			const o = momt.offset + i * 64;
-			materials.push({ flags: view.getUint32(o, true), shader: view.getUint32(o + 4, true), blend: view.getUint32(o + 8, true), texture: view.getUint32(o + 12, true) });
+			materials.push({ flags: view.getUint32(o, true), shader: view.getUint32(o + 4, true), blend: view.getUint32(o + 8, true), texture: view.getUint32(o + 12, true), ground: view.getUint32(o + 32, true) });
 		}
 	}
 
@@ -200,6 +210,7 @@ export function parseWmoGroup(bytes: Uint8Array): WmoGroup {
 		colors: null,
 		indices: new Uint16Array(0),
 		batches: [],
+		collisionOnly: [],
 		liquidType: view.getUint32(mogp.offset + 52, true),
 		liquid: null,
 	};
@@ -232,7 +243,14 @@ export function parseWmoGroup(bytes: Uint8Array): WmoGroup {
 					group.colors = colors;
 				}
 				break;
+			case 'MOPY':
+				// Two bytes per triangle: flags, then material (0xFF: collision only).
+				for (let i = 0; i < c.size / 2; i++) {
+					if (bytes[c.offset + i * 2 + 1] === 0xff && bytes[c.offset + i * 2] & MOPY_COLLISION) group.collisionOnly.push(i);
+				}
+				break;
 			case 'MOVI': {
+
 				const out = new Uint16Array(c.size / 2);
 				for (let i = 0; i < out.length; i++) out[i] = view.getUint16(c.offset + i * 2, true);
 				group.indices = out;

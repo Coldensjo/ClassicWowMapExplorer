@@ -6,6 +6,33 @@ const SEQUENCE_SIZE = 64;
 const ANIM_STAND = 0;
 const ANIM_WALK = 4;
 
+/** AnimationData IDs the walking character plays (see viewer/character.ts). */
+export const ANIM = {
+	Stand: 0,
+	Walk: 4,
+	Run: 5,
+	ShuffleLeft: 11,
+	ShuffleRight: 12,
+	Walkbackwards: 13,
+	JumpStart: 37,
+	Jump: 38,
+	JumpEnd: 39,
+	Fall: 40,
+	SwimIdle: 41,
+	Swim: 42,
+	SwimLeft: 43,
+	SwimRight: 44,
+	SwimBackwards: 45,
+	/**
+	 * Swimming upward: unnamed in AnimationData, but it falls back to Swim and holds the body
+	 * tilted up (about 65 degrees, against Swim's 30). Race models have no swimming-down one.
+	 */
+	SwimUp: 524,
+} as const;
+/** Sequence flags: its keys are in this file (not a separate .anim), and it stands for another (aliasNext). */
+const SEQUENCE_EMBEDDED = 0x20;
+const SEQUENCE_ALIAS = 0x40;
+
 /** M2CompQuat: int16 components mapped to [-1, 1]. */
 const compQuat = (v: number) => (v < 0 ? v + 32768 : v - 32767) / 32767;
 
@@ -19,6 +46,8 @@ interface StandSequence {
 	boneOffset: number;
 	/** Durations (ms) of the model's global sequences, for tracks that loop on their own. */
 	globalLoops: number[];
+	/** Ground speed the sequence was made for (yd/s; 0 for those that don't move). */
+	speed: number;
 }
 
 function findStand(bytes: Uint8Array, md20: number, animation = ANIM_STAND): StandSequence | null {
@@ -31,10 +60,18 @@ function findStand(bytes: Uint8Array, md20: number, animation = ANIM_STAND): Sta
 	for (let i = 0; i < seqCount; i++) {
 		const o = md20 + seqOffset + i * SEQUENCE_SIZE;
 		// Flag 0x20: the sequence's keys are in this file rather than a separate .anim.
-		if (view.getUint16(o, true) === animation && view.getUint16(o + 2, true) === 0 && view.getUint32(o + 12, true) & 0x20) {
-			const loops = Array.from({ length: u32(0x14) }, (_, k) => view.getUint32(md20 + u32(0x18) + k * 4, true));
-			return { view, md20, seq: i, duration: view.getUint32(o + 4, true), boneCount, boneOffset: u32(0x30), globalLoops: loops };
+		if (view.getUint16(o, true) !== animation || view.getUint16(o + 2, true) !== 0) continue;
+		// An alias plays another sequence of the model; follow it to one with keys of its own.
+		let seq = i;
+		for (let hops = 0; hops < 8 && view.getUint32(md20 + seqOffset + seq * SEQUENCE_SIZE + 12, true) & SEQUENCE_ALIAS; hops++) {
+			const next = view.getUint16(md20 + seqOffset + seq * SEQUENCE_SIZE + 60, true);
+			if (next >= seqCount) break;
+			seq = next;
 		}
+		const s = md20 + seqOffset + seq * SEQUENCE_SIZE;
+		if (!(view.getUint32(s + 12, true) & SEQUENCE_EMBEDDED)) continue;
+		const loops = Array.from({ length: u32(0x14) }, (_, k) => view.getUint32(md20 + u32(0x18) + k * 4, true));
+		return { view, md20, seq, duration: view.getUint32(s + 4, true), boneCount, boneOffset: u32(0x30), globalLoops: loops, speed: view.getFloat32(s + 8, true) };
 	}
 	return null;
 }
@@ -146,6 +183,39 @@ export interface AnimationClip {
 	row: number;
 	frames: number;
 	duration: number;
+	/** For a list of sequences (sequenceAnimation): its AnimationData ID, and the ground speed it was made for. */
+	id?: number;
+	speed?: number;
+	/** When a foot comes down in the loop (seconds), from the model's footstep events. */
+	steps?: number[];
+}
+
+const EVENT_SIZE = 36;
+/** The M2 event a model marks each footfall with in its walking and running sequences. */
+const FOOTSTEP_EVENT = '$FSD';
+
+/**
+ * When a foot comes down in a sequence (seconds), from the model's $FSD events: each event has a
+ * list of times per sequence. Empty when the model marks none.
+ */
+function footsteps(s: StandSequence): number[] {
+	const { view, md20 } = s;
+	const count = view.getUint32(md20 + 0x100, true);
+	const offset = view.getUint32(md20 + 0x104, true);
+	const out: number[] = [];
+	for (let i = 0; i < count; i++) {
+		const o = md20 + offset + i * EVENT_SIZE;
+		const id = String.fromCharCode(view.getUint8(o), view.getUint8(o + 1), view.getUint8(o + 2), view.getUint8(o + 3));
+		if (id !== FOOTSTEP_EVENT) continue;
+		// The event's enabled track: interpolation, global sequence, then times per sequence.
+		const sequences = view.getUint32(o + 28, true);
+		if (s.seq >= sequences) continue;
+		const list = md20 + view.getUint32(o + 32, true) + s.seq * 8;
+		const n = view.getUint32(list, true);
+		const times = md20 + view.getUint32(list + 4, true);
+		for (let k = 0; k < n; k++) out.push(view.getUint32(times + k * 4, true) / 1000);
+	}
+	return out.sort((a, b) => a - b);
 }
 
 /** Loops sampled for GPU skinning: per frame, per bone, a 3x4 matrix as three rows. */
@@ -176,12 +246,45 @@ export function standAnimation(bytes: Uint8Array, md20: number, walk = false): B
 	const data = new Float32Array(standLoop.data.length + walkLoop.data.length);
 	data.set(standLoop.data);
 	data.set(walkLoop.data, standLoop.data.length);
-	return { bones: stand.boneCount, clips: [standClip, { row: standLoop.frames, frames: walkLoop.frames, duration: walkSeq!.duration / 1000 }], data };
+	return { bones: stand.boneCount, clips: [standClip, { row: standLoop.frames, frames: walkLoop.frames, duration: walkSeq!.duration / 1000, steps: footsteps(walkSeq!) }], data };
+}
+
+/** The walking character is seen up close, and its sequences more finely sampled. */
+const CHARACTER_SAMPLES_PER_SECOND = 30;
+const CHARACTER_MAX_FRAMES = 200;
+
+/**
+ * Samples the listed sequences (AnimationData IDs) for GPU skinning, each a clip with its ID and
+ * speed, in the order given; those the model lacks are left out. Null when it has none of them.
+ */
+export function sequenceAnimation(bytes: Uint8Array, md20: number, ids: number[]): BoneAnimation | null {
+	const clips: AnimationClip[] = [];
+	const parts: Float32Array[] = [];
+	let bones = 0;
+	let row = 0;
+	for (const id of ids) {
+		const s = findStand(bytes, md20, id);
+		if (!s || s.duration < 50) continue;
+		const loop = sampleLoop(s, CHARACTER_SAMPLES_PER_SECOND, CHARACTER_MAX_FRAMES);
+		clips.push({ row, frames: loop.frames, duration: s.duration / 1000, id, speed: s.speed, steps: footsteps(s) });
+		parts.push(loop.data);
+		bones = s.boneCount;
+		row += loop.frames;
+	}
+	if (!clips.length) return null;
+	const data = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+	let at = 0;
+	for (const p of parts) {
+		data.set(p, at);
+		at += p.length;
+	}
+	return { bones, clips, data };
 }
 
 /** One loop's frames, and whether anything in it moves. */
-function sampleLoop(s: StandSequence): { frames: number; data: Float32Array; moving: boolean } {
-	const frames = Math.max(2, Math.min(MAX_FRAMES, Math.round((s.duration / 1000) * SAMPLES_PER_SECOND)));
+function sampleLoop(s: StandSequence, rate = SAMPLES_PER_SECOND, maxFrames = MAX_FRAMES): { frames: number; data: Float32Array; moving: boolean } {
+	const frames = Math.max(2, Math.min(maxFrames, Math.round((s.duration / 1000) * rate)));
+
 	const data = new Float32Array(frames * s.boneCount * 12);
 	let moving = false;
 	for (let f = 0; f < frames; f++) {

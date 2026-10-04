@@ -3,7 +3,7 @@ import { parseAdtTex } from '../formats/adtTex';
 import { blpTexture, decodeBlp, type Image, type TextureData } from '../formats/blp';
 import type { LiquidKind } from '../formats/mh2o';
 import { parseWdl, WDL_CELLS } from '../formats/wdl';
-import { DB2_FILES, liquidKinds, liquidLooks, loadTable, lockKinds, type LiquidLooks, type LockKind } from './clientDb';
+import { DB2_FILES, footstepSounds, liquidKinds, liquidLooks, loadTable, lockKinds, type FootstepSounds, type LiquidLooks, type LockKind } from './clientDb';
 import { loadAreas, loadLighting, type AreaInfo, type LightingData } from './lighting';
 import { buildLiquidMeshes, type LiquidMesh } from './liquidMesh';
 import { MusicTables, type MusicData, type WmoArea } from './music';
@@ -14,7 +14,7 @@ import { KNOWN_MAPS } from './maps';
 import { globalWmoPlacement, globalWmoTiles, loadM2, loadWmo, parsePlacements, type ModelData, type ObjectKind, type Placement } from './objects';
 import { GroundEffects, type ClutterSource } from './groundEffects';
 import { PortalSource } from './portals';
-import { DisplayResolver, parseWeapons, SpawnSource } from './spawns';
+import { DisplayResolver, parseWeapons, SpawnSource, type CharacterOutfit, type CharacterRace } from './spawns';
 import { buildSplatTerrain, type SplatTerrain } from './splatMesh';
 import { buildTerrainMesh, type TerrainGeometry } from './terrainMesh';
 
@@ -38,7 +38,15 @@ export interface InstanceMap {
 	wmoBounds: { min: [number, number, number]; max: [number, number, number] } | null;
 }
 
+/** The walking character's model, which NPC look it wears, and how many looks its race and sex have. */
+export interface CharacterModel {
+	model: ModelData;
+	displayId: number;
+	looks: number;
+}
+
 /** Map.db2 instance types. */
+
 export type MapCategory = 'continent' | 'dungeon' | 'raid' | 'battleground' | 'other';
 
 /** A map the install has files for. */
@@ -82,6 +90,8 @@ export interface NearTile {
 	areaIds: Uint32Array;
 	/** What grows on the ground (grass, flowers, pebbles), or null for none. */
 	clutter: ClutterSource | null;
+	/** What each cell sounds like underfoot: 128x128 footstep sound groups (TerrainType), or null if unknown. */
+	ground: Uint8Array | null;
 	/** Which way the rivers flow (see WdtTile.flowMap), or null where the tile has none. */
 	flow: TextureData | null;
 }
@@ -212,7 +222,8 @@ export class WorldLoader {
 			const tex = parseAdtTex(texBytes, (wdt.flags & MPHD_BIG_ALPHA) !== 0, (i) => !(root.chunks[i]?.flags & MCNK_DO_NOT_FIX_ALPHA));
 			const terrain = buildSplatTerrain(root, tex);
 			const clutter = groundEffects?.source(root, tex, terrain.heights, tileGrids(root).inner, terrain.holes) ?? null;
-			return { x, y, terrain, fallback: null, heights: terrain.heights, holes: terrain.holes, liquids, sea, areaIds, clutter, flow };
+			const ground = groundEffects?.groundSounds(root, tex) ?? null;
+			return { x, y, terrain, fallback: null, heights: terrain.heights, holes: terrain.holes, liquids, sea, areaIds, clutter, ground, flow };
 		}
 		const grids = tileGrids(root);
 		return {
@@ -229,6 +240,7 @@ export class WorldLoader {
 			sea,
 			areaIds,
 			clutter: null,
+			ground: null,
 			flow,
 		};
 	}
@@ -289,6 +301,22 @@ export class WorldLoader {
 		}
 	}
 
+	/** The races the walking character can be, with how many looks each sex has. */
+	characterRaces(): Promise<CharacterRace[]> {
+		return this.displays.characterRaces();
+	}
+
+	/**
+	 * The walking character's model: a race and sex dressed as one of their NPC looks (look wraps
+	 * round) or a whole outfit, classic or HD, animated with the clips given. Null when there's no such look.
+	 */
+	async loadCharacter(race: number, sex: number, hd: boolean, look: number, clips: number[], outfit: CharacterOutfit | null = null): Promise<CharacterModel | null> {
+		const character = await this.displays.character(race, sex, hd, look, clips, outfit);
+		if (!character) return null;
+		const model = await loadM2(this.storage, character.fdid, character.options);
+		return { model, displayId: character.displayId, looks: character.looks };
+	}
+
 	/** Renderable geometry for models; null where a model can't be read. */
 	async loadModels(models: { fdid: number; kind: ObjectKind; variant?: string }[]): Promise<(ModelData | null)[]> {
 		return Promise.all(models.map(async ({ fdid, kind, variant }) => {
@@ -337,6 +365,10 @@ export class WorldLoader {
 
 	loadPlaces(): Promise<Place[]> {
 		return loadPlaces(this.storage);
+	}
+
+	loadFootsteps(): Promise<FootstepSounds> {
+		return footstepSounds(this.storage);
 	}
 
 	loadLockKinds(): Promise<Record<number, LockKind>> {

@@ -9,7 +9,8 @@ import { Mover, type GroundAt } from './movers';
 import { perf } from './perf';
 import { PARTICLE_RANGE, SHOT_PARTICLE_RANGE, ParticleSystem, type EmitterSource, type LoadedEmitter } from './particles';
 import { useShadows, type ShadowRole } from './shadows';
-import { liquidMaterial } from './terrainMaterials';
+import { liquidMaterial, liquidTime } from './terrainMaterials';
+import { FOOTSTEP_RANGE } from './footsteps';
 import { TextureCache } from './textureCache';
 
 /** Yards above a creature's head its name sits. */
@@ -66,6 +67,11 @@ class ModelEntry {
 	visible = new Set<string>();
 	/** Set for models animated on the GPU: their shared bone texture and loop length. */
 	animation: { key: string; duration: number } | null = null;
+	/** Creatures that walk: the walk loop's length and when its feet come down (s), and their footstep kind. */
+	walk: { duration: number; steps: number[] } | null = null;
+	footstep = 0;
+	/** Buildings: each material's TerrainType (in the order of materials), for footsteps on it. */
+	grounds: number[] = [];
 	/** Particle emitters (fire, smoke), with their textures. */
 	emitters: LoadedEmitter[] = [];
 	/** Instance key for each slot in the instance buffer, for picking. */
@@ -385,6 +391,12 @@ export class ObjectManager {
 	/** Ground height for walking creatures; the viewer supplies the terrain's. */
 	groundAt: GroundAt = () => NaN;
 
+	/** Called when a walking creature near the camera puts a foot down: where, and its footstep kind. */
+	onStep: ((at: THREE.Vector3, footstep: number) => void) | null = null;
+	/** Each walking creature's point in its walk loop at the last frame, for spotting a footfall in between. */
+	private readonly stepTimes = new Map<string, number>();
+	private readonly stepAt = new THREE.Vector3();
+
 	/** Walks the creatures near the camera and writes their new places into the instance buffers. */
 	private moveCreatures(dt: number, cull: boolean): void {
 		if (dt <= 0) return;
@@ -409,6 +421,8 @@ export class ObjectManager {
 					anim.setX(slot, walking);
 					anim.needsUpdate = true;
 				}
+				if (walking) this.footfalls(entry, key, slot, e);
+				else this.stepTimes.delete(key);
 			}
 			if (moved) {
 				mesh.instanceMatrix.needsUpdate = true;
@@ -416,6 +430,28 @@ export class ObjectManager {
 				if (cull) mesh.computeBoundingSphere();
 			}
 		}
+	}
+
+	/**
+	 * Reports a footfall of a walking creature near the camera: where its walk loop is now (as the
+	 * GPU plays it: the shared clock plus the copy's own phase), and whether a footstep fell since
+	 * the last frame.
+	 */
+	private footfalls(entry: ModelEntry, key: string, slot: number, e: ArrayLike<number>): void {
+		const walk = entry.walk;
+		if (!walk || !entry.footstep || !this.onStep) return;
+		if ((e[12] - this.camera.x) ** 2 + (e[13] - this.camera.y) ** 2 + (e[14] - this.camera.z) ** 2 > FOOTSTEP_RANGE ** 2) {
+			this.stepTimes.delete(key);
+			return;
+		}
+		const phase = (entry.geometry?.getAttribute('instancePhase') as THREE.InstancedBufferAttribute | undefined)?.getX(slot) ?? 0;
+		const now = THREE.MathUtils.euclideanModulo(liquidTime.value + phase, walk.duration);
+		const before = this.stepTimes.get(key);
+		this.stepTimes.set(key, now);
+		if (before === undefined) return;
+		// Round the end of the loop, the steps after before and those up to now both count.
+		const fell = walk.steps.some((t) => (before <= now ? t > before && t <= now : t > before || t <= now));
+		if (fell) this.onStep(this.stepAt.set(e[12], e[13], e[14]), entry.footstep);
 	}
 
 	/** Placed copies of models with particle emitters, near enough for their particles to show. */
@@ -493,10 +529,14 @@ export class ObjectManager {
 				uClips: { value: a.clips.map((c) => new THREE.Vector3(c.row, c.frames, c.duration)) },
 			};
 			entry.animation = { key: a.key, duration: a.clips[0].duration };
+			const walk = a.clips[1];
+			if (walk?.steps?.length) entry.walk = { duration: walk.duration, steps: walk.steps };
 			entry.depthMaterial = createSkinnedDepthMaterial(skin);
 		}
 		geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
 		const batches = [...data.batches].sort((a, b) => a.order - b.order);
+		entry.grounds = batches.map((b) => b.material.ground ?? 0);
+		entry.footstep = data.footstep ?? 0;
 		entry.materials = batches.map((b, i) => {
 			geometry.addGroup(b.start, b.count, i);
 			const material = createModelMaterial(b.material, textures.get(b.material.texture) ?? null, !!data.baked, skin);
@@ -765,12 +805,15 @@ export class ObjectManager {
 	private readonly sweepRay = new THREE.Raycaster();
 	private readonly hitNormal = new THREE.Vector3();
 
-	/** Nearest building surface along a ray (within far), with its world-space normal. */
-	private castBuildings(from: THREE.Vector3, direction: THREE.Vector3, far: number): { distance: number; normal: THREE.Vector3 } | null {
+	/**
+	 * Nearest building surface along a ray (within far), with its world-space normal and the
+	 * TerrainType it's made of (0 unknown): floors under the walking character, walls behind its camera.
+	 */
+	castBuildings(from: THREE.Vector3, direction: THREE.Vector3, far: number): { distance: number; normal: THREE.Vector3; ground: number } | null {
 		this.sweepRay.set(from, direction);
 		this.sweepRay.far = far;
 		this.sweepRay.firstHitOnly = true;
-		let best: { distance: number; normal: THREE.Vector3 } | null = null;
+		let best: { distance: number; normal: THREE.Vector3; ground: number } | null = null;
 		for (const entry of this.models.values()) {
 			if (!entry.mesh?.visible || !entry.geometry?.boundsTree) continue;
 			const hit = this.sweepRay.intersectObject(entry.mesh, false)[0];
@@ -779,7 +822,7 @@ export class ObjectManager {
 			const instance = new THREE.Matrix4();
 			if (hit.instanceId !== undefined) entry.mesh.getMatrixAt(hit.instanceId, instance);
 			this.hitNormal.copy(hit.face.normal).transformDirection(instance);
-			best = { distance: hit.distance, normal: this.hitNormal.clone() };
+			best = { distance: hit.distance, normal: this.hitNormal.clone(), ground: entry.grounds[hit.face.materialIndex] ?? 0 };
 		}
 		return best;
 	}
@@ -877,10 +920,11 @@ export class ObjectManager {
 	/**
 	 * How far to move a point so no building surface is within `radius` of it along the six axes
 	 * (floors, ceilings, walls). Keeps the camera's view from clipping into a surface it slid along.
+	 * horizontal: walls only (the walking character, whose floor is found separately).
 	 */
-	pushOut(at: THREE.Vector3, radius: number): THREE.Vector3 {
+	pushOut(at: THREE.Vector3, radius: number, horizontal = false): THREE.Vector3 {
 		const offset = new THREE.Vector3();
-		for (const axis of ObjectManager.AXES) {
+		for (const axis of horizontal ? ObjectManager.AXES.slice(2) : ObjectManager.AXES) {
 			const hit = this.castBuildings(at, axis, radius);
 			if (hit && axis.dot(hit.normal) < 0) offset.addScaledVector(axis, -(radius - hit.distance));
 		}

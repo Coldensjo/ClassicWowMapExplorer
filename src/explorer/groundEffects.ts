@@ -5,6 +5,12 @@ import { DB2_FILES, loadTable } from './clientDb';
 
 /** GroundEffectTexture fields. */
 const TEXTURE_DENSITY = 0;
+/** Its TerrainType (what it sounds like underfoot). */
+const TEXTURE_TERRAIN = 1;
+/** TerrainType's footstep sound group (1 dirt, 3 stone, 4 snow, 5 wood, 6 grass...). */
+const TERRAIN_SOUND = 3;
+/** The sound group of ground with no effect: dirt. */
+export const DEFAULT_GROUND = 1;
 const TEXTURE_DOODADS = 2;
 const TEXTURE_WEIGHTS = 3;
 /** GroundEffectDoodad fields. */
@@ -47,14 +53,25 @@ export interface ClutterSource {
 	inner: Float32Array;
 }
 
-/** GroundEffectTexture and GroundEffectDoodad, read once. */
+/** GroundEffectTexture and GroundEffectDoodad, read once; and TerrainType, for what each texture sounds like underfoot. */
 export class GroundEffects {
-	private constructor(private readonly effects: Map<number, ClutterEffect | null>) {}
+	private constructor(
+		private readonly effects: Map<number, ClutterEffect | null>,
+		/** Effect ID -> footstep sound group (TerrainType field 3). */
+		private readonly sounds: Map<number, number>,
+	) {}
 
 	static async load(storage: CascStorage): Promise<GroundEffects> {
-		const [textures, doodads] = await Promise.all([loadTable(storage, DB2_FILES.GroundEffectTexture), loadTable(storage, DB2_FILES.GroundEffectDoodad)]);
+		const [textures, doodads, terrainTypes] = await Promise.all([
+			loadTable(storage, DB2_FILES.GroundEffectTexture),
+			loadTable(storage, DB2_FILES.GroundEffectDoodad),
+			loadTable(storage, DB2_FILES.TerrainType),
+		]);
 		const effects = new Map<number, ClutterEffect | null>();
+		const sounds = new Map<number, number>();
 		for (const id of textures.ids()) {
+			const sound = terrainTypes.getInt(textures.getInt(id, TEXTURE_TERRAIN) ?? 0, TERRAIN_SOUND) ?? 0;
+			if (sound) sounds.set(id, sound);
 			const list: ClutterDoodad[] = [];
 			for (let k = 0; k < textures.arrayLength(TEXTURE_DOODADS); k++) {
 				const doodad = textures.getInt(id, TEXTURE_DOODADS, k) ?? 0;
@@ -74,7 +91,27 @@ export class GroundEffects {
 			const density = textures.getInt(id, TEXTURE_DENSITY) ?? 0;
 			effects.set(id, list.length && density ? { density, doodads: list } : null);
 		}
-		return new GroundEffects(effects);
+		return new GroundEffects(effects, sounds);
+	}
+
+	/**
+	 * What each of a tile's cells sounds like underfoot (128x128 footstep sound groups), from the
+	 * texture layer covering most of it, as its clutter is.
+	 */
+	groundSounds(root: AdtRoot, tex: AdtTex): Uint8Array {
+		const n = TILE_CELLS;
+		const out = new Uint8Array(n * n).fill(DEFAULT_GROUND);
+		for (const c of root.chunks) {
+			const layers = tex.chunks[c.indexY * CHUNKS_PER_TILE + c.indexX]?.layers;
+			if (!layers) continue;
+			for (let row = 0; row < 8; row++) {
+				for (let col = 0; col < 8; col++) {
+					const effectId = layers[c.effectLayers[row * 8 + col]]?.effect ?? 0;
+					out[(c.indexY * 8 + row) * n + c.indexX * 8 + col] = this.sounds.get(effectId) ?? DEFAULT_GROUND;
+				}
+			}
+		}
+		return out;
 	}
 
 	/** A tile's clutter map; null when none of its textures grow anything. */

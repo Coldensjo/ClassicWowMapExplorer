@@ -8,7 +8,10 @@ import type { AreaInfo } from '../explorer/lighting';
 import type { WmoArea } from '../explorer/music';
 import type { Place } from '../explorer/places';
 import type { SpawnInfo } from '../explorer/spawns';
+import { Character, type CharacterLook } from './character';
+import type { CharacterRace } from '../explorer/spawns';
 import { FlyControls } from './flyControls';
+import { Footsteps } from './footsteps';
 import { Flights, type FlightMaster } from './flights';
 import { RegionData } from './regionData';
 import { RegionOverlay } from './regionOverlay';
@@ -37,6 +40,7 @@ import type { LiquidKind } from '../formats/mh2o';
 import type { LiquidLooks } from '../explorer/clientDb';
 import { createTexture, supportsCompressedTextures } from './textures';
 import { isTyping } from './typing';
+import { WalkControls } from './walkControls';
 
 /** A dungeon view in the URL hash: #d<map ID>/... */
 const HASH_INSTANCE = /^#d(\d+)\//;
@@ -66,6 +70,12 @@ const OPEN_SEA_LIGHT = { mapId: 0, x: 1e6, y: 1e6 };
 const CATEGORY_NAMES: Record<MapCategory, string> = { continent: 'Continent', dungeon: 'Dungeon', raid: 'Raid', battleground: 'Battleground', other: 'Other map' };
 /** Yards above a teleport's destination (the ground there) to put the camera. */
 const EYE_HEIGHT = 2;
+/** Footsteps on a building's floor whose material names no ground sound like stone. */
+const STONE_GROUND = 3;
+/** A walking character smaller than this (its scale: gnomes) splashes in water with the small sounds. */
+const SMALL_SPLASH = 0.7;
+/** A hole in the ground is a way down for the walking character only with a building this near under it (yards). */
+const HOLE_DEPTH = 40;
 /** Yards of slack around area triggers: the camera is a little ball, not a point. */
 const TRIGGER_MARGIN = 1;
 /**
@@ -203,8 +213,8 @@ export const FLY_SPEED_STEP = 0.25;
 /** The flying speed's range, as powers of two either side of normal. */
 export const FLY_SPEED_RANGE = 3;
 
-/** A setting, or the time of day or the sound, changed by its key. */
-export type ViewChange = keyof ViewSettings | 'time' | 'sound' | 'flight' | 'voyage';
+/** A setting, or the time of day or the sound, changed by its key; or walking started or stopped. */
+export type ViewChange = keyof ViewSettings | 'time' | 'sound' | 'flight' | 'voyage' | 'walking';
 
 /** Where the camera is for the minimap: a map's tile grid, in fractional local tiles. */
 export interface MinimapView {
@@ -278,6 +288,14 @@ export class Viewer {
 	private readonly scene = new THREE.Scene();
 	private readonly camera: THREE.PerspectiveCamera;
 	private readonly controls: FlyControls;
+	/** A character on foot with the camera behind it, instead of flying (Backquote). */
+	private readonly walker: WalkControls;
+	/** The walking character as drawn; set up with the objects. */
+	private character: Character | null = null;
+	/** Who walks: race, sex, model and look (the default a Stormwind City Guard on the classic model). */
+	private characterLook: CharacterLook = { race: 1, sex: 0, hd: false, look: 0, outfit: 'guard' };
+	/** Whether the character has been dressed as characterLook yet (it is when first needed). */
+	private dressed: Promise<number> | null = null;
 	private terrain!: TerrainManager;
 	private objects!: ObjectManager;
 	/** Grass, flowers and pebbles near the camera (V toggles). */
@@ -406,6 +424,9 @@ export class Viewer {
 		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 		this.camera = new THREE.PerspectiveCamera(60, 1, 0.5, 400000);
 		this.controls = new FlyControls(this.camera, canvas);
+		this.walker = new WalkControls(this.camera, canvas);
+		// Anything that puts the free camera somewhere (a flight, going to a place) ends walking first.
+		this.controls.onTakeOver = () => this.stopWalking();
 		this.groundPass = new GroundDistancePass(this.renderer);
 		// Antialiased there rather than on the canvas.
 		this.post = new PostPass(this.renderer, storage);
@@ -469,6 +490,13 @@ export class Viewer {
 
 	/** Clicking a creature or object opens its info (releasing the mouse); elsewhere captures the mouse. */
 	private onClick(e: MouseEvent): void {
+		// Walking, a click selects what's under the mouse and never captures it (holding the right
+		// button does); a drag that turned the camera isn't a click.
+		if (this.walker.active) {
+			const hit = this.walker.wasDrag || this.controls.locked ? null : this.pickAt(e);
+			if (hit) this.onSelect(hit);
+			return;
+		}
 		const hit = this.pickAt(e);
 		if (hit) {
 			if (this.controls.locked) document.exitPointerLock();
@@ -505,6 +533,145 @@ export class Viewer {
 
 	/** Called when a key changes a setting, the time or the sound, for the page to show and remember. */
 	onChange: (change: ViewChange) => void = () => {};
+
+	/** Called with a line for the page to show, when something asked for can't be done. */
+	onNotice: (text: string) => void = () => {};
+
+	/** Whether the camera follows a character on foot rather than flying. */
+	get walking(): boolean {
+		return this.walker.active;
+	}
+
+	/**
+	 * Drops a character from where the camera is, facing the camera's way, to the ground under it, and follows it;
+	 * or, off, flies on from where the walking camera was. Returns why it can't, or null.
+	 */
+	setWalking(on: boolean): string | null {
+		if (on === this.walker.active || !this.terrain) return null;
+		if (!on) {
+			this.stopWalking();
+			return null;
+		}
+		const cam = this.camera.position;
+		const floor = this.walker.floorAt(cam.x, cam.z, cam.y, cam.y - 5000);
+		if (!floor) return 'There’s no ground under the camera to stand on';
+		const water = this.liquidOver(new THREE.Vector3(cam.x, floor.y, cam.z));
+		if (water?.sea && water.surface - floor.y > 2) return 'Only open sea under the camera: fly over land to walk';
+		this.controls.endRide(false);
+		this.controls.enabled = false;
+		// Dropped from where the camera was, falling to the ground.
+		this.walker.dropFrom(cam, this.controls.yaw);
+		this.walker.start();
+		void this.dressCharacter();
+		this.onChange('walking');
+		return null;
+	}
+
+	/** Back to flying, the free camera where the walking camera was. */
+	private stopWalking(): void {
+		if (!this.walker.active) return;
+		this.walker.stop();
+		this.controls.enabled = true;
+		this.controls.set(this.camera.position.clone(), this.walker.yaw, this.walker.pitch);
+		this.onChange('walking');
+	}
+
+	/** Dresses the character as the look chosen, the first time it's needed. Resolves to the number of looks for its race and sex. */
+	private dressCharacter(): Promise<number> {
+		this.dressed ??= this.character?.dress(this.characterLook) ?? Promise.resolve(0);
+		return this.dressed;
+	}
+
+	/** The races the character can be, with how many looks each sex has (classic and HD). */
+	characterRaces(): Promise<CharacterRace[]> {
+		return this.storage.characterRaces();
+	}
+
+	/** Who walks: race, sex, model and look. */
+	get look(): CharacterLook {
+		return { ...this.characterLook };
+	}
+
+	/** Changes who walks; resolves to how many looks that race and sex have (0 when it couldn't be dressed). */
+	setLook(look: CharacterLook): Promise<number> {
+		this.characterLook = { ...look };
+		this.dressed = null;
+		// Dressed now if it's out walking; otherwise when it next is.
+		return this.walker.active ? this.dressCharacter() : Promise.resolve(this.character?.looks ?? 0);
+	}
+
+	/**
+	 * Footsteps for the walking character and for creatures walking near the camera, on what's
+	 * under their feet: a building's floor (its material's ground), the terrain's texture, or
+	 * shallow water.
+	 */
+	private setUpFootsteps(footsteps: Footsteps): void {
+		const down = new THREE.Vector3(0, -1, 0);
+		const from = new THREE.Vector3();
+		// building: the TerrainType of the floor, known for the character; for creatures, found by casting down when they're off the terrain.
+		const step = (at: THREE.Vector3, kind: number, building: number | null | undefined) => {
+			if (building === undefined) {
+				building = null;
+				const terrain = this.terrain.heightAt(at.x, at.z);
+				if (!(Math.abs(terrain - at.y) < 1)) {
+					from.set(at.x, at.y + 0.5, at.z);
+					building = this.objects.castBuildings(from, down, 1.5)?.ground ?? null;
+				}
+			}
+			const group = building !== null ? footsteps.groupOf(building) || STONE_GROUND : this.terrain.groundAt(at.x, at.z);
+			const water = this.liquidOver(at);
+			footsteps.step(at, this.camera.position, kind, group, water !== null && water.surface > at.y + 0.05);
+		};
+		if (this.character) {
+			this.character.onStep = (kind) => {
+				if (this.walker.state === 'ground') step(this.walker.position, kind, this.walker.ground);
+			};
+		}
+		this.objects.onStep = (at, kind) => step(at, kind, undefined);
+	}
+
+	/** The walking character's state last frame (or '' not walking), for its splashes into and out of water. */
+	private lastWalkerState = '';
+
+	/** What the walking character collides with, stands on and swims in. */
+	private setUpWalker(): void {
+		const objects = this.objects;
+		const terrain = this.terrain;
+		// A hole in the ground opens only where a building lies under it (a mine's or a cave's
+		// tunnel); elsewhere (a cellar's edge, hidden in the game under rocks and props, which aren't
+		// solid here) it's still ground, or the character would fall out of the world. Found by a
+		// cast down, kept a moment per terrain cell.
+		const holes = new Map<string, { open: boolean; until: number }>();
+		const down = new THREE.Vector3(0, -1, 0);
+		const holeOpen = (x: number, z: number, surface: number): boolean => {
+			const cell = TILE_SIZE / 128;
+			const key = `${Math.floor(x / cell)},${Math.floor(z / cell)}`;
+			const now = performance.now();
+			const known = holes.get(key);
+			if (known && known.until > now) return known.open;
+			const from = new THREE.Vector3(x, surface + 0.5, z);
+			const open = objects.nearBuilding(from, HOLE_DEPTH) && objects.castBuildings(from, down, HOLE_DEPTH) !== null;
+			if (holes.size > 4096) holes.clear();
+			holes.set(key, { open, until: now + 2000 });
+			return open;
+		};
+		this.walker.world = {
+			terrain: (x, z) => {
+				const h = terrain.heightAt(x, z);
+				if (h > -Infinity) return h;
+				const surface = terrain.surfaceAt(x, z);
+				return surface > -Infinity && !holeOpen(x, z, surface) ? surface : h;
+			},
+			surface: (x, z) => terrain.surfaceAt(x, z),
+			// A map with no terrain (a dungeon that's one building) is as loaded as it'll get.
+			ready: (x, z) => terrain.detailedAt(x, z) || terrain.surfaceAt(x, z) === -Infinity,
+			nearBuilding: (at, margin) => objects.nearBuilding(at, margin),
+			cast: (from, direction, far) => objects.castBuildings(from, direction, far),
+			sweep: (from, move, radius) => objects.sweep(from, move, radius),
+			pushOut: (at, radius) => objects.pushOut(at, radius, true),
+			liquid: (at) => this.liquidOver(at),
+		};
+	}
 
 	get settings(): ViewSettings {
 		return {
@@ -603,6 +770,9 @@ export class Viewer {
 			return allowed.add(this.objects.pushOut(from.clone().add(allowed), CAMERA_RADIUS));
 		};
 		this.terrain = new TerrainManager(this.storage, this.usesCompressedTextures, anisotropy, this.objects, prepare);
+		this.setUpWalker();
+		this.character = new Character(this.storage, this.usesCompressedTextures, anisotropy, prepare);
+		this.scene.add(this.character.group);
 		// Walking creatures follow the ground.
 		this.objects.groundAt = (x, z) => this.terrain.heightAt(x, z);
 		this.clutter = new ClutterManager(this.storage, this.usesCompressedTextures, anisotropy, prepare);
@@ -655,6 +825,8 @@ export class Viewer {
 				this.underwaterAudio = new UnderwaterAudio(this.music);
 				this.backgroundAudio = new BackgroundAudio(this.music);
 				this.weather.setMusic(this.music);
+				const music = this.music;
+				this.storage.loadFootsteps().then((sounds) => this.setUpFootsteps(new Footsteps(music, sounds)), (e) => console.warn('Footstep sounds unavailable:', e));
 			},
 			(e) => console.warn('Music unavailable:', e),
 		);
@@ -878,9 +1050,11 @@ export class Viewer {
 
 	/** Walks through dungeon entrances and exits: sends the camera on when it enters a teleport trigger. */
 	private checkTriggers(): void {
-		const where = this.wowPosition();
+		// On foot, it's the character that walks in.
+		const at = this.walker.active ? this.walker.position : this.camera.position;
+		const where = this.wowPosition(at);
 		if (!where || this.teleporting) return;
-		const z = this.camera.position.y;
+		const z = at.y;
 		const hit = this.triggers.get(where.mapId)?.find((t) => insideTrigger(t, where.x, where.y, z));
 		if (!this.triggersArmed) {
 			this.triggersArmed = !hit;
@@ -898,7 +1072,8 @@ export class Viewer {
 				return;
 			}
 			// WoW orientation turns from north toward west, as the camera's yaw does.
-			this.controls.set(worldFromWow(placement, t.target.x, t.target.y, t.target.z + EYE_HEIGHT), t.target.o, 0);
+			if (this.walker.active) this.walker.place(worldFromWow(placement, t.target.x, t.target.y, t.target.z), t.target.o);
+			else this.controls.set(worldFromWow(placement, t.target.x, t.target.y, t.target.z + EYE_HEIGHT), t.target.o, 0);
 		} finally {
 			this.teleporting = false;
 			this.triggersArmed = false;
@@ -943,6 +1118,10 @@ export class Viewer {
 		else if (e.code === 'KeyO') this.overview();
 		else if (e.code === 'KeyR') this.controls.flyTo(this.startPosition(), 0, -0.3, 2.5);
 		else if (e.code.startsWith('Digit')) this.goToContinent(Number(e.code.slice(5)) - 1);
+		else if (e.code === 'Backquote' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+			const problem = this.setWalking(!this.walker.active);
+			if (problem) this.onNotice(problem);
+		}
 		// Letters rather than [ ] \, which need AltGr on many layouts. The sun moves while T is
 		// held; key repeats only pick up Shift being pressed or let go along the way.
 		else if (e.code === 'KeyT') this.timeRunning = e.shiftKey ? -1 : 1;
@@ -964,7 +1143,8 @@ export class Viewer {
 				KeyV: { clutter: !s.clutter },
 				KeyJ: { cinematic: !s.cinematic },
 				KeyB: { grading: !s.grading },
-				KeyX: { shadows: !s.shadows },
+				// Walking, X sinks in water instead.
+				...(this.walker.active ? {} : { KeyX: { shadows: !s.shadows } }),
 				KeyZ: { fog: !s.fog },
 			};
 			if (this.mapLabels) toggles.KeyI = { mapNames: !s.mapNames };
@@ -1147,10 +1327,10 @@ export class Viewer {
 		return [`Nearest dock: ${dock.name}, ${(dock.distance / 1000).toFixed(1)} km away`, ...lines].join('\n');
 	}
 
-	/** Where the camera is, for the world map. */
+	/** Where the camera is (or the character walking), for the world map. */
 	worldMapView(): WorldMapView | null {
-		const w = this.wowPosition();
-		return w ? { ...w, facing: this.controls.yaw } : null;
+		const w = this.wowPosition(this.walker.active ? this.walker.position : this.camera.position);
+		return w ? { ...w, facing: this.walker.active ? this.walker.facing : this.controls.yaw } : null;
 	}
 
 	/** The area's name at a point on a continent (WoW coordinates), for the world map. */
@@ -1163,13 +1343,14 @@ export class Viewer {
 		this.flyOver(mapId, (MAP_ORIGIN - y) / TILE_SIZE, (MAP_ORIGIN - x) / TILE_SIZE);
 	}
 
-	/** Where in which map's tile grid the camera is, for the minimap; null over the open sea. */
+	/** Where in which map's tile grid the camera (or the character walking) is, for the minimap; null over the open sea. */
 	minimapView(): MinimapView | null {
-		const pos = this.camera.position;
+		const walking = this.walker.active;
+		const pos = walking ? this.walker.position : this.camera.position;
 		const at = this.terrain?.locate(pos.x, pos.z);
 		if (!at) return null;
 		const c = at.continent;
-		return { mapId: c.mapId, wdt: c.wdt, x: pos.x / TILE_SIZE - c.offsetX, y: pos.z / TILE_SIZE - c.offsetY, yaw: this.controls.yaw };
+		return { mapId: c.mapId, wdt: c.wdt, x: pos.x / TILE_SIZE - c.offsetX, y: pos.z / TILE_SIZE - c.offsetY, yaw: walking ? this.walker.facing : this.controls.yaw };
 	}
 
 	/** Flies over a point of a map's tile grid (in local tiles), keeping the height above ground and the heading. */
@@ -1275,7 +1456,17 @@ export class Viewer {
 
 	private tick(dt: number, now: number): void {
 		// The camera holds still while a screenshot is prepared.
-		if (!this.shot) this.controls.update(dt, (x, z) => this.terrain.heightAt(x, z), (x, z) => this.terrain.surfaceAt(x, z));
+		if (!this.shot) {
+			if (this.walker.active) {
+				this.walker.update(dt);
+				const cam = this.camera.position;
+				this.controls.mirror(this.walker.yaw, this.walker.pitch, Math.max(0, cam.y - Math.max(this.terrain.surfaceAt(cam.x, cam.z), 0)), this.walker.speed);
+			} else {
+				this.controls.update(dt, (x, z) => this.terrain.heightAt(x, z), (x, z) => this.terrain.surfaceAt(x, z));
+			}
+		}
+		this.character?.update(dt, this.walker);
+
 		liquidTime.value = now / 1000;
 		animateFlipbooks(now / 1000);
 		const pos = this.camera.position;
@@ -1347,7 +1538,14 @@ export class Viewer {
 			this.music.update(dt, now, this.musicTarget, night);
 			const height = pos.y - Math.max(0, this.terrain.heightAt(pos.x, pos.z));
 			this.backgroundAudio?.update(dt, now, this.background, night, height, this.underwater !== null);
-			this.underwaterAudio?.update(dt, this.underwater !== null, this.underwaterSounds());
+			this.underwaterAudio?.update(dt, this.underwater !== null, this.underwaterSounds(), !this.walker.active && this.underwater !== null);
+			// The character splashes going into water (falling, jumping or wading in until it swims) and coming out.
+			const state = this.walker.active ? this.walker.state : '';
+			const swam = this.lastWalkerState === 'swim';
+			if (this.lastWalkerState && this.lastWalkerState !== 'settling' && state && (state === 'swim') !== swam) {
+				this.underwaterAudio?.splash(state === 'swim', this.walker.scale < SMALL_SPLASH);
+			}
+			this.lastWalkerState = state;
 		}
 		perf.record('drawCalls', this.renderer.info.render.calls);
 		perf.record('triangles', this.renderer.info.render.triangles);
@@ -1385,7 +1583,8 @@ export class Viewer {
 		this.terrain.holdInView(null);
 		this.objects.unlimited = false;
 		this.clutter.holdInView(null);
-		this.controls.set(shot.position, shot.yaw, shot.pitch);
+		// Walking, the camera was held where it was (the character waited too).
+		if (!this.walker.active) this.controls.set(shot.position, shot.yaw, shot.pitch);
 		this.onShotStatus(null);
 	}
 
@@ -1452,9 +1651,8 @@ export class Viewer {
 		this.onChange('time');
 	}
 
-	/** Position in WoW world coordinates (x north, y west) and the continent's map ID. */
-	private wowPosition(): { mapId: number; x: number; y: number } | null {
-		const pos = this.camera.position;
+	/** Position in WoW world coordinates (x north, y west) and the continent's map ID, of the camera or another point. */
+	private wowPosition(pos = this.camera.position): { mapId: number; x: number; y: number } | null {
 		const at = this.terrain.locate(pos.x, pos.z);
 		if (!at) return null;
 		return {
@@ -1602,7 +1800,40 @@ export class Viewer {
 	}
 
 	/**
-	 * The liquid the camera is in: the surface of a lake, river, canal or pool somewhere above it,
+	 * The surface of the liquid a point is under (the lowest above it, of a lake, river, canal or
+	 * pool; or the open sea's), for the walking character. Unlike liquidAt it keeps no state.
+	 */
+	private liquidOver(p: THREE.Vector3): { surface: number; sea: boolean } | null {
+		const meshes = this.liquidMeshes;
+		meshes.length = 0;
+		meshes.push(...this.terrain.liquidsAt(p.x, p.z));
+		this.objects.liquidMeshes(meshes);
+		if (meshes.length) {
+			// Surfaces are only hit on the side they're drawn from, which flips while the camera is
+			// under water (see liquidAt): then up from the point to the nearest above it, else down
+			// from high up to the lowest one over it.
+			const below = this.underwater !== null;
+			if (below) this.liquidRay.set(p, new THREE.Vector3(0, 1, 0));
+			else this.liquidRay.set(new THREE.Vector3(p.x, p.y + LIQUID_PROBE, p.z), new THREE.Vector3(0, -1, 0));
+			this.liquidRay.far = LIQUID_PROBE;
+			let surface = -Infinity;
+			for (const hit of this.liquidRay.intersectObjects(meshes, false)) {
+				if (!liquidKindOf((hit.object as THREE.Mesh).material)) continue;
+				surface = hit.point.y;
+				if (below) break;
+			}
+			if (surface > -Infinity) return { surface, sea: false };
+		}
+		const here = this.terrain.locate(p.x, p.z);
+		if (!here?.continent.apart && !here?.continent.building && p.y < 0 && this.terrain.surfaceAt(p.x, p.z) < p.y && this.terrain.isSea(p.x, p.z)) {
+			return { surface: 0, sea: true };
+		}
+		return null;
+	}
+
+	/**
+	 * The liquid the camera is in: the surface
+ of a lake, river, canal or pool somewhere above it,
 	 * or the open sea below sea level (where the ground is lower still).
 	 */
 	private liquidAt(p: THREE.Vector3): { kind: LiquidKind; type: number; surface: number } | null {

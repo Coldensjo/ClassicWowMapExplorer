@@ -55,6 +55,8 @@ interface TileState {
 	nearHeights: Float32Array | null;
 	/** 128x128 hole flags while the tile is detailed. */
 	nearHoles: Uint8Array | null;
+	/** What each cell sounds like underfoot (footstep sound groups), while at full detail. */
+	nearGround: Uint8Array | null;
 	/** AreaTable ID per chunk while the tile is detailed. */
 	areaIds: Uint32Array | null;
 	/** Chunks (y * 16 + x) the sea covers, from the tile's own ocean surfaces, once read in detail. */
@@ -212,6 +214,7 @@ export class TerrainManager {
 				near: null,
 				nearHeights: null,
 				nearHoles: null,
+				nearGround: null,
 				areaIds: null,
 				seaChunks: null,
 				nearLoading: false,
@@ -244,6 +247,7 @@ export class TerrainManager {
 				near: null,
 				nearHeights: null,
 				nearHoles: null,
+				nearGround: null,
 				areaIds: null,
 				seaChunks: null,
 				nearLoading: false,
@@ -504,6 +508,7 @@ export class TerrainManager {
 			this.group.add(t.near.object);
 			t.nearHeights = tile.heights;
 			t.nearHoles = tile.holes;
+			t.nearGround = tile.ground;
 			t.areaIds = tile.areaIds;
 			// Kept after the tile drops back to low detail: it's what the map says, not a guess.
 			t.seaChunks = tile.sea;
@@ -587,6 +592,7 @@ export class TerrainManager {
 		t.near = null;
 		t.nearHeights = null;
 		t.nearHoles = null;
+		t.nearGround = null;
 		t.areaIds = null;
 		if (t.far) t.far.batch.setVisible(t.far.id, true);
 	}
@@ -615,6 +621,23 @@ export class TerrainManager {
 		if (t.nearHeights) return sampleGrid(t.nearHeights, TILE_CELLS, lx, lz);
 		// A WMO-only map has no terrain at all.
 		return t.farHeights ? sampleGrid(t.farHeights, WDL_CELLS, lx, lz) : -Infinity;
+	}
+
+	/** Whether the terrain at a world position has loaded in full detail (heights and holes). */
+	detailedAt(x: number, z: number): boolean {
+		return !!this.tileAt(x, z)?.nearHeights;
+	}
+
+	/**
+	 * What the ground sounds like underfoot at a world position: its footstep sound group (1 dirt,
+	 * 3 stone, 6 grass...), from the texture covering most of the cell; 0 where unknown.
+	 */
+	groundAt(x: number, z: number): number {
+		const t = this.tileAt(x, z);
+		if (!t?.nearGround) return 0;
+		const cx = THREE.MathUtils.clamp(Math.floor(((x - t.originX) / TILE_SIZE) * TILE_CELLS), 0, TILE_CELLS - 1);
+		const cz = THREE.MathUtils.clamp(Math.floor(((z - t.originZ) / TILE_SIZE) * TILE_CELLS), 0, TILE_CELLS - 1);
+		return t.nearGround[cz * TILE_CELLS + cx];
 	}
 
 	/** Liquid surfaces of the detailed tile at a world position (for telling if a point is under water). */

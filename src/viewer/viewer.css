@@ -1668,3 +1668,19 @@ body.wow-ui {
 #worldmap-hover {
 	min-height: 1.3em;
 }
+
+/* Who walks: the look's number between its buttons. */
+#walk-look {
+	font-size: 12px;
+	white-space: nowrap;
+}
+
+.walk-look-buttons {
+	display: flex;
+	gap: 4px;
+}
+
+.walk-look-buttons button {
+	padding: 1px 8px;
+	font-size: 12px;
+}

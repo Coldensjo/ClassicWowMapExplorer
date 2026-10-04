@@ -10,6 +10,9 @@ import type { TintMode } from './regionOverlay';
 import { isTyping } from './typing';
 import { loadUiAssets } from './uiAssets';
 import { FLY_SPEED_RANGE, FLY_SPEED_STEP, Viewer, type HudInfo, type ViewSettings } from './viewer';
+import type { CharacterLook } from './character';
+import { CHARACTER_OUTFITS, type CharacterOutfit, type CharacterRace } from '../explorer/spawns';
+
 import { setVolume, volumeSetting, type VolumeChannel } from './volume';
 import { WorldMap } from './worldMap';
 
@@ -198,6 +201,7 @@ async function explore(): Promise<void> {
 		void setUpGoTo(viewer);
 		setUpHighlights(viewer);
 		setUpTravel(viewer, minimapArrow);
+		setUpWalking(viewer);
 		setUpSound(viewer);
 		setUpHelp();
 	} catch (e) {
@@ -400,6 +404,7 @@ function setUpView(viewer: Viewer): void {
 			weather: () => ({ auto: 'Weather: each zone\'s own', off: 'Weather: always clear', rain: 'Weather: rain', snow: 'Weather: snow', sandstorm: 'Weather: sandstorm' }[s.weather]),
 			flight: () => (viewer.onFlight ? 'Taking flight: Esc or moving gets you off' : 'Landed'),
 			voyage: () => (viewer.onTransport ? 'All aboard: Esc or moving gets you off' : 'Got off'),
+			walking: () => (viewer.walking ? `Walking: ${walkKey} to fly again` : 'Flying'),
 			time: () => (viewer.timeIsLocal ? `Local time, ${clock(viewer.timeMinutes)}` : `Time of day ${clock(viewer.timeMinutes)}`),
 			sound: () => `Music and sound ${onOff(viewer.soundOn ?? false)}`,
 		}[change]());
@@ -539,6 +544,121 @@ function setUpTravel(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
 }
 
 const TRAVEL_KEY = 'mapExplorer.travel';
+
+// --- Walking ---
+
+/** What the walking key (the one left of 1) is labelled on this keyboard. */
+let walkKey = '`';
+
+/**
+ * Labels keys named by position (kbd data-key="Backquote", the KeyboardEvent code) with what they show on this keyboard
+ * layout, where the browser can tell (§ on Nordic keyboards, ^ on German ones...).
+ */
+async function labelKeys(): Promise<void> {
+	const keyboard = (navigator as Navigator & { keyboard?: { getLayoutMap(): Promise<Map<string, string>> } }).keyboard;
+	let layout: Map<string, string> | undefined;
+	try {
+		layout = await keyboard?.getLayoutMap();
+	} catch {
+		// Not allowed here (a frame, an old browser): the US labels stand.
+	}
+	walkKey = layout?.get('Backquote') ?? walkKey;
+	for (const kbd of document.querySelectorAll<HTMLElement>('kbd[data-key]')) {
+		const label = layout?.get(kbd.dataset.key!);
+		if (label) kbd.textContent = label;
+	}
+}
+void labelKeys();
+
+const WALK_KEY = 'mapExplorer.walker';
+
+/** The Travel menu's switch between flying and walking, and who walks: race, sex, model, outfit and look, remembered. */
+function setUpWalking(viewer: Viewer): void {
+	const race = $<HTMLSelectElement>('walk-race');
+	const sex = $<HTMLSelectElement>('walk-sex');
+	const model = $<HTMLSelectElement>('walk-model');
+	const outfit = $<HTMLSelectElement>('walk-outfit');
+	const lookOut = $<HTMLOutputElement>('walk-look');
+	outfit.replaceChildren(
+		...Object.entries(CHARACTER_OUTFITS).map(([key, o]) => new Option(o.name, key)),
+		new Option('NPC looks', ''),
+	);
+	const saved = readSaved<CharacterLook>(WALK_KEY);
+	let look: CharacterLook = { ...viewer.look, ...saved };
+	let races: CharacterRace[] = [];
+	/** Looks for the race, sex and model chosen. */
+	const lookCount = () => {
+		const r = races.find((x) => x.race === look.race);
+		return r ? r.sexes[look.sex][look.hd ? 'hd' : 'sd'] : 0;
+	};
+	const show = () => {
+		race.value = String(look.race);
+		sex.value = String(look.sex);
+		model.value = look.hd ? 'hd' : 'sd';
+		const r = races.find((x) => x.race === look.race);
+		for (const option of sex.options) option.disabled = !r || !(r.sexes[Number(option.value)].sd || r.sexes[Number(option.value)].hd);
+		for (const option of model.options) option.disabled = !r || !r.sexes[look.sex][option.value as 'sd' | 'hd'];
+		outfit.value = look.outfit ?? '';
+		const count = lookCount();
+		// Wearing an outfit, the look buttons go back to the race's NPC looks.
+		lookOut.value = look.outfit ? '–' : count ? `${look.look + 1} of ${count}` : '–';
+		for (const id of ['walk-look-prev', 'walk-look-next']) $<HTMLButtonElement>(id).disabled = count < 2;
+	};
+	/** Settles on a race, sex and model that have looks, nearest the one asked for, then dresses the character. */
+	const apply = (next: Partial<CharacterLook>) => {
+		look = { ...look, ...next };
+		// An outfit belongs to one race (guards are human): another race takes off the outfit.
+		if (look.outfit && CHARACTER_OUTFITS[look.outfit]?.race !== look.race) look.outfit = null;
+		const r = races.find((x) => x.race === look.race) ?? races[0];
+		if (r) {
+			look.race = r.race;
+			if (!r.sexes[look.sex].sd && !r.sexes[look.sex].hd) look.sex = 1 - look.sex;
+			if (!r.sexes[look.sex][look.hd ? 'hd' : 'sd']) look.hd = !look.hd;
+			const count = lookCount();
+			look.look = count ? ((look.look % count) + count) % count : 0;
+		}
+		save(WALK_KEY, look);
+		show();
+		void viewer.setLook(look);
+	};
+	viewer.characterRaces().then((list) => {
+		races = list;
+		race.replaceChildren(...list.map((r) => new Option(r.name, String(r.race))));
+		apply({});
+	}, (e) => {
+		console.warn('Character races unavailable:', e);
+		$('walk-character').hidden = true;
+	});
+	race.addEventListener('change', () => apply({ race: Number(race.value), look: 0 }));
+	sex.addEventListener('change', () => apply({ sex: Number(sex.value), look: 0 }));
+	model.addEventListener('change', () => apply({ hd: model.value === 'hd' }));
+	outfit.addEventListener('change', () => {
+		const chosen = (outfit.value || null) as CharacterOutfit | null;
+		apply({ outfit: chosen, race: chosen ? CHARACTER_OUTFITS[chosen].race : look.race });
+	});
+	$('walk-look-prev').addEventListener('click', () => apply({ look: look.outfit ? look.look : look.look - 1, outfit: null }));
+	$('walk-look-next').addEventListener('click', () => apply({ look: look.outfit ? look.look : look.look + 1, outfit: null }));
+
+	const toggle = $<HTMLButtonElement>('walk-toggle');
+	viewer.onNotice = notify;
+	// Walking, the mouse is hidden only to turn: no crosshair then.
+	document.addEventListener('pointerlockchange', () => {
+		if (viewer.walking) $('crosshair').hidden = true;
+	});
+	const sync = () => {
+		toggle.firstChild!.textContent = viewer.walking ? 'Fly again ' : 'Walk on the ground ';
+		toggle.classList.toggle('primary', !viewer.walking);
+	};
+	toggle.addEventListener('click', () => {
+		const problem = viewer.setWalking(!viewer.walking);
+		if (problem) notify(problem);
+		else ($('travel') as HTMLDetailsElement).open = false;
+		sync();
+	});
+	hudFollowers.push(sync);
+	sync();
+}
+
 
 /** The tint's key under the Ground choice: what its colours mean. */
 function showTintKey(viewer: Viewer): void {

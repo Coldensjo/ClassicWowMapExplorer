@@ -61,7 +61,7 @@ export class FlyControls {
 	) {
 
 		document.addEventListener('mousemove', (e) => {
-			if (document.pointerLockElement !== element) return;
+			if (!this.enabled || document.pointerLockElement !== element) return;
 			// Browsers now and then report a bogus jump (the hidden cursor being recentred), which
 			// would snap the view; no real flick covers a third of the window in one event.
 			if (Math.abs(e.movementX) > window.innerWidth / 3 || Math.abs(e.movementY) > window.innerHeight / 3) return;
@@ -72,11 +72,12 @@ export class FlyControls {
 		});
 		element.addEventListener('wheel', (e) => {
 			e.preventDefault();
+			if (!this.enabled) return;
 			this.flight = null;
 			this.zoomVelocity += -Math.sign(e.deltaY) * 2.5;
 		}, { passive: false });
 		window.addEventListener('keydown', (e) => {
-			if (isTyping(e)) return;
+			if (isTyping(e) || !this.enabled) return;
 			this.keys.add(e.code);
 			if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC'].includes(e.code)) {
 				this.flight = null;
@@ -102,6 +103,36 @@ export class FlyControls {
 	/** Multiplies the flying speed (the View panel's slider, Y in the viewer). */
 	speedScale = 1;
 
+	/** Off while another controller (walking) has the camera: keys, mouse and wheel are left alone. */
+	get enabled(): boolean {
+		return this.active;
+	}
+
+	set enabled(on: boolean) {
+		this.active = on;
+		this.keys.clear();
+		this.zoomVelocity = 0;
+	}
+
+	private active = true;
+
+	/**
+	 * Called before this takes the camera back to put it somewhere (set, flyTo, ride), so the
+	 * viewer can stop walking first.
+	 */
+	onTakeOver: (() => void) | null = null;
+
+	/**
+	 * While another controller has the camera, keeps what the viewer reads from here (the view's
+	 * direction, height above ground and speed) in step with it.
+	 */
+	mirror(yaw: number, pitch: number, altitude: number, speed: number): void {
+		this.yaw = this.lookYaw = yaw;
+		this.pitch = this.lookPitch = pitch;
+		this.altitude = altitude;
+		this.speed = speed;
+	}
+
 	lock(): void {
 		if (this.locked) return;
 		// Raw mouse movement skips the OS pointer acceleration, which is also where the spurious
@@ -120,6 +151,7 @@ export class FlyControls {
 
 	/** Smoothly moves the camera to a position and orientation. */
 	flyTo(position: THREE.Vector3, yaw: number, pitch: number, duration = 2): void {
+		this.onTakeOver?.();
 		// Take the short way round when turning.
 		let fromYaw = this.yaw;
 		while (yaw - fromYaw > Math.PI) fromYaw += Math.PI * 2;
@@ -133,6 +165,7 @@ export class FlyControls {
 	 * onEnd says whether the ride reached its end.
 	 */
 	ride(ride: Ride, onEnd: (completed: boolean) => void = () => {}): void {
+		this.onTakeOver?.();
 		this.endRide(false);
 		this.flight = null;
 		this.riding = { ride, onEnd, looked: RIDE_LOOK_HOLD };
@@ -150,6 +183,7 @@ export class FlyControls {
 	}
 
 	set(position: THREE.Vector3, yaw: number, pitch: number): void {
+		this.onTakeOver?.();
 		this.endRide(false);
 		this.camera.position.copy(position);
 		this.yaw = this.lookYaw = yaw;

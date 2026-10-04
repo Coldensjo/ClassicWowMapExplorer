@@ -2,12 +2,13 @@ import type { ProductInfo } from '../casc/config';
 import type { StorageStats } from '../casc/storage';
 import type { AreaInfo, LightingData } from '../explorer/lighting';
 import type { MapSummary, TileDetails } from '../explorer/maps';
-import type { LiquidLooks, LockKind } from '../explorer/clientDb';
+import type { FootstepSounds, LiquidLooks, LockKind } from '../explorer/clientDb';
 import type { MusicData, WmoArea } from '../explorer/music';
 import type { Place } from '../explorer/places';
 import type { WorldMapInfo } from '../explorer/worldMap';
 import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
-import type { FarTile, InstanceMap, LoadedTexture, MapListing, NearTile, TileTexture } from '../explorer/world';
+import type { CharacterModel, FarTile, InstanceMap, LoadedTexture, MapListing, NearTile, TileTexture } from '../explorer/world';
+import type { CharacterOutfit, CharacterRace } from '../explorer/spawns';
 import type { Image } from '../formats/blp';
 
 export type SourceInit =
@@ -33,11 +34,15 @@ export interface StorageApi {
 	loadTextures(fdids: number[], compressed: boolean): LoadedTexture[];
 	loadTileObjects(wdtFdid: number, x: number, y: number): Placement[];
 	loadModels(models: { fdid: number; kind: ObjectKind; variant?: string }[]): (ModelData | null)[];
+	/** The walking character: the races it can be, and one dressed as a look with the clips given. */
+	characterRaces(): CharacterRace[];
+	loadCharacter(race: number, sex: number, hd: boolean, look: number, clips: number[], outfit: CharacterOutfit | null): CharacterModel | null;
 	loadLighting(mapIds: number[]): LightingData;
 	loadAreas(): AreaInfo[];
 	loadMusic(): MusicData;
 	loadLiquidLooks(): LiquidLooks;
 	loadLockKinds(): Record<number, LockKind>;
+	loadFootsteps(): FootstepSounds;
 	loadPlaces(): Place[];
 	wmoArea(wmoId: number, nameSet: number, groupId: number): WmoArea | null;
 	loadSound(fdid: number): Uint8Array;

@@ -4,7 +4,7 @@ import * as THREE from 'three';
  * The steepest ground the game lets you walk up: about 50 degrees. Past that you slide off.
  * Compared against the up component of the surface's normal, cos(50°).
  */
-const WALKABLE = Math.cos(THREE.MathUtils.degToRad(50));
+export const WALKABLE = Math.cos(THREE.MathUtils.degToRad(50));
 /** Slopes within this many degrees under the limit are marked as close to it. */
 const NEAR_LIMIT = 5;
 

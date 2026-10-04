@@ -135,3 +135,59 @@ export function installShadowGroups(scene: THREE.Scene): void {
 		for (const [g, groups] of shadowGroups) g.groups = groups.own;
 	};
 }
+
+/** The side three's shadow pass draws a material's faces with (WebGLShadowMap's shadowSide). */
+const SHADOW_SIDE: Record<THREE.Side, THREE.Side> = { [THREE.FrontSide]: THREE.BackSide, [THREE.BackSide]: THREE.FrontSide, [THREE.DoubleSide]: THREE.DoubleSide };
+
+/**
+ * Stand-ins for how the shadow pass will draw an object's meshes: the depth materials three
+ * picks for them (WebGLShadowMap's getDepthMaterial), on the same kind of mesh. Compiled ahead
+ * (with Post.compileAsync's shadowPass), the first shadow drawn of a new kind of model doesn't
+ * stop the frame to build its shader. Only meshes set to cast count; those with their own depth
+ * material are left to whoever made it. The materials are kept, never disposed: that would let three delete the programs.
+ */
+export function shadowStandIns(object: THREE.Object3D): THREE.Object3D[] {
+	const out: THREE.Object3D[] = [];
+	const seen = new Set<string>();
+	object.traverse((o) => {
+		const mesh = o as THREE.Mesh;
+		if (!mesh.isMesh || !mesh.castShadow || mesh.customDepthMaterial || (mesh as unknown as THREE.BatchedMesh).isBatchedMesh) return;
+		const instanced = (mesh as THREE.InstancedMesh).isInstancedMesh === true;
+		for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+			if (depthKey(m) === null) continue;
+			const { map, alphaMap } = m as THREE.MeshLambertMaterial;
+			const alphaTest = m.alphaToCoverage ? 0.5 : m.alphaTest;
+			const side = m.shadowSide ?? SHADOW_SIDE[m.side];
+			const key = `${instanced} ${!!map} ${!!alphaMap} ${alphaTest > 0} ${side}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			const depth = new THREE.MeshDepthMaterial({ map, alphaMap, alphaTest, side });
+			out.push(instanced ? new THREE.InstancedMesh(mesh.geometry, depth, 1) : new THREE.Mesh(mesh.geometry, depth));
+		}
+	});
+	return out;
+}
+
+/**
+ * Shadow stand-ins for the kinds of mesh most models and tiles are: instanced or not, untextured,
+ * textured or alpha-tested, each side. Compiled while the world loads, so even the first ones are ready.
+ */
+export function commonShadowStandIns(): THREE.Object3D[] {
+	const geometry = new THREE.BufferGeometry();
+	geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+	geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(9), 3));
+	geometry.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(6), 2));
+	const map = new THREE.Texture();
+	const group = new THREE.Group();
+	for (const side of [THREE.FrontSide, THREE.BackSide, THREE.DoubleSide]) {
+		// The depth material takes the texture even when it's not alpha-tested, a shader of its own.
+		for (const [alphaTest, textured] of [[0, false], [0, true], [0.5, true]] as const) {
+			const material = new THREE.MeshLambertMaterial({ side, alphaTest, map: textured ? map : null });
+			for (const mesh of [new THREE.Mesh(geometry, material), new THREE.InstancedMesh(geometry, material, 1)]) {
+				mesh.castShadow = true;
+				group.add(mesh);
+			}
+		}
+	}
+	return shadowStandIns(group);
+}

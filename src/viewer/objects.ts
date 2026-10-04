@@ -550,7 +550,11 @@ export class ObjectManager {
 		}
 		entry.liquids = (data.liquids ?? []).map((l) => ({ geometry: liquidGeometry(l.positions, l.indices), material: liquidMaterial(l.kind, l.type), type: l.type, mesh: null }));
 		// Warm the instanced shader variants, which are what the model and its liquids will be drawn with.
-		const warm = new THREE.Group().add(new THREE.InstancedMesh(geometry, entry.materials, 1), ...entry.liquids.map((l) => new THREE.InstancedMesh(l.geometry, l.material, 1)));
+		const model = new THREE.InstancedMesh(geometry, entry.materials, 1);
+		// And its shadow's (see shadowStandIns); a skinned model's depth material is warmed below.
+		model.castShadow = true;
+		if (entry.depthMaterial) model.customDepthMaterial = entry.depthMaterial;
+		const warm = new THREE.Group().add(model, ...entry.liquids.map((l) => new THREE.InstancedMesh(l.geometry, l.material, 1)));
 		const warming = [this.prepare(warm)];
 		if (entry.depthMaterial) {
 			// The shadow pass draws the depth material with each batch's texture and alpha test,

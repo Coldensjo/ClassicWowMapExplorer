@@ -145,6 +145,8 @@ export class TerrainManager {
 	private readonly layerTextures: TextureCache;
 	/** Ground clutter is handed each detailed tile's clutter map. */
 	clutter: ClutterManager | null = null;
+	/** Sends a texture to the GPU, resolving once it's there; the low-detail tiles' maps wait for it before they're drawn. */
+	preloadTexture: (texture: THREE.Texture) => Promise<void> = async () => {};
 
 	constructor(
 		private readonly storage: AsyncStorageApi,
@@ -188,7 +190,7 @@ export class TerrainManager {
 			color: t.hasAdt ? 0x5f6d48 : 0x14303f,
 			textured: t.hasAdt,
 		}));
-		const batch = new FarBatch(entries, this.anisotropy);
+		const batch = new FarBatch(entries, this.anisotropy, (texture) => this.preloadTexture(texture));
 		batch.mesh.matrixAutoUpdate = false;
 		// Shadows only reach a short way; the near tiles there cast them. Hundreds of far tiles
 		// in the sun's view would each cost draws in the shadow pass.

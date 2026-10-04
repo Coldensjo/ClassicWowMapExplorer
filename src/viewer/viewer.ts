@@ -30,6 +30,7 @@ import { headPosition, ObjectManager } from './objects';
 import { perf } from './perf';
 import { TerrainManager, type ContinentPlacement } from './terrain';
 import { GroundDistancePass } from './groundDistance';
+import { UploadQueue } from './gpuUploads';
 import { PostPass, type FogSettings } from './post';
 import { installShadowGroups, setShadowLight } from './shadows';
 import { TerrainShadowPass } from './terrainShadow';
@@ -445,6 +446,7 @@ export class Viewer {
 	/** How far the ground is under each pixel, for how deep the water there looks. */
 	private groundPass!: GroundDistancePass;
 	private readonly post: PostPass;
+	private readonly uploads: UploadQueue;
 	private readonly terrainShadow: TerrainShadowPass;
 	/**
 	 * A screenshot being prepared (P): when it started, how many tiles are held for it, since
@@ -481,6 +483,7 @@ export class Viewer {
 		this.groundPass = new GroundDistancePass(this.renderer);
 		// Antialiased there rather than on the canvas.
 		this.post = new PostPass(this.renderer, storage);
+		this.uploads = new UploadQueue(this.renderer);
 		this.terrainShadow = new TerrainShadowPass(this.renderer);
 
 		this.scene.background = SKY;
@@ -819,8 +822,12 @@ export class Viewer {
 	/** Loads the low-detail world, places the camera and starts streaming textures. */
 	async load(onStatus: (text: string) => void): Promise<void> {
 		const anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-		// Compiles shaders in the background (KHR_parallel_shader_compile) before objects are shown.
-		const prepare = (object: THREE.Object3D, shadowPass?: boolean) => this.post.compileAsync(this.renderer, object, this.camera, this.scene, shadowPass);
+		// Compiles shaders in the background (KHR_parallel_shader_compile) before objects are shown,
+		// then sends their textures to the GPU a few per frame (see UploadQueue).
+		const prepare = async (object: THREE.Object3D, shadowPass?: boolean) => {
+			await this.post.compileAsync(this.renderer, object, this.camera, this.scene, shadowPass);
+			await this.uploads.upload(object);
+		};
 		this.objects = new ObjectManager(this.storage, this.usesCompressedTextures, anisotropy, prepare);
 		// Buildings (and the caves and mines built as buildings) are solid.
 		this.controls.collide = (from, move) => {
@@ -830,6 +837,7 @@ export class Viewer {
 			return allowed.add(this.objects.pushOut(from.clone().add(allowed), CAMERA_RADIUS));
 		};
 		this.terrain = new TerrainManager(this.storage, this.usesCompressedTextures, anisotropy, this.objects, prepare);
+		this.terrain.preloadTexture = (texture) => this.uploads.texture(texture);
 		this.setUpWalker();
 		this.character = new Character(this.storage, this.usesCompressedTextures, anisotropy, prepare);
 		this.scene.add(this.character.group);
@@ -911,8 +919,9 @@ export class Viewer {
 		});
 		void this.terrain.loadFarTextures(this.camera.position);
 		// Whatever's in the world already (low-detail land, sea, sky), compiled before the first frame.
+		// Only compiled: the upload queue is drained by frames, which haven't started yet.
 		onStatus('Preparing shaders');
-		await prepare(this.scene);
+		await this.post.compileAsync(this.renderer, this.scene, this.camera, this.scene);
 		// One frame drawn behind the loading screen compiles the rest: the shadow, ground-distance
 		// and full-screen passes, which draw with shaders of their own.
 		this.tick(0, performance.now());
@@ -1598,6 +1607,7 @@ export class Viewer {
 		// Before the objects, so the transports' new places are drawn this frame.
 		this.transports?.update(Date.now(), pos);
 		perf.time('objects.update', () => this.objects.update(now, pos));
+		this.uploads.drain();
 		this.clutter.update(now, pos, this.terrain.surfaceAt(pos.x, pos.z));
 		// Under water the surface is seen from below, where its depth isn't used.
 		if (!this.underwater) perf.time('groundDistance', () => this.groundPass.render(this.renderer, this.terrain.group, this.camera));

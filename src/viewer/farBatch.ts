@@ -43,8 +43,11 @@ export class FarBatch {
 	private maps: THREE.CompressedArrayTexture | THREE.DataArrayTexture | null = null;
 	/** Textures set since the last upload wait for this timer. */
 	private uploadTimer: ReturnType<typeof setTimeout> | null = null;
+	/** Whether an upload is waiting for its texture to reach the GPU. */
+	private uploading = false;
 
-	constructor(entries: FarEntry[], private readonly anisotropy: number) {
+	/** preload: sends a texture to the GPU, resolving once it's there (see UploadQueue). */
+	constructor(entries: FarEntry[], private readonly anisotropy: number, private readonly preload: (texture: THREE.Texture) => Promise<void> = async () => {}) {
 		let vertices = 0;
 		let indices = 0;
 		for (const e of entries) {
@@ -105,18 +108,34 @@ export class FarBatch {
 	 * Direct3D (Chrome's default on Windows) each write to a texture the GPU may still be using
 	 * cost as much as copying all of it, seconds of frozen frames as the world's textures came in.
 	 */
-	private upload(): void {
+	private async upload(): Promise<void> {
 		this.uploadTimer = null;
+		if (this.uploading) {
+			this.uploadTimer = setTimeout(() => this.upload(), UPLOAD_INTERVAL);
+			return;
+		}
 		const old = this.maps;
-		if (old?.version) {
+		if (!old) return;
+		let maps = old;
+		if (old.version) {
 			// A new image, so three gives it a texture of its own.
 			const { width, height, depth } = old.image;
-			this.maps = this.configure(old instanceof THREE.CompressedArrayTexture
+			maps = this.maps = this.configure(old instanceof THREE.CompressedArrayTexture
 				? new THREE.CompressedArrayTexture(old.mipmaps, width, height, depth, old.format)
 				: new THREE.DataArrayTexture((old.image as { data: Uint8Array }).data, width, height, depth));
-			old.dispose();
 		}
-		if (this.maps) this.maps.needsUpdate = true;
+		maps.needsUpdate = true;
+		// Drawn with once it's on the GPU, sent between frames rather than in the middle of one;
+		// the tiles' info goes with it, so no tile points at a layer not yet sent.
+		this.uploading = true;
+		try {
+			await this.preload(maps);
+		} finally {
+			this.uploading = false;
+		}
+		const shown = this.uniforms.uFarMaps.value;
+		this.uniforms.uFarMaps.value = maps;
+		if (shown && shown !== maps) shown.dispose();
 		this.uniforms.uFarInfo.value.needsUpdate = true;
 	}
 
@@ -127,7 +146,7 @@ export class FarBatch {
 		return this.configure(new THREE.CompressedArrayTexture(mipmaps as unknown as THREE.CompressedTextureMipmap[], first.width, first.height, this.layers, COMPRESSED_FORMATS[first.format]));
 	}
 
-	/** Sets up a new array texture and has the material draw with it. */
+	/** Sets up a new array texture (drawn with once uploaded). */
 	private configure<T extends THREE.CompressedArrayTexture | THREE.DataArrayTexture>(maps: T): T {
 		if (maps instanceof THREE.DataArrayTexture) maps.generateMipmaps = true;
 		maps.colorSpace = THREE.SRGBColorSpace;
@@ -135,7 +154,6 @@ export class FarBatch {
 		maps.magFilter = THREE.LinearFilter;
 		maps.minFilter = THREE.LinearMipmapLinearFilter;
 		maps.anisotropy = this.anisotropy;
-		this.uniforms.uFarMaps.value = maps;
 		return maps;
 	}
 }

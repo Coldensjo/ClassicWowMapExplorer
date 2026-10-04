@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import type { MusicPlayer } from './music';
 import { volume } from './volume';
 
-/** What the weather setting asks for: the zone's own (as the server rolls it), none, or one kind. */
-export type WeatherSetting = 'auto' | 'off' | 'rain' | 'snow' | 'sandstorm';
+/** What the weather setting asks for: the zone's own (as the server rolls it), the zone's own without rain or snow, none, or one kind. */
+export type WeatherSetting = 'auto' | 'dry' | 'off' | 'rain' | 'snow' | 'sandstorm';
 export type WeatherKind = 'rain' | 'snow' | 'sandstorm';
 
 /** How the weather changes the light: applied by the viewer to the sun, ambient light and fog. */
@@ -232,10 +232,13 @@ export class Weather {
 	 */
 	update(dt: number, camera: THREE.Camera, zone: { id: number; name: string } | null, chances: number[] | null, open: boolean): void {
 		const s = this.setting;
-		if (s === 'auto') this.wanted = zone ? this.roll(zone.id, chances) : { kind: null, intensity: 0 };
-		else if (s === 'off') this.wanted = { kind: null, intensity: 0 };
+		if (s === 'auto' || s === 'dry') {
+			this.wanted = zone ? this.roll(zone.id, chances) : { kind: null, intensity: 0 };
+			// Rain and snow turned off: those rolls come out clear, sandstorms still blow.
+			if (s === 'dry' && this.wanted.kind !== 'sandstorm') this.wanted = { kind: null, intensity: 0 };
+		} else if (s === 'off') this.wanted = { kind: null, intensity: 0 };
 		else this.wanted = { kind: s, intensity: 0.85 };
-		if (s !== 'auto') this.chance = '';
+		if (s !== 'auto' && s !== 'dry') this.chance = '';
 		this.zoneName = zone?.name ?? '';
 
 		// Fade out the old kind before the new one comes in.
@@ -334,7 +337,7 @@ export class Weather {
 		const now = this.kind && this.strength > 0.01
 			? `${this.wanted.intensity < 0.45 ? 'Light' : this.wanted.intensity < 0.75 ? 'Medium' : 'Heavy'} ${KIND_NAMES[this.kind]}`
 			: 'Clear';
-		if (this.setting !== 'auto') return now;
+		if (this.setting !== 'auto' && this.setting !== 'dry') return now;
 		return [now, this.zoneName && this.chance ? `${this.zoneName}, ${this.chance}` : this.zoneName ? `${this.zoneName}: always clear` : ''].filter(Boolean).join(' · ');
 	}
 }

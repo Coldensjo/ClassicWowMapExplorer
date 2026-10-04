@@ -212,7 +212,7 @@ export interface ViewSettings {
 	smartSpeed: boolean;
 	/** Flying speed when smart speed is off, yd/s (Y faster, Shift+Y slower). */
 	fixedSpeed: number;
-	/** Rain, snow and sandstorms: each zone's own, none, or one kind everywhere. */
+	/** Rain, snow and sandstorms: each zone's own (with or without rain and snow), none, or one kind everywhere. */
 	weather: WeatherSetting;
 }
 

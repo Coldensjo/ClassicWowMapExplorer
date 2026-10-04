@@ -408,6 +408,7 @@ function setUpView(viewer: Viewer): void {
 			grading: () => `Colour grading ${onOff(s.grading)}`,
 			shadows: () => `Shadows ${onOff(s.shadows)}`,
 			fog: () => `Fog and sun shafts ${onOff(s.fog)}`,
+			clearView: () => (s.clearView ? 'No fog: the view reaches every continent' : 'Fog back'),
 			creatures: () => `NPCs and monsters ${onOff(s.creatures)}`,
 			gameObjects: () => `Objects ${onOff(s.gameObjects)}`,
 			spiritHealers: () => `Spirit healers ${onOff(s.spiritHealers)}`,

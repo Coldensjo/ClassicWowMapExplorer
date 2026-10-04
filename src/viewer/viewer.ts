@@ -92,6 +92,8 @@ const UNDERWATER: Record<LiquidKind, { far: number; color: number }> = {
 const FAR_PAST_FOG = 1.1;
 /** Yards; the far plane never comes closer than this, so the sky dome (1000 yd around the camera) always shows. */
 const MIN_FAR = 1500;
+/** With no fog, the view reaches this far: past every continent and map laid out in the sea. */
+const CLEAR_VIEW_FAR = 200000;
 /** Yards the sun's shadows reach from the camera on the ground, and how much further per yard of altitude. */
 const SHADOW_RANGE = 300;
 const SHADOW_RANGE_PER_ALTITUDE = 2;
@@ -196,6 +198,8 @@ export interface ViewSettings {
 	shadows: boolean;
 	/** Fog lying in the valleys, lit by the sun where it reaches it (Z). */
 	fog: boolean;
+	/** No fog of any kind (distance, valley, weather or under water), so the far continents show. */
+	clearView: boolean;
 	/** NPCs and monsters. */
 	creatures: boolean;
 	/** Game objects: chests, herbs, ore, doors, mailboxes. */
@@ -316,6 +320,8 @@ export class Viewer {
 	private shadowStrength = 1;
 	/** World height the fog is thickest at, eased towards the lowest ground around. */
 	private fogBase: number | null = null;
+	/** No fog at all (ViewSettings.clearView). */
+	private clearView = false;
 	private readonly fogLook: FogSettings = {
 		color: new THREE.Color(),
 		sunColor: new THREE.Color(),
@@ -692,6 +698,7 @@ export class Viewer {
 			grading: this.post.gradingOn,
 			shadows: this.sun.castShadow,
 			fog: this.post.fogOn,
+			clearView: this.clearView,
 			creatures: this.objects?.kindShown('creature') ?? true,
 			gameObjects: this.objects?.kindShown('object') ?? true,
 			spiritHealers: this.objects?.kindShown('spiritHealer') ?? true,
@@ -718,6 +725,7 @@ export class Viewer {
 		if (next.grading !== undefined) this.post.gradingOn = next.grading;
 		if (next.shadows !== undefined) this.sun.castShadow = next.shadows;
 		if (next.fog !== undefined) this.post.fogOn = next.fog;
+		if (next.clearView !== undefined) this.clearView = next.clearView;
 		if (next.creatures !== undefined) this.objects?.setKindShown('creature', next.creatures);
 		if (next.gameObjects !== undefined) this.objects?.setKindShown('object', next.gameObjects);
 		if (next.spiritHealers !== undefined) this.objects?.setKindShown('spiritHealer', next.spiritHealers);
@@ -1774,7 +1782,7 @@ export class Viewer {
 		const base = this.lowestGroundAround(this.camera.position);
 		this.fogBase = this.fogBase === null ? base : this.fogBase + (base - this.fogBase) * 0.15;
 		this.fogLook.base = this.fogBase;
-		this.post.setFog(this.underwater || !state ? null : this.fogLook);
+		this.post.setFog(this.underwater || !state || this.clearView ? null : this.fogLook);
 		setLiquidsFromBelow(this.underwater !== null);
 		if (this.underwater) {
 			const { kind, type, surface } = this.underwater;
@@ -1808,8 +1816,13 @@ export class Viewer {
 			this.fog.near = -look.far * 0.3;
 			this.fog.far = look.far;
 		}
+		// The fog pushed out past where anything is drawn (near and far apart, as smoothstep needs).
+		if (this.clearView) {
+			this.fog.near = CLEAR_VIEW_FAR * 2;
+			this.fog.far = CLEAR_VIEW_FAR * 3;
+		}
 		// Past the fog's end everything is the fog's colour: don't draw it at all.
-		const far = Math.max(this.fog.far * FAR_PAST_FOG, MIN_FAR);
+		const far = this.clearView ? CLEAR_VIEW_FAR : Math.max(this.fog.far * FAR_PAST_FOG, MIN_FAR);
 		if (Math.abs(far - this.camera.far) > this.camera.far * 0.01) {
 			this.camera.far = far;
 			this.camera.updateProjectionMatrix();

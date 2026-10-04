@@ -1,4 +1,7 @@
-/** Volume settings (0-1) the Sound panel sets and every sound reads, remembered between visits. */
+/**
+ * Volume settings (0-1) the Sound panel sets and every sound reads, remembered between visits.
+ * 'ambience' covers the places' background loops, weather and the underwater loop.
+ */
 export type VolumeChannel = 'master' | 'music' | 'ambience' | 'effects';
 
 const STORAGE_KEY = 'mapExplorer.volume';

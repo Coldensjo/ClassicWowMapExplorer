@@ -108,6 +108,8 @@ Press **Ctrl+C** in the terminal to stop it. To update later, run `git pull` and
 - Ground clutter: the grass, flowers and pebbles that grow on each terrain texture, swaying in the wind
 - Sky, fog and lighting from the game's own light data, with a time-of-day control
 - Zone names and zone music, including inside inns, Ironforge and other buildings
+- Each area's background sounds (birds, wind, wildlife, city bustle), by day and by night, cross-faded
+  as you fly between areas and fading away high above the ground; inns and other rooms have their own
 - Creatures and objects from VMaNGOS: clickable, with Wowhead links, name plates, their gear and
   animations, walking their patrols
 - Every other map in the install (dungeons, raids, battlegrounds, unused and test maps) laid out in

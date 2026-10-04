@@ -29,6 +29,10 @@ export interface MusicData {
 	underwaterDefault: number;
 	/** Sounds of the underwater ambiences: a loop, and one-offs on going under and coming up. */
 	ambiences: Record<number, { loop: number[]; enter: number[]; exit: number[] }>;
+	/** AreaTable ID -> its background ambience (SoundAmbience ID), for areas that set one. */
+	areaAmbience: Record<number, number>;
+	/** Background loops of every ambience (birds, wind, city bustle), by day and night. */
+	backgrounds: Record<number, { day: number[]; night: number[] }>;
 }
 
 /** A room of a building (WMOAreaTable.db2): its own name, music and intro, and the area it belongs to. */
@@ -36,10 +40,13 @@ export interface WmoArea {
 	name: string | null;
 	music: number;
 	intro: number;
+	/** SoundAmbience ID, 0 for none. */
+	ambience: number;
 	area: number;
 }
 
 // Field indices in this build.
+const AREA_AMBIENCE = 7;
 const AREA_UNDERWATER_AMBIENCE = 8;
 const AREA_MUSIC = 9;
 const AREA_INTRO = 12;
@@ -53,11 +60,14 @@ const INTRO_DELAY = 3;
 const AMBIENCE_LOOP = 3;
 const AMBIENCE_START = 4;
 const AMBIENCE_STOP = 5;
+// Field 6 is another [day, night] pair, but one kit for nearly every ambience (Ironforge and
+// Undercity too): steady wind noise far louder than the loops, so it isn't played.
 const KIT_ID = 0;
 const KIT_FILE = 1;
 const WMO_ID = 2;
 const WMO_NAME_SET = 3;
 const WMO_GROUP = 4;
+const WMO_AMBIENCE = 7;
 const WMO_MUSIC = 9;
 const WMO_INTRO = 11;
 const WMO_AREA = 13;
@@ -135,7 +145,20 @@ export class MusicTables {
 				exit: filesOf(ambience.getInt(id, AMBIENCE_STOP, 0)),
 			};
 		}
-		return { sets, intros, areas, underwater, underwaterDefault, ambiences };
+
+		// Background ambience per area, and the loops of every ambience (rooms of buildings have their own).
+		const areaAmbience: MusicData['areaAmbience'] = {};
+		for (const id of areaTable.ids()) {
+			const a = areaTable.getInt(id, AREA_AMBIENCE) ?? 0;
+			if (a) areaAmbience[id] = a;
+		}
+		const backgrounds: MusicData['backgrounds'] = {};
+		for (const id of ambience.ids()) {
+			const day = filesOf(ambience.getInt(id, AMBIENCE_LOOP, 0));
+			const night = filesOf(ambience.getInt(id, AMBIENCE_LOOP, 1));
+			if (day.length || night.length) backgrounds[id] = { day, night };
+		}
+		return { sets, intros, areas, underwater, underwaterDefault, ambiences, areaAmbience, backgrounds };
 	}
 
 	/**
@@ -150,6 +173,7 @@ export class MusicTables {
 			name: table.getString(row, 0) || null,
 			music: table.getInt(row, WMO_MUSIC) ?? 0,
 			intro: table.getInt(row, WMO_INTRO) ?? 0,
+			ambience: table.getInt(row, WMO_AMBIENCE) ?? 0,
 			area: table.getInt(row, WMO_AREA) ?? 0,
 		};
 		const room = read(rows.get(`${wmoId}:${nameSet}:${groupId}`));
@@ -160,6 +184,7 @@ export class MusicTables {
 			name: room.name ?? building.name,
 			music: room.music || building.music,
 			intro: room.intro || building.intro,
+			ambience: room.ambience || building.ambience,
 			area: room.area || building.area,
 		};
 	}

@@ -32,6 +32,7 @@ import { installShadowGroups, setShadowLight } from './shadows';
 import { TerrainShadowPass } from './terrainShadow';
 import { animateFlipbooks, flipbooks, liquidKindOf, liquidMaterials, liquidTime, seaMask, setLiquidLooks, setLiquidsFromBelow } from './terrainMaterials';
 import { UnderwaterAudio } from './underwater';
+import { BackgroundAudio, type BackgroundSounds } from './ambience';
 import type { LiquidKind } from '../formats/mh2o';
 import type { LiquidLooks } from '../explorer/clientDb';
 import { createTexture, supportsCompressedTextures } from './textures';
@@ -367,6 +368,9 @@ export class Viewer {
 	private underwater: { kind: LiquidKind; type: number; surface: number } | null = null;
 	private liquidLooks: LiquidLooks | null = null;
 	private underwaterAudio: UnderwaterAudio | null = null;
+	/** The place's background loop (birds, wind, city bustle), and which ambience that is. */
+	private backgroundAudio: BackgroundAudio | null = null;
+	private background: BackgroundSounds | null = null;
 	private readonly liquidRay = new THREE.Raycaster();
 	private readonly liquidMeshes: THREE.Object3D[] = [];
 	/** How far the ground is under each pixel, for how deep the water there looks. */
@@ -649,6 +653,7 @@ export class Viewer {
 			(data) => {
 				this.music = new MusicPlayer(this.storage, data);
 				this.underwaterAudio = new UnderwaterAudio(this.music);
+				this.backgroundAudio = new BackgroundAudio(this.music);
 				this.weather.setMusic(this.music);
 			},
 			(e) => console.warn('Music unavailable:', e),
@@ -1336,8 +1341,12 @@ export class Viewer {
 			if (now - this.lastMusicCheck > 250) {
 				this.lastMusicCheck = now;
 				this.musicTarget = this.musicHere();
+				this.background = this.backgroundHere();
 			}
-			this.music.update(dt, now, this.musicTarget, sunDirection(this.timeOfDay()).y < 0);
+			const night = sunDirection(this.timeOfDay()).y < 0;
+			this.music.update(dt, now, this.musicTarget, night);
+			const height = pos.y - Math.max(0, this.terrain.heightAt(pos.x, pos.z));
+			this.backgroundAudio?.update(dt, now, this.background, night, height, this.underwater !== null);
 			this.underwaterAudio?.update(dt, this.underwater !== null, this.underwaterSounds());
 		}
 		perf.record('drawCalls', this.renderer.info.render.calls);
@@ -1673,6 +1682,20 @@ export class Viewer {
 			id = this.areas.get(id)?.parent ?? 0;
 		}
 		return { set, intro };
+	}
+
+	/** The background loops for where the camera is: the room's, else the area's or its parent zone's. */
+	private backgroundHere(): BackgroundSounds | null {
+		const music = this.music!.data;
+		const room = this.room?.ambience ? music.backgrounds[this.room.ambience] : undefined;
+		if (room) return room;
+		let id = this.areaHere();
+		for (let i = 0; i < 8 && id; i++) {
+			const sounds = music.backgrounds[music.areaAmbience[id] ?? 0];
+			if (sounds) return sounds;
+			id = this.areas.get(id)?.parent ?? 0;
+		}
+		return null;
 	}
 
 	/** Zone and subzone names for the AreaTable ID under the camera; indoors, the room's name. */

@@ -126,6 +126,9 @@
 					<div class="flight-buttons"><button id="transport-goto" title="On board, where it is now">Go to</button> <button id="transport-ride" class="primary">Ride</button> <button id="transport-stop" disabled>Get off</button></div>
 					<div id="transport-status" class="muted small"></div>
 					<div id="dock-status" class="muted small"></div>
+					<h3 class="travel-heading">Meeting stones</h3>
+					<select id="stone" aria-label="Meeting stone"></select>
+					<div class="flight-buttons"><button id="stone-goto" title="In front of the stone, as being summoned to it puts you">Go to stone</button> <button id="stone-enter" class="primary" title="Inside, where its entrance leads">Enter dungeon</button></div>
 				</div>
 			</details>
 
@@ -138,6 +141,7 @@
 						<label data-group="herb"><input type="checkbox" value="herb"> Herbs</label>
 						<label data-group="ore"><input type="checkbox" value="ore"> Ore</label>
 						<label data-group="fishing"><input type="checkbox" value="fishing"> Fishing</label>
+						<label data-group="stone"><input type="checkbox" value="stone"> Meeting stones</label>
 					</div>
 					<label><input type="checkbox" id="highlight-walkable"> Walkable slopes</label>
 					<div id="walkable-key" class="muted small"><span data-slope="flat">Walkable</span> <span data-slope="near">Near the limit</span> <span data-slope="steep">Too steep</span></div>
@@ -195,6 +199,7 @@
 			<div id="info-sub"></div>
 			<dl id="info-facts"></dl>
 			<div id="info-pages"></div>
+			<div id="info-actions" class="flight-buttons"></div>
 			<div id="info-links"></div>
 			<p class="small muted">Spawns: VMaNGOS world database (patch 1.12)</p>
 		</aside>

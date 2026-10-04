@@ -272,6 +272,41 @@ async function loadTriggers(): Promise<Map<number, AreaTrigger[]>> {
 	return byMap;
 }
 
+/** A meeting stone outside a dungeon, in WoW world coordinates on its continent. */
+export interface MeetingStone {
+	guid: number;
+	entry: number;
+	/** The dungeon's name, as the stone gives it. */
+	dungeon: string;
+	dungeonMap: number;
+	map: number;
+	x: number;
+	y: number;
+	z: number;
+	o: number;
+	minLevel: number;
+	maxLevel: number;
+}
+
+type StoneRow = [number, number, string, number, number, number, number, number, number, number, number];
+
+/** The meeting stones, from public/spawns/stones.json (VMaNGOS data), lowest levels first. */
+async function loadStones(): Promise<MeetingStone[]> {
+	try {
+		const response = await fetch('spawns/stones.json');
+		if (!response.ok) return [];
+		const file = (await response.json()) as { stones: StoneRow[] };
+		return file.stones.map(([guid, entry, dungeon, dungeonMap, map, x, y, z, o, minLevel, maxLevel]) =>
+			({ guid, entry, dungeon, dungeonMap, map, x, y, z, o, minLevel, maxLevel }));
+	} catch (e) {
+		console.warn('Meeting stones unavailable:', e);
+		return [];
+	}
+}
+
+/** Yards in front of a meeting stone that going to it puts you, as a summons does. */
+const STONE_DISTANCE = 13;
+
 /** Whether the GPU can draw with a reversed depth buffer (EXT_clip_control), asked of a throwaway context. */
 function supportsClipControl(): boolean {
 	const gl = document.createElement('canvas').getContext('webgl2');
@@ -383,6 +418,8 @@ export class Viewer {
 	private room: WmoArea | null = null;
 	/** Dungeon entrances and exits by map. */
 	private triggers = new Map<number, AreaTrigger[]>();
+	/** Meeting stones outside the dungeons, lowest levels first. */
+	meetingStones: MeetingStone[] = [];
 	/** Dungeon maps by ID, laid out in the world when first entered. */
 	private readonly instances = new Map<number, Promise<ContinentPlacement | null>>();
 	private readonly loadedInstances = new Map<number, ContinentPlacement>();
@@ -816,7 +853,7 @@ export class Viewer {
 		this.loadRegions();
 
 		onStatus('Reading lighting and zone names');
-		this.triggers = await loadTriggers();
+		[this.triggers, this.meetingStones] = await Promise.all([loadTriggers(), loadStones()]);
 		// Light for every map in the install (any of them can be gone to).
 		const mapIds = new Set(this.continents.map((c) => c.mapId));
 		for (const m of await this.storage.listMaps().catch(() => [])) mapIds.add(m.id);
@@ -1101,6 +1138,43 @@ export class Viewer {
 			this.teleporting = false;
 			this.triggersArmed = false;
 		}
+	}
+
+	/** Puts you in front of a meeting stone, facing it, as being summoned to it does; the reason it can't, or null. */
+	async goToMeetingStone(guid: number): Promise<string | null> {
+		const stone = this.meetingStones.find((s) => s.guid === guid);
+		const placement = stone && (await this.placementFor(stone.map));
+		if (!stone || !placement) return 'That meeting stone isn’t in this install';
+		const x = stone.x + Math.cos(stone.o) * STONE_DISTANCE;
+		const y = stone.y + Math.sin(stone.o) * STONE_DISTANCE;
+		const facing = stone.o + Math.PI;
+		this.triggersArmed = false;
+		if (this.walker.active) this.walker.place(worldFromWow(placement, x, y, stone.z), facing, 0);
+		else this.controls.set(worldFromWow(placement, x, y, stone.z + EYE_HEIGHT + 1), facing, 0.05);
+		return null;
+	}
+
+	/**
+	 * Takes you into a meeting stone's dungeon, where its entrance nearest the stone leads (Dire
+	 * Maul and Maraudon have several); the reason it can't, or null.
+	 */
+	async enterDungeon(guid: number): Promise<string | null> {
+		const stone = this.meetingStones.find((s) => s.guid === guid);
+		if (!stone) return 'No such meeting stone';
+		const distance = (t: AreaTrigger) => (t.map === stone.map ? Math.hypot(t.x - stone.x, t.y - stone.y) : Infinity);
+		const entrance = [...this.triggers.values()].flat()
+			.filter((t) => t.target.map === stone.dungeonMap)
+			.sort((a, b) => distance(a) - distance(b))[0];
+		if (entrance) {
+			await this.teleport(entrance);
+			return null;
+		}
+		return (await this.goToMap(stone.dungeonMap)) ? null : `${stone.dungeon} isn’t in this install`;
+	}
+
+	/** The meeting stone a spawn is, if it is one. */
+	meetingStone(guid: number): MeetingStone | null {
+		return this.meetingStones.find((s) => s.guid === guid) ?? null;
 	}
 
 	/** Above Northshire Abbey, looking north. */

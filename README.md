@@ -114,7 +114,8 @@ Press **Ctrl+C** in the terminal to stop it. To update later, run `git pull` and
   animations, walking their patrols, with the game's footsteps for what they walk on
 - Every other map in the install (dungeons, raids, battlegrounds, unused and test maps) laid out in
   the sea south of the continents, optionally named from afar, to fly to or walk into through their entrances
-- Highlights for chests, herbs, ore veins, fishing pools or anything by name, seen from afar
+- Meeting stones outside every dungeon, with its name and levels, to be summoned to or step through into the dungeon
+- Highlights for chests, herbs, ore veins, fishing pools, meeting stones or anything by name, seen from afar
 - Ground tints read from the game's and server's data: the graveyard dying there sends you to,
   faction territory, creature levels against yours, subzones with their exploration XP, and fishing skill
 - Inns and cities where resting builds up, drawn as the server's own trigger shapes
@@ -193,10 +194,15 @@ install, including ones nothing leads to. Empty, it lists the maps by kind. The 
 in rows in the sea south of the continents, with their names floating over them (press I), so you can fly there.
 Maps that are a single building (most dungeons) lie under the sea until you fly over them.
 
+**Meeting stones** stand outside the dungeons. Click one to see its dungeon and level range, and to
+enter the dungeon. The Travel menu lists them all by continent, lowest levels first: **Go to stone**
+puts you in front of one, as a summons does (on foot if you're walking), and **Enter dungeon** takes you
+in through the entrance nearest the stone.
+
 The **minimap** above it shows the game's own map around you, north up. Click it to fly there, and
 zoom it with the wheel or its + and − buttons.
 
-**Highlight** (top left) marks chests, herbs, ore and fishing pools within 1000 yards, through
+**Highlight** (top left) marks chests, herbs, ore, fishing pools and meeting stones within 1000 yards, through
 terrain and buildings; typing a name marks every creature or object with that name on the map, however far away.
 The spawn data lists every place a herb or vein can appear, so there are more marks than nodes up at any one time.
 **Ground** tints the terrain by region, and the panel says what applies under the camera:

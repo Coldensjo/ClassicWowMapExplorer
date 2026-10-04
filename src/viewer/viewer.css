@@ -759,6 +759,14 @@ kbd {
 	margin: 12px 0;
 }
 
+#info-actions {
+	margin: 8px 0;
+}
+
+#info-actions:empty {
+	display: none;
+}
+
 #info-links {
 	display: flex;
 	flex-wrap: wrap;
@@ -953,7 +961,7 @@ kbd {
 	white-space: pre-line;
 }
 
-/* The colours of the markers: gold treasure, green herbs, copper ore, blue fishing pools. */
+/* The colours of the markers: gold treasure, green herbs, copper ore, blue fishing pools, violet meeting stones. */
 #highlight-groups [data-group='chest'], .beacon[data-group='chest'] {
 	--beacon: #ffd100;
 }
@@ -968,6 +976,10 @@ kbd {
 
 #highlight-groups [data-group='fishing'], .beacon[data-group='fishing'] {
 	--beacon: #5ac8fa;
+}
+
+#highlight-groups [data-group='stone'], .beacon[data-group='stone'] {
+	--beacon: #a98bff;
 }
 
 .beacon[data-group='named'] {

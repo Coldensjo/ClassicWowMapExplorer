@@ -126,6 +126,25 @@ const triggers = teleports
 writeFileSync('public/spawns/triggers.json', JSON.stringify({ source: 'VMaNGOS world database (GPL-2.0), patch 1.12', triggers }));
 console.log('public/spawns/triggers.json', triggers.length, 'teleports across', MAPS.length, 'maps');
 
+// Meeting stones (game object type 23) outside the dungeons they serve: data0/data1 are the
+// level range, data2 the dungeon's area. A dungeon map links to that area, or has its name.
+const stones = query<Spawn & { map: number; name: string; minLevel: number; maxLevel: number; dungeon: number | null }>(`
+	select g.guid, g.id, g.map as map, g.position_x as x, g.position_y as y, g.position_z as z, g.orientation as o,
+		a.name, t.data0 as minLevel, t.data1 as maxLevel,
+		(select m.entry from map_template m where m.map_type = 1
+			and (m.linked_zone = t.data2 or m.map_name = a.name or 'The ' || m.map_name = a.name)
+			order by m.linked_zone = t.data2 desc limit 1) as dungeon
+	from gameobject g
+	join (${latest('gameobject_template')}) t on t.entry = g.id
+	join area_template a on a.entry = t.data2
+	where t.type = 23 and g.patch_min <= ${PATCH} and g.patch_max >= ${PATCH}
+	order by t.data0, a.name`).filter((s) => s.dungeon !== null);
+writeFileSync('public/spawns/stones.json', JSON.stringify({
+	source: 'VMaNGOS world database (GPL-2.0), patch 1.12',
+	stones: stones.map((s) => [s.guid, s.id, s.name, s.dungeon, s.map, round(s.x), round(s.y), round(s.z), round(s.o, 3), s.minLevel, s.maxLevel]),
+}));
+console.log('public/spawns/stones.json', stones.length, 'meeting stones');
+
 for (const map of MAPS) {
 	const creatures = query<Spawn>(`select guid, id, position_x as x, position_y as y, position_z as z, orientation as o,
 		movement_type, wander_distance

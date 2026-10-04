@@ -9,7 +9,7 @@ import { Minimap } from './minimap';
 import type { TintMode } from './regionOverlay';
 import { isTyping } from './typing';
 import { loadUiAssets } from './uiAssets';
-import { FIXED_SPEED_DEFAULT, FIXED_SPEED_MAX, FIXED_SPEED_MIN, FLY_SPEED_RANGE, FLY_SPEED_STEP, Viewer, type HudInfo, type ViewSettings } from './viewer';
+import { FIXED_SPEED_DEFAULT, FIXED_SPEED_MAX, FIXED_SPEED_MIN, FLY_SPEED_RANGE, FLY_SPEED_STEP, Viewer, type HudInfo, type MeetingStone, type ViewSettings } from './viewer';
 import type { CharacterLook } from './character';
 import { CHARACTER_OUTFITS, type CharacterOutfit, type CharacterRace } from '../explorer/spawns';
 
@@ -187,6 +187,7 @@ async function explore(): Promise<void> {
 		await storage.open($<HTMLSelectElement>('product').value);
 		const ui = loadUiAssets(storage);
 		const viewer = new Viewer($('view'), storage, showHud, showInfo, $('nameplates'));
+		infoViewer = viewer;
 		// For poking at the scene from the console (and test scripts) while developing.
 		if (import.meta.env.DEV) (globalThis as unknown as { mapExplorerViewer: Viewer }).mapExplorerViewer = viewer;
 		viewer.onShotStatus = showShotStatus;
@@ -464,11 +465,12 @@ function setUpTravel(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
 	const go = $<HTMLButtonElement>('flight-go');
 	const stop = $<HTMLButtonElement>('flight-stop');
 	const transport = $<HTMLSelectElement>('transport');
-	const saved = readSaved<{ shown?: boolean; from?: number; to?: number; speed?: string; transport?: number }>(TRAVEL_KEY);
+	const stone = $<HTMLSelectElement>('stone');
+	const saved = readSaved<{ shown?: boolean; from?: number; to?: number; speed?: string; transport?: number; stone?: number }>(TRAVEL_KEY);
 	shown.checked = saved.shown ?? false;
 	speed.value = saved.speed ?? '1';
 	viewer.flightPathsShown = shown.checked;
-	const remember = () => save(TRAVEL_KEY, { shown: shown.checked, from: Number(from.value), to: Number(to.value), speed: speed.value, transport: Number(transport.value) || saved.transport });
+	const remember = () => save(TRAVEL_KEY, { shown: shown.checked, from: Number(from.value), to: Number(to.value), speed: speed.value, transport: Number(transport.value) || saved.transport, stone: Number(stone.value) || saved.stone });
 
 	const fill = () => {
 		const keep = [Number(from.value) || saved.from, Number(to.value) || saved.to];
@@ -535,6 +537,19 @@ function setUpTravel(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
 		$('dock-status').textContent = viewer.nearestDockStatus();
 	});
 
+	// Meeting stones: summoned to one, or straight into its dungeon.
+	stone.replaceChildren(...([[0, 'Eastern Kingdoms'], [1, 'Kalimdor']] as const).map(([mapId, label]) => {
+		const group = document.createElement('optgroup');
+		group.label = label;
+		group.append(...viewer.meetingStones.filter((s) => s.map === mapId).map((s) => new Option(stoneLabel(s), String(s.guid))));
+		return group;
+	}));
+	if (viewer.meetingStone(saved.stone ?? 0)) stone.value = String(saved.stone);
+	for (const id of ['stone-goto', 'stone-enter']) $<HTMLButtonElement>(id).disabled = !viewer.meetingStones.length;
+	stone.addEventListener('change', remember);
+	$('stone-goto').addEventListener('click', () => void meetingStoneAction(viewer.goToMeetingStone(Number(stone.value))));
+	$('stone-enter').addEventListener('click', () => void meetingStoneAction(viewer.enterDungeon(Number(stone.value))));
+
 	const map = new WorldMap($('worldmap'), $<HTMLCanvasElement>('worldmap-canvas'), storage, () => viewer.worldMapView(), (mapId, x, y) => viewer.flyOverWow(mapId, x, y), (mapId, x, y) => viewer.areaNameAt(mapId, x, y), arrow, {
 		title: $('worldmap-title'),
 		up: $<HTMLButtonElement>('worldmap-up'),
@@ -558,6 +573,18 @@ function setUpTravel(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
 }
 
 const TRAVEL_KEY = 'mapExplorer.travel';
+
+/** A meeting stone's dungeon and level range, as the stone's tooltip has it. */
+function stoneLabel(s: MeetingStone): string {
+	return `${s.dungeon} (${s.minLevel}–${s.maxLevel})`;
+}
+
+/** Runs a meeting stone's Go to or Enter, closing the menus once on the way, or saying why not. */
+async function meetingStoneAction(action: Promise<string | null>): Promise<void> {
+	const problem = await action;
+	if (problem) notify(problem);
+	else ($('travel') as HTMLDetailsElement).open = false;
+}
 
 // --- Walking ---
 
@@ -1007,6 +1034,9 @@ function pageText(text: string): string {
 	return text.replace(/\$[Bb]/g, '\n').replace(/\$[Nn]/g, 'traveler').replace(/\$[Cc]/g, 'adventurer');
 }
 
+/** The viewer, for the actions the info panel offers (a meeting stone's Go to and Enter). */
+let infoViewer: Viewer | null = null;
+
 function showInfo(info: SpawnInfo): void {
 	const isNpc = info.type === 'npc';
 	$('info-kind').textContent = [isNpc ? 'NPC' : 'Object', info.kind, info.rank].filter(Boolean).join(' · ');
@@ -1014,8 +1044,21 @@ function showInfo(info: SpawnInfo): void {
 	$('info-sub').textContent = info.subname ? `<${info.subname}>` : '';
 	const facts: [string, string][] = [];
 	if (info.level) facts.push(['Level', info.level]);
+	const stone = !isNpc ? infoViewer?.meetingStone(info.guid) : null;
+	if (stone) facts.push(['Dungeon', stone.dungeon], ['Levels', `${stone.minLevel}–${stone.maxLevel}`]);
 	facts.push([isNpc ? 'NPC ID' : 'Object ID', String(info.entry)], ['Spawn', String(info.guid)]);
 	fillList('info-facts', facts);
+
+	const actions: HTMLButtonElement[] = [];
+	if (stone && infoViewer) {
+		const viewer = infoViewer;
+		const enter = document.createElement('button');
+		enter.className = 'primary';
+		enter.textContent = `Enter ${stone.dungeon.replace(/^The /, '')}`;
+		enter.addEventListener('click', () => void meetingStoneAction(viewer.enterDungeon(stone.guid)));
+		actions.push(enter);
+	}
+	$('info-actions').replaceChildren(...actions);
 
 	const pages = $('info-pages');
 	pages.replaceChildren();

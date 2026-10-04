@@ -7,7 +7,7 @@ import type { ContinentPlacement } from './terrain';
 import { behindCamera } from './screen';
 
 /** Kinds of things on the ground that can be picked out all at once. */
-export type HighlightGroup = 'chest' | 'herb' | 'ore' | 'fishing';
+export type HighlightGroup = 'chest' | 'herb' | 'ore' | 'fishing' | 'stone';
 
 export interface HighlightSettings {
 	on: boolean;
@@ -46,6 +46,7 @@ interface Marker {
 const MAP_ORIGIN = 32 * TILE_SIZE;
 /** gameobject_template types. */
 const TYPE_CHEST = 3;
+const TYPE_MEETING_STONE = 23;
 const TYPE_FISHING_HOLE = 25;
 /**
  * Chest-type objects that are treasure rather than quest items (crates of food, barrels of
@@ -61,7 +62,7 @@ const LABELLED = 12;
 const LIFT = 1;
 
 /**
- * Markers over chests, herbs, ore veins, fishing pools, or anything found by name, seen
+ * Markers over chests, herbs, ore veins, fishing pools, meeting stones, or anything found by name, seen
  * through terrain and buildings from up to a kilometre away. They come from the map's whole
  * spawn file, not just the tiles loaded around the camera. The spawn data lists every place a
  * node can appear, while the server only fills some of them at a time.
@@ -209,6 +210,7 @@ export class Highlights {
 	/** Chests' data0 is their lock, which says whether it takes Herbalism, Mining or Lockpicking. */
 	private groupOf(name: string, type: number, data0: number): HighlightGroup | null {
 		if (type === TYPE_FISHING_HOLE) return 'fishing';
+		if (type === TYPE_MEETING_STONE) return 'stone';
 		if (type !== TYPE_CHEST) return null;
 		const lock = this.locks?.[data0];
 		if (lock === 'herb') return 'herb';

@@ -32,7 +32,7 @@ import { TerrainManager, type ContinentPlacement } from './terrain';
 import { GroundDistancePass } from './groundDistance';
 import { UploadQueue } from './gpuUploads';
 import { PostPass, type FogSettings } from './post';
-import { installShadowGroups, setShadowLight } from './shadows';
+import { commonShadowStandIns, installShadowGroups, setShadowLight, shadowStandIns } from './shadows';
 import { TerrainShadowPass } from './terrainShadow';
 import { animateFlipbooks, flipbooks, liquidKindOf, liquidMaterials, liquidTime, seaMask, setLiquidLooks, setLiquidsFromBelow } from './terrainMaterials';
 import { UnderwaterAudio } from './underwater';
@@ -475,6 +475,9 @@ export class Viewer {
 		const reversed = supportsClipControl();
 		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, reversedDepthBuffer: reversed, logarithmicDepthBuffer: !reversed });
 		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+		// Checking a new shader for errors asks the GPU process and waits for the answer, a stall
+		// for each one; while developing, the errors are worth it.
+		this.renderer.debug.checkShaderErrors = import.meta.env.DEV;
 		this.camera = new THREE.PerspectiveCamera(60, 1, 0.5, 400000);
 		this.controls = new FlyControls(this.camera, canvas);
 		this.walker = new WalkControls(this.camera, canvas);
@@ -824,8 +827,13 @@ export class Viewer {
 		const anisotropy = this.renderer.capabilities.getMaxAnisotropy();
 		// Compiles shaders in the background (KHR_parallel_shader_compile) before objects are shown,
 		// then sends their textures to the GPU a few per frame (see UploadQueue).
+		// Its shadow's shaders too (see shadowStandIns): left to the shadow pass, each new kind was
+		// built there, mid-frame, freezing it.
 		const prepare = async (object: THREE.Object3D, shadowPass?: boolean) => {
-			await this.post.compileAsync(this.renderer, object, this.camera, this.scene, shadowPass);
+			await Promise.all([
+				this.post.compileAsync(this.renderer, object, this.camera, this.scene, shadowPass),
+				...(shadowPass ? [] : shadowStandIns(object).map((o) => this.post.compileAsync(this.renderer, o, this.camera, this.scene, true))),
+			]);
 			await this.uploads.upload(object);
 		};
 		this.objects = new ObjectManager(this.storage, this.usesCompressedTextures, anisotropy, prepare);
@@ -921,7 +929,14 @@ export class Viewer {
 		// Whatever's in the world already (low-detail land, sea, sky), compiled before the first frame.
 		// Only compiled: the upload queue is drained by frames, which haven't started yet.
 		onStatus('Preparing shaders');
-		await this.post.compileAsync(this.renderer, this.scene, this.camera, this.scene);
+		// With them, what the first detailed tiles and models will need: the shadows' depth shaders
+		// and the ground-distance and mountain-shadow passes' for detailed tiles.
+		await Promise.all([
+			this.post.compileAsync(this.renderer, this.scene, this.camera, this.scene),
+			...commonShadowStandIns().map((o) => this.post.compileAsync(this.renderer, o, this.camera, this.scene, true)),
+			this.groundPass.warm(this.renderer),
+			this.terrainShadow.warm(this.renderer),
+		]);
 		// One frame drawn behind the loading screen compiles the rest: the shadow, ground-distance
 		// and full-screen passes, which draw with shaders of their own.
 		this.tick(0, performance.now());
@@ -1607,7 +1622,7 @@ export class Viewer {
 		// Before the objects, so the transports' new places are drawn this frame.
 		this.transports?.update(Date.now(), pos);
 		perf.time('objects.update', () => this.objects.update(now, pos));
-		this.uploads.drain();
+		perf.time('uploads', () => this.uploads.drain());
 		this.clutter.update(now, pos, this.terrain.surfaceAt(pos.x, pos.z));
 		// Under water the surface is seen from below, where its depth isn't used.
 		if (!this.underwater) perf.time('groundDistance', () => this.groundPass.render(this.renderer, this.terrain.group, this.camera));
@@ -1658,6 +1673,7 @@ export class Viewer {
 		}
 		perf.record('drawCalls', this.renderer.info.render.calls);
 		perf.record('triangles', this.renderer.info.render.triangles);
+		perf.endFrame(now, this.renderer.info.programs?.length ?? 0);
 
 		this.frames++;
 		if (now - this.lastFpsTime > 500) {

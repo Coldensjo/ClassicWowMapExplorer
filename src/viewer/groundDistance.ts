@@ -64,6 +64,22 @@ export class GroundDistancePass {
 		groundDistance.uGroundDistance.value = this.target.texture;
 	}
 
+	/**
+	 * Builds the pass's shader for detailed tiles (plain meshes; the low-detail ones are batched,
+	 * drawn at the start) in the background, rather than mid-frame when the first one arrives.
+	 */
+	async warm(renderer: THREE.WebGLRenderer): Promise<void> {
+		// three builds a shader for the attributes a mesh has: a tile's position and normal.
+		const geometry = new THREE.BufferGeometry();
+		geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+		geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(9), 3));
+		const mesh = new THREE.Mesh(geometry, this.scene.overrideMaterial!);
+		renderer.setRenderTarget(this.target);
+		const compiled = renderer.compileAsync(mesh, this.camera, this.scene);
+		renderer.setRenderTarget(null);
+		await compiled;
+	}
+
 	/** Draws the terrain group on its own (borrowed from the main scene for the pass). */
 	render(renderer: THREE.WebGLRenderer, terrain: THREE.Object3D, camera: THREE.PerspectiveCamera): void {
 		renderer.getDrawingBufferSize(this.size);

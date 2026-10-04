@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { perf } from './perf';
 
 /**
  * Bytes sent to the GPU per frame, at most (one texture always goes, however big). three only
@@ -108,7 +107,6 @@ export class UploadQueue {
 			this.jobs.shift();
 			job.resolve();
 		}
-		perf.record('uploads', performance.now() - start);
 	}
 
 	/** Whether the texture has data three hasn't sent to the GPU yet. */

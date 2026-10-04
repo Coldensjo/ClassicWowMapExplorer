@@ -399,6 +399,7 @@ function setUpView(viewer: Viewer): void {
 			flySpeed: () => `Flying speed ${speedLabel(s.flySpeed)}`,
 			weather: () => ({ auto: 'Weather: each zone\'s own', off: 'Weather: always clear', rain: 'Weather: rain', snow: 'Weather: snow', sandstorm: 'Weather: sandstorm' }[s.weather]),
 			flight: () => (viewer.onFlight ? 'Taking flight: Esc or moving gets you off' : 'Landed'),
+			voyage: () => (viewer.onTransport ? 'All aboard: Esc or moving gets you off' : 'Got off'),
 			time: () => (viewer.timeIsLocal ? `Local time, ${clock(viewer.timeMinutes)}` : `Time of day ${clock(viewer.timeMinutes)}`),
 			sound: () => `Music and sound ${onOff(viewer.soundOn ?? false)}`,
 		}[change]());
@@ -443,11 +444,12 @@ function setUpTravel(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
 	const speed = $<HTMLSelectElement>('flight-speed');
 	const go = $<HTMLButtonElement>('flight-go');
 	const stop = $<HTMLButtonElement>('flight-stop');
-	const saved = readSaved<{ shown?: boolean; from?: number; to?: number; speed?: string }>(TRAVEL_KEY);
+	const transport = $<HTMLSelectElement>('transport');
+	const saved = readSaved<{ shown?: boolean; from?: number; to?: number; speed?: string; transport?: number }>(TRAVEL_KEY);
 	shown.checked = saved.shown ?? false;
 	speed.value = saved.speed ?? '1';
 	viewer.flightPathsShown = shown.checked;
-	const remember = () => save(TRAVEL_KEY, { shown: shown.checked, from: Number(from.value), to: Number(to.value), speed: speed.value });
+	const remember = () => save(TRAVEL_KEY, { shown: shown.checked, from: Number(from.value), to: Number(to.value), speed: speed.value, transport: Number(transport.value) || saved.transport });
 
 	const fill = () => {
 		const keep = [Number(from.value) || saved.from, Number(to.value) || saved.to];
@@ -479,6 +481,39 @@ function setUpTravel(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
 	stop.addEventListener('click', () => viewer.stopFlight());
 	hudFollowers.push(() => {
 		stop.disabled = !viewer.onFlight;
+	});
+
+	// Boats and zeppelins: on board where one is now, or along for the ride.
+	const transportStop = $<HTMLButtonElement>('transport-stop');
+	const fillTransports = () => {
+		const keep = Number(transport.value) || saved.transport;
+		const list = [...viewer.transportList].sort((a, b) => a.name.localeCompare(b.name));
+		transport.replaceChildren(...([['ship', 'Boats'], ['zeppelin', 'Zeppelins']] as const).map(([kind, label]) => {
+			const group = document.createElement('optgroup');
+			group.label = label;
+			group.append(...list.filter((t) => t.kind === kind).map((t) => new Option(t.name, String(t.entry))));
+			return group;
+		}));
+		if (list.some((t) => t.entry === keep)) transport.value = String(keep);
+		for (const id of ['transport-goto', 'transport-ride']) $<HTMLButtonElement>(id).disabled = !list.length;
+	};
+	viewer.onTransportsChange = fillTransports;
+	fillTransports();
+	transport.addEventListener('change', remember);
+	$('transport-goto').addEventListener('click', () => {
+		const problem = viewer.goToTransport(Number(transport.value));
+		if (problem) notify(problem);
+	});
+	$('transport-ride').addEventListener('click', () => {
+		const problem = viewer.rideTransport(Number(transport.value));
+		if (problem) notify(problem);
+		else ($('travel') as HTMLDetailsElement).open = false;
+	});
+	transportStop.addEventListener('click', () => viewer.stopFlight());
+	hudFollowers.push(() => {
+		transportStop.disabled = !viewer.onTransport;
+		$('transport-status').textContent = viewer.onTransport ? '' : viewer.transportStatus(Number(transport.value));
+		$('dock-status').textContent = viewer.nearestDockStatus();
 	});
 
 	const map = new WorldMap($('worldmap'), $<HTMLCanvasElement>('worldmap-canvas'), storage, () => viewer.worldMapView(), (mapId, x, y) => viewer.flyOverWow(mapId, x, y), (mapId, x, y) => viewer.areaNameAt(mapId, x, y), arrow, {
@@ -914,8 +949,9 @@ function showHud(info: HudInfo): void {
 		['Music', info.music],
 		...(info.weather ? [['Weather', info.weather] as [string, string]] : []),
 		...(info.flight ? [['Flight', info.flight] as [string, string]] : []),
+		...(info.voyage ? [['Aboard', info.voyage] as [string, string]] : []),
 	]);
-	$('flight-status').textContent = info.flight;
+	$('flight-status').textContent = info.flight || info.voyage;
 	if (!$('hud-stats').hidden) {
 		fillList('hud-stats', [
 			['Speed', `${info.speed.toFixed(0)} yd/s`],

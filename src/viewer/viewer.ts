@@ -13,6 +13,7 @@ import { Flights, type FlightMaster } from './flights';
 import { RegionData } from './regionData';
 import { RegionOverlay } from './regionOverlay';
 import { RestedAreas } from './restedAreas';
+import { Transports, type Transport } from './transports';
 import { SNOWFLAKE_TEXTURE, Weather, type WeatherSetting } from './weather';
 import type { WorldMapView } from './worldMap';
 import { Highlights, type HighlightSettings } from './highlights';
@@ -158,6 +159,8 @@ export interface HudInfo {
 	weather: string;
 	/** The flight being ridden, or ''. */
 	flight: string;
+	/** The boat or zeppelin ridden, or ''. */
+	voyage: string;
 	/** Whether walls, floors and the ground stop the camera (G toggles). */
 	collision: string;
 }
@@ -200,7 +203,7 @@ export const FLY_SPEED_STEP = 0.25;
 export const FLY_SPEED_RANGE = 3;
 
 /** A setting, or the time of day or the sound, changed by its key. */
-export type ViewChange = keyof ViewSettings | 'time' | 'sound' | 'flight';
+export type ViewChange = keyof ViewSettings | 'time' | 'sound' | 'flight' | 'voyage';
 
 /** Where the camera is for the minimap: a map's tile grid, in fractional local tiles. */
 export interface MinimapView {
@@ -325,6 +328,10 @@ export class Viewer {
 	private regionData: RegionData | null = null;
 	/** The flight being ridden: where to, and how long is left. */
 	private flight: { to: string; remaining: () => number } | null = null;
+	/** Boats and zeppelins, on their schedule; set up with the objects. */
+	private transports: Transports | null = null;
+	/** The boat or zeppelin being ridden. */
+	private voyage: Transport | null = null;
 	private lastExploreCheck = 0;
 	private lastWeatherRoomCheck = 0;
 	private weatherIndoors = false;
@@ -963,7 +970,7 @@ export class Viewer {
 		}
 	}
 
-	/** Reads the regions (areas, graveyards, inns, weather) and flight paths, and lays them over the continents. */
+	/** Reads the regions (areas, graveyards, inns, weather), flight paths and transports, and lays them over the continents. */
 	private loadRegions(): void {
 		if (this.restedAreas) this.scene.add(this.restedAreas.group);
 		if (this.flights) this.scene.add(this.flights.group);
@@ -979,6 +986,11 @@ export class Viewer {
 				if (file) this.flights!.setData(file, this.continents);
 			}, (e) => console.warn('Flight paths unavailable:', e));
 		}
+		const transports = new Transports(this.objects);
+		this.transports = transports;
+		Transports.loadFile().then((file) => {
+			if (file) transports.setData(file, this.continents, (mapId, x, y) => this.regionData?.areaAtWow(mapId, x, y)?.name ?? null);
+		}, (e) => console.warn('Boats and zeppelins unavailable:', e));
 		this.storage.loadTextures([SNOWFLAKE_TEXTURE], this.usesCompressedTextures).then(
 			([flake]) => {
 				if (flake?.texture) this.weather.setSnowflake(createTexture(flake.texture, 1));
@@ -1063,13 +1075,71 @@ export class Viewer {
 		return null;
 	}
 
-	/** Gets off the flight being ridden. */
+	/** Gets off the flight, boat or zeppelin being ridden. */
 	stopFlight(): void {
 		this.controls.endRide(false);
 	}
 
 	get onFlight(): boolean {
 		return this.flight !== null;
+	}
+
+	/** The boats and zeppelins, once read. */
+	get transportList(): Transport[] {
+		return this.transports?.transports ?? [];
+	}
+
+	/** Called once the boats and zeppelins are read. */
+	set onTransportsChange(fn: () => void) {
+		if (this.transports) this.transports.onChange = fn;
+	}
+
+	/** Puts the camera on board a boat or zeppelin, where it is now; the reason it can't, or null. */
+	goToTransport(entry: number): string | null {
+		const t = this.transports?.get(entry);
+		const seat = t && this.transports!.seat(t, Date.now());
+		if (!seat) return 'That isn’t anywhere on the continents';
+		this.triggersArmed = false;
+		this.controls.set(seat.position, seat.yaw, -0.15);
+		return null;
+	}
+
+	/** Rides a boat or zeppelin wherever it goes, holding still on board at the docks, until got off. */
+	rideTransport(entry: number): string | null {
+		const problem = this.goToTransport(entry);
+		if (problem) return problem;
+		const t = this.transports!.get(entry)!;
+		this.voyage = t;
+		this.controls.ride(this.transports!.ride(t), () => {
+			this.voyage = null;
+			this.triggersArmed = false;
+			this.onChange('voyage');
+		});
+		this.onChange('voyage');
+		return null;
+	}
+
+	get onTransport(): boolean {
+		return this.voyage !== null;
+	}
+
+	/** What a boat or zeppelin is doing now, in words. */
+	transportStatus(entry: number): string {
+		const t = this.transports?.get(entry);
+		if (!t) return '';
+		const s = this.transports!.status(t, Date.now());
+		return s.docked ? `At ${s.dock}, leaves for ${s.next} in ${formatDuration(s.seconds)}` : `On the way to ${s.next}, arrives in ${formatDuration(s.seconds)}`;
+	}
+
+	/** The dock nearest the camera on this map and the next departures from it, in words; '' where there's none. */
+	nearestDockStatus(): string {
+		const pos = this.camera.position;
+		const continent = this.terrain.locate(pos.x, pos.z)?.continent;
+		const dock = continent && this.transports?.nearestDock(pos, continent.mapId, Date.now());
+		if (!dock) return '';
+		const kinds = { ship: 'boat', zeppelin: 'zeppelin' };
+		const lines = dock.departures.map((d) => `The ${kinds[d.transport.kind]} to ${d.to} ${d.docked ? 'is in, ' : ''}leaves in ${formatDuration(d.seconds)}`);
+		return [`Nearest dock: ${dock.name}, ${(dock.distance / 1000).toFixed(1)} km away`, ...lines].join('\n');
 	}
 
 	/** Where the camera is, for the world map. */
@@ -1230,6 +1300,8 @@ export class Viewer {
 			this.lastLodUpdate = now;
 			perf.time('lod.update', () => this.terrain.update(pos));
 		}
+		// Before the objects, so the transports' new places are drawn this frame.
+		this.transports?.update(Date.now(), pos);
 		perf.time('objects.update', () => this.objects.update(now, pos));
 		this.clutter.update(now, pos, this.terrain.surfaceAt(pos.x, pos.z));
 		// Under water the surface is seen from below, where its depth isn't used.
@@ -1647,6 +1719,7 @@ export class Viewer {
 			highlights: [this.highlights?.status, this.regionOverlay?.status, this.restedAreas?.status].filter(Boolean).join('\n'),
 			weather: this.weather.status,
 			flight: this.flight ? `To ${this.flight.to}, ${formatDuration(this.flight.remaining())} left (Esc or move to get off)` : '',
+			voyage: this.voyage ? `${this.voyage.name}: ${this.transportStatus(this.voyage.entry)} (Esc or move to get off)` : '',
 			collision: this.controls.ghost ? 'Off: through walls' : 'On',
 		};
 	}

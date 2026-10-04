@@ -95,6 +95,14 @@ interface PlacedObject {
 	mover?: Mover;
 }
 
+/** A model placed by hand rather than by a tile (a boat or zeppelin), moved with placeLoose each frame. */
+interface LooseObject {
+	matrix: THREE.Matrix4;
+	part: { entry: ModelEntry; key: string };
+	/** A building's doodads (set 0), in its own space and placed. */
+	doodads: { local: THREE.Matrix4; matrix: THREE.Matrix4; part: { entry: ModelEntry; key: string } }[];
+}
+
 export type ObjectLevel = 'none' | 'wmo' | 'all';
 
 interface TileRecord {
@@ -123,6 +131,9 @@ export class ObjectManager {
 	private readonly models = new Map<string, ModelEntry>();
 	private readonly objects = new Map<string, PlacedObject>();
 	private readonly tiles = new Map<string, TileRecord>();
+	private readonly loose = new Map<string, LooseObject>();
+	/** Models with a loose object moved since the last update, whose instance buffers need uploading. */
+	private readonly moved = new Set<ModelEntry>();
 	private readonly queue: ModelEntry[] = [];
 	private requests = 0;
 	private readonly textures: TextureCache;
@@ -248,6 +259,57 @@ export class ObjectManager {
 		}
 	}
 
+	/**
+	 * Places a model that no tile holds (a boat or zeppelin), or moves it there if it's placed
+	 * already. Buildings bring their doodads along. Shown at any distance until removeLoose.
+	 */
+	placeLoose(key: string, kind: Kind, fdid: number, matrix: THREE.Matrix4): void {
+		const object = this.loose.get(key);
+		if (!object) {
+			const own = matrix.clone();
+			const placed: LooseObject = { matrix: own, part: this.addInstance(kind, fdid, key, own), doodads: [] };
+			this.loose.set(key, placed);
+			if (kind === 'wmo') {
+				this.whenReady('wmo', fdid, (entry) => {
+					if (this.loose.get(key) !== placed) return;
+					(entry.data?.doodadSets?.[0]?.doodads ?? []).forEach((d, i) => {
+						const local = new THREE.Matrix4().fromArray(d.matrix);
+						const placedMatrix = placed.matrix.clone().multiply(local);
+						placed.doodads.push({ local, matrix: placedMatrix, part: this.addInstance('m2', d.fdid, `${key}:${i}`, placedMatrix) });
+					});
+				});
+			}
+			return;
+		}
+		object.matrix.copy(matrix);
+		this.moveInstance(object.part);
+		for (const d of object.doodads) {
+			d.matrix.multiplyMatrices(object.matrix, d.local);
+			this.moveInstance(d.part);
+		}
+	}
+
+	removeLoose(key: string): void {
+		const object = this.loose.get(key);
+		if (!object) return;
+		this.loose.delete(key);
+		for (const part of [object.part, ...object.doodads.map((d) => d.part)]) this.removeInstance(part);
+	}
+
+	/** Writes an instance's changed matrix into its slot in the instance buffer, if it's drawn. */
+	private moveInstance(part: { entry: ModelEntry; key: string }): void {
+		const { entry, key } = part;
+		const matrix = entry.instances.get(key);
+		const slot = entry.slots.get(key);
+		if (!matrix) return;
+		// The inverse kept for finding rooms no longer fits.
+		this.inverses.delete(matrix);
+		if (!entry.mesh || slot === undefined) return;
+		entry.mesh.setMatrixAt(slot, matrix);
+		for (const l of entry.liquids) l.mesh?.setMatrixAt(slot, matrix);
+		this.moved.add(entry);
+	}
+
 	private addInstance(kind: Kind, fdid: number, key: string, matrix: THREE.Matrix4, variant?: string): { entry: ModelEntry; key: string } {
 		const entry = this.entry(kind, fdid, variant);
 		entry.instances.set(key, matrix);
@@ -306,6 +368,14 @@ export class ObjectManager {
 				entry.unusedSince = 0;
 			}
 		}
+		for (const entry of this.moved) {
+			for (const mesh of [entry.mesh, ...entry.liquids.map((l) => l.mesh)]) {
+				if (!mesh) continue;
+				mesh.instanceMatrix.needsUpdate = true;
+				mesh.computeBoundingSphere();
+			}
+		}
+		this.moved.clear();
 		perf.time('movers', () => this.moveCreatures(dt, cull));
 		perf.time('particles', () => this.particles.update(dt, this.nearbyEmitters()));
 		// Not a time: the live particle count, averaged the same way.

@@ -117,6 +117,7 @@ Press **Ctrl+C** in the terminal to stop it. To update later, run `git pull` and
   faction territory, creature levels against yours, subzones with their exploration XP, and fishing skill
 - Inns and cities where resting builds up, drawn as the server's own trigger shapes
 - The flight network, drawn over the world, and rides along it the way the game routes you
+- Boats and zeppelins sailing and flying their routes on the server's schedule, to go aboard and ride
 - Rain, snow and sandstorms from each zone's seasonal chances, with the game's weather sounds
 - The game's world map, its explored parts filled in as you fly over them, with a click to go anywhere
 - A minimap from the game's own map images, and a search to go to any zone, town or map
@@ -143,7 +144,7 @@ Press **Ctrl+C** in the terminal to stop it. To update later, run `git pull` and
 | I | Names of dungeons, raids and other maps in the sea on / off (off by default) |
 | H | Highlights on / off |
 | Tab | World map |
-| Esc | Get off a flight |
+| Esc | Get off a flight, boat or zeppelin |
 | / | Go to a zone, town or map |
 | K | Performance stats on / off |
 | P | Screenshot, with everything in view loaded in full detail |
@@ -176,7 +177,12 @@ Graveyards, territory and flight paths are for the side chosen under *Name colou
 **Rested areas** shows the inns and cities where resting builds up.
 
 **Travel** shows the flight paths and flies you along them, from one flight master to another through
-any in between, as the game would; move or press <kbd>Esc</kbd> to get off. It also opens the
+any in between, as the game would; move or press <kbd>Esc</kbd> to get off. Under **Boats and zeppelins**
+it lists the ships and zeppelins, which keep the server's timetable: each round trip takes as long
+as on the realms, waiting a minute at each dock, so one is in the same place at the same moment for
+everyone. *Go to* puts you on board where it is now; *Ride* takes you along, holding still while it
+docks and crossing to the other continent with it, until you move or press <kbd>Esc</kbd>. The panel
+says when the next one leaves the dock nearest you, and where it goes. It also opens the
 **world map** (<kbd>Tab</kbd>): the game's zone maps, filled in where the camera has been down among
 an area (remembered between visits), with the camera's place on it; click a zone to fly there.
 
@@ -212,10 +218,12 @@ npm run spawns -- path/to/mangos.sqlite
 
 This needs `sqlite3` on the PATH. NPC hair textures come from the community listfile, expected at `.cache/listfile.csv`.
 
-Regions in `public/spawns/regions.json` and the flight network in `public/spawns/flights.json` come from
-VMaNGOS (areas, graveyard links, inns, weather, fishing), each map chunk's area read from the game's map
-files, creature levels from the spawn files (run `npm run spawns` first), the client's TaxiNodes,
-TaxiPath and TaxiPathNode tables, and graveyard positions (WorldSafeLocs from classic 1.13.2, downloaded
+Regions in `public/spawns/regions.json`, the flight network in `public/spawns/flights.json` and the boats
+and zeppelins in `public/spawns/transports.json` come from VMaNGOS (areas, graveyard links, inns, weather,
+fishing, and the transports with their round trip times and game objects), each map chunk's area read from
+the game's map files, creature levels from the spawn files (run `npm run spawns` first), the client's
+TaxiNodes, TaxiPath and TaxiPathNode tables (the transports' routes too), GameObjectDisplayInfo for their
+models, and graveyard positions (WorldSafeLocs from classic 1.13.2, downloaded
 from [wago.tools](https://wago.tools) on first run, as this client no longer ships it):
 
 ```sh
@@ -229,7 +237,7 @@ npm run regions -- [wowDir] [product] [path/to/mangos.sqlite]
 - `npm run typecheck`: type-check only
 - `npm run probe`: inspect game data from Node
 - `npm run spawns`: rebuild the spawn files
-- `npm run regions`: rebuild the regions and flight paths
+- `npm run regions`: rebuild the regions, flight paths, boats and zeppelins
 - `npm run portable`: build the portable version into `release/` (the zip for a GitHub release);
   needs mingw-w64 (gcc, windres), ImageMagick and 7-Zip on the PATH. The launcher is
   `tools/portable/launcher.c`, its icon `public/icon.svg`

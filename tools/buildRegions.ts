@@ -1,5 +1,5 @@
-// Builds public/spawns/regions.json and public/spawns/flights.json: what the game knows about each
-// stretch of ground, for the explorer's ground tints, rested areas, weather and flight paths.
+// Builds public/spawns/regions.json, flights.json and transports.json: what the game knows about each
+// stretch of ground, for the explorer's ground tints, rested areas, weather, flight paths, boats and zeppelins.
 //
 // - Each continent's area (subzone) per map chunk, read from the ADTs, so the viewer can tint
 //   terrain that's only loaded in low detail.
@@ -12,6 +12,8 @@
 // - Inns and cities where resting builds up (areatrigger_tavern), and each zone's weather chances
 //   per season (game_weather).
 // - The flight network from the client's TaxiNodes, TaxiPath and TaxiPathNode tables.
+// - Boats and zeppelins (VMaNGOS transports): each one's model, round trip time, and route from
+//   TaxiPathNode, split where it jumps (to the other map, or across one), with its stops at the docks.
 //
 // Usage: npm run regions -- [wowDir] [product] [path/to/mangos.sqlite]
 import { execFileSync } from 'node:child_process';
@@ -40,6 +42,13 @@ const TAXI_NODES = 1068100;
 const TAXI_PATH = 1067802;
 const TAXI_PATH_NODE = 1000437;
 const FACTION_TEMPLATE = 1361579;
+const GAME_OBJECT_DISPLAY_INFO = 1266277;
+/** gameobject_template.displayId of the boats and zeppelins; the rest (Naxxramas floating over the Plaguelands) are left out. */
+const TRANSPORT_KINDS: Record<number, 'ship' | 'zeppelin'> = { 3015: 'ship', 3031: 'zeppelin' };
+/** TaxiPathNode.flags: the transport jumps from this node to the next (out at sea, or between maps). */
+const NODE_TELEPORT = 1;
+/** TaxiPathNode.flags: the transport waits at this node (for its delay, in seconds). */
+const NODE_STOP = 2;
 /** creature_template.type: critters don't count towards an area's level. */
 const TYPE_CRITTER = 8;
 
@@ -318,11 +327,17 @@ const nodes = nodesTable.ids().flatMap((id) => {
 	return [{ id, name, map, x, y, z, alliance: !!(flags & 1), horde: !!(flags & 2) }];
 });
 const nodeIds = new Set(nodes.map((n) => n.id));
-const points = new Map<number, { i: number; x: number; y: number; z: number; delay: number }[]>();
+const points = new Map<number, { i: number; x: number; y: number; z: number; map: number; flags: number; delay: number }[]>();
 for (const id of pointsTable.ids()) {
 	const path = pointsTable.getInt(id, 2)!;
 	const list = points.get(path) ?? [];
-	list.push({ i: pointsTable.getInt(id, 3)!, x: pointsTable.getFloat(id, 0, 0)!, y: pointsTable.getFloat(id, 0, 1)!, z: pointsTable.getFloat(id, 0, 2)!, delay: pointsTable.getInt(id, 6) ?? 0 });
+	list.push({
+		i: pointsTable.getInt(id, 3)!,
+		x: pointsTable.getFloat(id, 0, 0)!, y: pointsTable.getFloat(id, 0, 1)!, z: pointsTable.getFloat(id, 0, 2)!,
+		map: pointsTable.getInt(id, 4) ?? 0,
+		flags: pointsTable.getInt(id, 5) ?? 0,
+		delay: pointsTable.getInt(id, 6) ?? 0,
+	});
 	points.set(path, list);
 }
 const paths = pathsTable.ids().flatMap((id) => {
@@ -339,3 +354,51 @@ writeFileSync('public/spawns/flights.json', JSON.stringify({
 	paths,
 }));
 console.log('public/spawns/flights.json', nodes.length, 'flight masters,', paths.length, 'routes');
+
+// --- Boats and zeppelins ---
+
+// A transport's latest row (the build the server picks); its game object says which model it is
+// and which TaxiPath it follows (data0).
+const transportRows = query<{ entry: number; name: string; period: number; displayId: number; path: number }>(`
+	select t.entry, t.name, t.period, g.displayId, g.data0 as path
+	from transports t join gameobject_template g on g.entry = t.entry
+	where t.build = (select max(build) from transports where entry = t.entry)
+		and g.patch = (select max(patch) from gameobject_template where entry = t.entry and patch <= ${PATCH})
+	order by t.entry`);
+const displays = await loadTable(storage, GAME_OBJECT_DISPLAY_INFO);
+const transports = transportRows.flatMap((t) => {
+	const kind = TRANSPORT_KINDS[t.displayId];
+	const list = points.get(t.path);
+	if (!kind || !list?.length) return [];
+	list.sort((a, b) => a.i - b.i);
+	// A leg per unbroken stretch: the route jumps where the map changes, and after a teleport node
+	// (the first node's flag marks where the loop jumps back to). The route then starts over.
+	const legs: { map: number; points: number[] }[] = [];
+	list.forEach((p, i) => {
+		const prev = list[i - 1];
+		if (!prev || prev.map !== p.map || (i > 1 && prev.flags & NODE_TELEPORT)) legs.push({ map: p.map, points: [] });
+		legs.at(-1)!.points.push(round(p.x, 1), round(p.y, 1), round(p.z, 1), p.flags & NODE_STOP ? p.delay : 0);
+	});
+	// A route that never jumps goes round and round. Unless it already ends on its own start (the
+	// Feathermoon ferry's repeats its first nodes), it's closed the same way: its first three nodes
+	// again, without their waits, so it sails on from the second-last into the second.
+	const only = legs.length === 1 ? legs[0].points : null;
+	if (only && only.length >= 16 && (only[4] !== only.at(-8) || only[5] !== only.at(-7))) {
+		for (let i = 0; i < 12; i += 4) only.push(only[i], only[i + 1], only[i + 2], 0);
+	}
+	return [{
+		entry: t.entry,
+		// VMaNGOS spells it "Forgotton".
+		name: t.name.replace('Forgotton', 'Forgotten'),
+		kind,
+		model: displays.getInt(t.displayId, 1)!,
+		period: t.period,
+		path: t.path,
+		legs,
+	}];
+});
+writeFileSync('public/spawns/transports.json', JSON.stringify({
+	source: 'Transports and their periods: VMaNGOS world database (GPL-2.0). Routes: TaxiPathNode from the game\'s client database.',
+	transports,
+}));
+console.log('public/spawns/transports.json', transports.length, 'boats and zeppelins:', transports.map((t) => `${t.name} (${t.legs.map((l) => `map ${l.map}, ${l.points.length / 4} nodes`).join('; ')})`).join(', '));

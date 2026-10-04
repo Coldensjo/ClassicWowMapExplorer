@@ -9,12 +9,15 @@ import { useShadows } from './shadows';
 import { liquidTime } from './terrainMaterials';
 import { TextureCache } from './textureCache';
 
-/** Ground clutter shows within this distance (yards) of the camera, fading out over its last part. */
-const RANGE = 100;
+/** Ground clutter shows within this distance (yards) of the camera by default, fading out over its last part. */
+export const CLUTTER_RANGE_DEFAULT = 100;
+/** The nearest and furthest the clutter can be set to reach (yards). */
+export const CLUTTER_RANGE_MIN = 25;
+export const CLUTTER_RANGE_MAX = 400;
 /** Instances are re-picked after the camera moves this far. */
 const REBUILD_MOVE = 4;
-/** Generated chunks are forgotten beyond this distance. */
-const KEEP_RANGE = RANGE + 80;
+/** Generated chunks are kept this much further than the clutter reaches, then forgotten. */
+const KEEP_MARGIN = 80;
 const CELL = CHUNK_SIZE / 8;
 const MODEL_BATCH = 8;
 /** Unused clutter models stay loaded this long. */
@@ -30,7 +33,7 @@ const SHOT_FULL_RANGE = 300;
 /** Screenshots: most chunks scattered per frame, so the page keeps showing progress. */
 const SHOT_CHUNKS_PER_FRAME = 300;
 
-const clutterRange = { value: RANGE };
+const clutterRange = { value: CLUTTER_RANGE_DEFAULT };
 
 interface ClutterTile {
 	originX: number;
@@ -133,6 +136,8 @@ export class ClutterManager {
 	private readonly lastBuild = new THREE.Vector3(Infinity, Infinity, Infinity);
 	private dirty = true;
 	private on = true;
+	/** How far from the camera clutter shows (yards). */
+	private reach = CLUTTER_RANGE_DEFAULT;
 	/** A screenshot's view, while one is prepared (see holdInView). */
 	private shot: THREE.Frustum | null = null;
 	/** Thinned copies of the screenshot's far chunks, by tile key and chunk; let go after it. */
@@ -154,6 +159,18 @@ export class ClutterManager {
 	set enabled(on: boolean) {
 		this.on = on;
 		this.group.visible = on;
+		this.dirty = true;
+	}
+
+	get range(): number {
+		return this.reach;
+	}
+
+	set range(yards: number) {
+		yards = THREE.MathUtils.clamp(yards, CLUTTER_RANGE_MIN, CLUTTER_RANGE_MAX);
+		if (yards === this.reach) return;
+		this.reach = yards;
+		if (!this.shot) clutterRange.value = yards;
 		this.dirty = true;
 	}
 
@@ -184,7 +201,7 @@ export class ClutterManager {
 		} else {
 			this.shot = null;
 			this.shotChunks.clear();
-			clutterRange.value = RANGE;
+			clutterRange.value = this.reach;
 			// Back to the usual few copies: let the screenshot's large buffers go.
 			for (const model of this.models.values()) {
 				if (!model.mesh) continue;
@@ -206,7 +223,7 @@ export class ClutterManager {
 
 	/** Call once per frame. ground gives the terrain height under the camera. */
 	update(now: number, camera: THREE.Vector3, ground: number): void {
-		const high = camera.y - ground > RANGE && !this.shot;
+		const high = camera.y - ground > this.reach && !this.shot;
 		if (this.on && !high && (this.dirty || this.lastBuild.distanceToSquared(camera) > REBUILD_MOVE ** 2)) {
 			perf.time('clutter.build', () => this.build(camera));
 		} else if ((!this.on || high) && this.lastBuild.x !== Infinity) {
@@ -234,7 +251,7 @@ export class ClutterManager {
 		this.dirty = false;
 		this.lastBuild.copy(camera);
 		const byModel = new Map<number, Float32Array[]>();
-		const reach = RANGE + REBUILD_MOVE;
+		const reach = this.reach + REBUILD_MOVE;
 		const box = new THREE.Box3();
 		let shotBudget = SHOT_CHUNKS_PER_FRAME;
 		for (const [key, tile] of this.tiles) {
@@ -249,7 +266,7 @@ export class ClutterManager {
 					const d2 = dx * dx + dz * dz;
 					let chunk: Map<number, Float32Array> | undefined;
 					if (d2 > reach ** 2) {
-						if (d2 > KEEP_RANGE ** 2) tile.chunks.delete(id);
+						if (d2 > (this.reach + KEEP_MARGIN) ** 2) tile.chunks.delete(id);
 						if (!this.shot) continue;
 						let held = this.shotChunks.get(key);
 						if (!held) this.shotChunks.set(key, (held = new Map()));

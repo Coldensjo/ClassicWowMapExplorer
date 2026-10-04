@@ -5,7 +5,9 @@ import type { Place } from '../explorer/places';
 import type { SpawnInfo } from '../explorer/spawns';
 import type { MapCategory, MapListing } from '../explorer/world';
 import type { HighlightGroup, HighlightSettings } from './highlights';
+import { CLUTTER_RANGE_DEFAULT, CLUTTER_RANGE_MAX, CLUTTER_RANGE_MIN } from './clutter';
 import { Minimap } from './minimap';
+import { DETAIL_RANGE_MAX, DETAIL_RANGE_MIN } from './objects';
 import type { TintMode } from './regionOverlay';
 import { isTyping } from './typing';
 import { loadUiAssets } from './uiAssets';
@@ -392,16 +394,35 @@ function setUpView(viewer: Viewer): void {
 	panel.querySelector('[data-setting="smartSpeed"]')!.addEventListener('change', syncSpeed);
 	syncSpeed();
 
+	// How far the grass reaches, in yards, and how far the doodads, NPCs and objects show, as a
+	// share of the usual distance for their size.
+	const syncClutterRange = setUpRangeSlider(viewer, 'clutter-range', {
+		min: CLUTTER_RANGE_MIN, max: CLUTTER_RANGE_MAX, step: 25, normal: CLUTTER_RANGE_DEFAULT,
+		get: (s) => s.clutterRange,
+		set: (value) => ({ clutterRange: value }),
+		label: (value) => `${value} yd`,
+	}, remember);
+	const syncDetailRange = setUpRangeSlider(viewer, 'detail-range', {
+		min: DETAIL_RANGE_MIN, max: DETAIL_RANGE_MAX, step: 0.25, normal: 1,
+		get: (s) => s.detailRange,
+		set: (value) => ({ detailRange: value }),
+		label: (value) => `${Math.round(value * 100)}%`,
+	}, remember);
+
 	viewer.onChange = (change) => {
 		const s = viewer.settings;
 		sync();
 		syncTime();
 		syncSpeed();
+		syncClutterRange();
+		syncDetailRange();
 		syncSound(viewer);
 		remember();
 		notify({
 			torch: () => `Torch ${onOff(s.torch)}`,
 			clutter: () => `Grass and flowers ${onOff(s.clutter)}`,
+			clutterRange: () => `Grass and flowers out to ${s.clutterRange} yd`,
+			detailRange: () => `Details out to ${Math.round(s.detailRange * 100)}% of the usual distance`,
 			collision: () => (s.collision ? 'Collision on: walls and floors stop you' : 'Collision off: flying through walls'),
 			side: () => `Name colours as the ${s.side === 'alliance' ? 'Alliance' : 'Horde'} sees them`,
 			mapNames: () => `Dungeon and raid names ${onOff(s.mapNames)}`,
@@ -434,6 +455,40 @@ function setUpView(viewer: Viewer): void {
 			notify('Couldn’t copy: the browser didn’t allow it');
 		}
 	});
+}
+
+/** A slider in the View panel for one of the distances, with its value beside it and a Reset button; returns its sync. */
+function setUpRangeSlider(viewer: Viewer, id: string, range: {
+	min: number; max: number; step: number; normal: number;
+	get: (s: ViewSettings) => number;
+	set: (value: number) => Partial<ViewSettings>;
+	label: (value: number) => string;
+}, remember: () => void): () => void {
+	const slider = $<HTMLInputElement>(id);
+	const out = $(`${id}-out`);
+	const reset = $<HTMLButtonElement>(`${id}-reset`);
+	slider.min = String(range.min);
+	slider.max = String(range.max);
+	slider.step = String(range.step);
+	const sync = () => {
+		const value = range.get(viewer.settings);
+		slider.value = String(value);
+		out.textContent = range.label(value);
+		out.classList.toggle('shifted', value !== range.normal);
+		reset.disabled = value === range.normal;
+	};
+	slider.addEventListener('input', () => {
+		viewer.settings = range.set(Number(slider.value));
+		sync();
+		remember();
+	});
+	reset.addEventListener('click', () => {
+		viewer.settings = range.set(range.normal);
+		sync();
+		remember();
+	});
+	sync();
+	return sync;
 }
 
 function fillList(id: string, rows: [string, string][]): void {

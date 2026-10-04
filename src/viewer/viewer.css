@@ -841,20 +841,20 @@ kbd {
 	min-width: 0;
 }
 
-#time-out, #fly-speed-out {
+#time-out, #fly-speed-out, #clutter-range-out, #detail-range-out {
 	font-variant-numeric: tabular-nums;
 }
 
-#fly-speed-out {
+#fly-speed-out, #clutter-range-out, #detail-range-out {
 	min-width: 64px;
 	text-align: right;
 }
 
-#time-out.shifted, #fly-speed-out.shifted {
+#time-out.shifted, #fly-speed-out.shifted, #clutter-range-out.shifted, #detail-range-out.shifted {
 	color: var(--accent);
 }
 
-#time-now, #fly-speed-reset {
+#time-now, #fly-speed-reset, #clutter-range-reset, #detail-range-reset {
 	padding: 1px 8px;
 	font-size: 12px;
 }

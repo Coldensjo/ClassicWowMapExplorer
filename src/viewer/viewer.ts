@@ -25,7 +25,7 @@ import { MapLabels } from './mapLabels';
 import { DAY, Lighting, Sky, sunDirection } from './lighting';
 import { MusicPlayer, type MusicTarget } from './music';
 import { Nameplates, type Plate, type Side } from './nameplates';
-import { ClutterManager } from './clutter';
+import { CLUTTER_RANGE_DEFAULT, ClutterManager } from './clutter';
 import { headPosition, ObjectManager } from './objects';
 import { perf } from './perf';
 import { TerrainManager, type ContinentPlacement } from './terrain';
@@ -185,6 +185,10 @@ export interface ViewSettings {
 	torch: boolean;
 	/** Grass, flowers and pebbles (V). */
 	clutter: boolean;
+	/** How far the grass, flowers and pebbles reach, in yards. */
+	clutterRange: number;
+	/** How far doodads (trees, rocks, props), creatures and objects show, as a multiple of the usual. */
+	detailRange: number;
 	/** Walls, floors and the ground stop the camera (G). */
 	collision: boolean;
 	/** Whose eyes name colours are seen through (F). */
@@ -734,6 +738,8 @@ export class Viewer {
 		return {
 			torch: this.torchOn,
 			clutter: this.clutter?.enabled ?? true,
+			clutterRange: this.clutter?.range ?? CLUTTER_RANGE_DEFAULT,
+			detailRange: this.objects?.detailRange ?? 1,
 			collision: !this.controls.ghost,
 			side: this.side,
 			mapNames: this.mapLabels?.enabled ?? false,
@@ -756,6 +762,8 @@ export class Viewer {
 	set settings(next: Partial<ViewSettings>) {
 		if (next.torch !== undefined && next.torch !== this.torchOn) this.setTorch(next.torch);
 		if (next.clutter !== undefined && this.clutter) this.clutter.enabled = next.clutter;
+		if (typeof next.clutterRange === 'number' && next.clutterRange > 0 && this.clutter) this.clutter.range = next.clutterRange;
+		if (typeof next.detailRange === 'number' && next.detailRange > 0 && this.objects) this.objects.detailRange = next.detailRange;
 		if (next.collision !== undefined) this.controls.ghost = !next.collision;
 		if (next.side) {
 			this.side = next.side;

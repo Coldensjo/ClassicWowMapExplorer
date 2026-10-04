@@ -61,6 +61,18 @@
 						<button id="fly-speed-reset" title="Back to normal flying speed">Reset</button>
 					</div>
 					<label title="Flying speed follows your height above the ground; off, it stays the same everywhere"><input type="checkbox" data-setting="smartSpeed"> Smart fly speed</label>
+					<div class="time-row" title="How far from the camera grass, flowers and pebbles grow">
+						<span>Grass</span>
+						<input type="range" id="clutter-range" aria-label="Grass and flowers distance">
+						<output id="clutter-range-out"></output>
+						<button id="clutter-range-reset" title="Back to the usual grass distance">Reset</button>
+					</div>
+					<div class="time-row" title="How far trees, rocks, props, NPCs and objects show, against the usual for their size (big trees reach further than crates). Only the detailed ground around you carries them, so very far settings stop there.">
+						<span>Details</span>
+						<input type="range" id="detail-range" aria-label="Detail distance">
+						<output id="detail-range-out"></output>
+						<button id="detail-range-reset" title="Back to the usual detail distance">Reset</button>
+					</div>
 					<label><input type="checkbox" data-setting="torch"> Torch <kbd>L</kbd></label>
 					<label><input type="checkbox" data-setting="clutter"> Grass and flowers <kbd>V</kbd></label>
 					<label><input type="checkbox" data-setting="collision"> Collision with walls <kbd>G</kbd></label>

@@ -33,8 +33,9 @@ interface Flight {
 
 /**
  * Free-flying camera: lock() captures the mouse for looking around, WASD to move, Space/C for up/down,
- * Shift to boost, mouse wheel to zoom along the view direction. Speed scales with height
- * above the ground, so the same controls work from treetop level to the whole continent.
+ * Shift to boost, mouse wheel to zoom along the view direction. With smart speed, speed scales
+ * with height above the ground, so the same controls work from treetop level to the whole
+ * continent; without it, the camera always flies at fixedSpeed.
  */
 export class FlyControls {
 	/** Where the camera looks now. */
@@ -102,6 +103,12 @@ export class FlyControls {
 
 	/** Multiplies the flying speed (the View panel's slider, Y in the viewer). */
 	speedScale = 1;
+
+	/** Speed scales with height above the ground; off, the camera flies at fixedSpeed everywhere. */
+	smartSpeed = true;
+
+	/** Flying speed when smart speed is off, yd/s (before Shift's boost). */
+	fixedSpeed = 64;
 
 	/** Off while another controller (walking) has the camera: keys, mouse and wheel are left alone. */
 	get enabled(): boolean {
@@ -261,7 +268,7 @@ export class FlyControls {
 
 			const k = this.keys;
 			const boost = k.has('ShiftLeft') || k.has('ShiftRight') ? 5 : 1;
-			this.speed = THREE.MathUtils.clamp(this.altitude * 0.8, 25, 25000) * boost * this.speedScale;
+			this.speed = (this.smartSpeed ? THREE.MathUtils.clamp(this.altitude * 0.8, 25, 25000) * this.speedScale : this.fixedSpeed) * boost;
 
 			const forward = this.forward();
 			const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
@@ -275,9 +282,11 @@ export class FlyControls {
 			const delta = new THREE.Vector3();
 			if (move.lengthSq() > 0) delta.addScaledVector(move.normalize(), this.speed * dt);
 
-			// Wheel zoom: move along the view by a fraction of the current height, decaying smoothly.
+			// Wheel zoom: move along the view by a fraction of the current height (or of the fixed
+			// speed), decaying smoothly.
 			if (Math.abs(this.zoomVelocity) > 0.01) {
-				const step = this.zoomVelocity * Math.max(this.altitude, 20) * 0.12 * Math.min(1, dt * 8);
+				const reach = this.smartSpeed ? Math.max(this.altitude, 20) : this.fixedSpeed;
+				const step = this.zoomVelocity * reach * 0.12 * Math.min(1, dt * 8);
 				delta.addScaledVector(forward, step);
 				this.zoomVelocity *= Math.pow(0.004, dt);
 			}

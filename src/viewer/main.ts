@@ -9,7 +9,7 @@ import { Minimap } from './minimap';
 import type { TintMode } from './regionOverlay';
 import { isTyping } from './typing';
 import { loadUiAssets } from './uiAssets';
-import { FLY_SPEED_RANGE, FLY_SPEED_STEP, Viewer, type HudInfo, type ViewSettings } from './viewer';
+import { FIXED_SPEED_DEFAULT, FIXED_SPEED_MAX, FIXED_SPEED_MIN, FLY_SPEED_RANGE, FLY_SPEED_STEP, Viewer, type HudInfo, type ViewSettings } from './viewer';
 import type { CharacterLook } from './character';
 import { CHARACTER_OUTFITS, type CharacterOutfit, type CharacterRace } from '../explorer/spawns';
 
@@ -256,6 +256,11 @@ function speedLabel(scale: number): string {
 	return `×${Number(scale.toPrecision(2))}`;
 }
 
+/** A fixed flying speed as 64 yd/s, 1100 yd/s and so on. */
+function fixedSpeedLabel(speed: number): string {
+	return `${Number(speed.toPrecision(2))} yd/s`;
+}
+
 // --- Keys belong to the world ---
 
 // Text boxes and lists keep keys while in use; everything else hands them back once used, and
@@ -354,30 +359,36 @@ function setUpView(viewer: Viewer): void {
 	syncTime();
 	hudFollowers.push(syncTime);
 
-	// The flying speed: a slider in powers of two either side of normal.
+	// The flying speed: a slider in powers of two, either side of normal with smart speed, or of
+	// yd/s without it.
 	const speed = $<HTMLInputElement>('fly-speed');
 	const speedOut = $('fly-speed-out');
 	const speedReset = $<HTMLButtonElement>('fly-speed-reset');
-	speed.min = String(-FLY_SPEED_RANGE);
-	speed.max = String(FLY_SPEED_RANGE);
 	speed.step = String(FLY_SPEED_STEP);
 	const syncSpeed = () => {
-		const scale = viewer.settings.flySpeed;
-		speed.value = String(Math.log2(scale));
-		speedOut.textContent = speedLabel(scale);
-		speedOut.classList.toggle('shifted', scale !== 1);
-		speedReset.disabled = scale === 1;
+		const s = viewer.settings;
+		const value = s.smartSpeed ? s.flySpeed : s.fixedSpeed;
+		const normal = s.smartSpeed ? 1 : FIXED_SPEED_DEFAULT;
+		speed.min = String(s.smartSpeed ? -FLY_SPEED_RANGE : FIXED_SPEED_MIN);
+		speed.max = String(s.smartSpeed ? FLY_SPEED_RANGE : FIXED_SPEED_MAX);
+		speed.value = String(Math.log2(value));
+		speed.title = `${s.smartSpeed ? 'Multiplies the speed, which follows your height' : 'Always this speed'} · Faster: Y · Slower: Shift+Y`;
+		speedOut.textContent = s.smartSpeed ? speedLabel(value) : fixedSpeedLabel(value);
+		speedOut.classList.toggle('shifted', value !== normal);
+		speedReset.disabled = value === normal;
 	};
 	speed.addEventListener('input', () => {
-		viewer.settings = { flySpeed: 2 ** Number(speed.value) };
+		const value = 2 ** Number(speed.value);
+		viewer.settings = viewer.settings.smartSpeed ? { flySpeed: value } : { fixedSpeed: value };
 		syncSpeed();
 		remember();
 	});
 	speedReset.addEventListener('click', () => {
-		viewer.settings = { flySpeed: 1 };
+		viewer.settings = viewer.settings.smartSpeed ? { flySpeed: 1 } : { fixedSpeed: FIXED_SPEED_DEFAULT };
 		syncSpeed();
 		remember();
 	});
+	panel.querySelector('[data-setting="smartSpeed"]')!.addEventListener('change', syncSpeed);
 	syncSpeed();
 
 	viewer.onChange = (change) => {
@@ -401,6 +412,8 @@ function setUpView(viewer: Viewer): void {
 			gameObjects: () => `Objects ${onOff(s.gameObjects)}`,
 			spiritHealers: () => `Spirit healers ${onOff(s.spiritHealers)}`,
 			flySpeed: () => `Flying speed ${speedLabel(s.flySpeed)}`,
+			smartSpeed: () => (s.smartSpeed ? 'Smart fly speed: faster the higher you are' : `Fixed fly speed: ${fixedSpeedLabel(s.fixedSpeed)}`),
+			fixedSpeed: () => `Flying speed ${fixedSpeedLabel(s.fixedSpeed)}`,
 			weather: () => ({ auto: 'Weather: each zone\'s own', off: 'Weather: always clear', rain: 'Weather: rain', snow: 'Weather: snow', sandstorm: 'Weather: sandstorm' }[s.weather]),
 			flight: () => (viewer.onFlight ? 'Taking flight: Esc or moving gets you off' : 'Landed'),
 			voyage: () => (viewer.onTransport ? 'All aboard: Esc or moving gets you off' : 'Got off'),

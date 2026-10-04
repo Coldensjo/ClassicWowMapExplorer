@@ -202,8 +202,12 @@ export interface ViewSettings {
 	gameObjects: boolean;
 	/** Spirit healers and battleground spirit guides (shown only while creatures are). */
 	spiritHealers: boolean;
-	/** Multiplies the flying speed, from 1/8 to 8 (Y faster, Shift+Y slower). */
+	/** Multiplies the flying speed, from 1/8 to 8 (Y faster, Shift+Y slower), while smart speed is on. */
 	flySpeed: number;
+	/** Flying speed scales with height above the ground; off, it's fixedSpeed everywhere. */
+	smartSpeed: boolean;
+	/** Flying speed when smart speed is off, yd/s (Y faster, Shift+Y slower). */
+	fixedSpeed: number;
 	/** Rain, snow and sandstorms: each zone's own, none, or one kind everywhere. */
 	weather: WeatherSetting;
 }
@@ -212,6 +216,10 @@ export interface ViewSettings {
 export const FLY_SPEED_STEP = 0.25;
 /** The flying speed's range, as powers of two either side of normal. */
 export const FLY_SPEED_RANGE = 3;
+/** The fixed flying speed's range and default, as powers of two of yd/s (4 to 16384, 64). */
+export const FIXED_SPEED_MIN = 2;
+export const FIXED_SPEED_MAX = 14;
+export const FIXED_SPEED_DEFAULT = 64;
 
 /** A setting, or the time of day or the sound, changed by its key; or walking started or stopped. */
 export type ViewChange = keyof ViewSettings | 'time' | 'sound' | 'flight' | 'voyage' | 'walking';
@@ -688,6 +696,8 @@ export class Viewer {
 			gameObjects: this.objects?.kindShown('object') ?? true,
 			spiritHealers: this.objects?.kindShown('spiritHealer') ?? true,
 			flySpeed: this.controls.speedScale,
+			smartSpeed: this.controls.smartSpeed,
+			fixedSpeed: this.controls.fixedSpeed,
 			weather: this.weather.setting,
 		};
 	}
@@ -715,6 +725,11 @@ export class Viewer {
 			// Snapped to the slider's notches, so a remembered or stepped value lands on one.
 			const notches = Math.round(Math.log2(next.flySpeed) / FLY_SPEED_STEP) * FLY_SPEED_STEP;
 			this.controls.speedScale = 2 ** THREE.MathUtils.clamp(notches, -FLY_SPEED_RANGE, FLY_SPEED_RANGE);
+		}
+		if (next.smartSpeed !== undefined) this.controls.smartSpeed = next.smartSpeed;
+		if (typeof next.fixedSpeed === 'number' && next.fixedSpeed > 0) {
+			const notches = Math.round(Math.log2(next.fixedSpeed) / FLY_SPEED_STEP) * FLY_SPEED_STEP;
+			this.controls.fixedSpeed = 2 ** THREE.MathUtils.clamp(notches, FIXED_SPEED_MIN, FIXED_SPEED_MAX);
 		}
 	}
 
@@ -1126,8 +1141,10 @@ export class Viewer {
 		// held; key repeats only pick up Shift being pressed or let go along the way.
 		else if (e.code === 'KeyT') this.timeRunning = e.shiftKey ? -1 : 1;
 		else if (e.code === 'KeyY') {
-			this.settings = { flySpeed: this.controls.speedScale * 2 ** (e.shiftKey ? -FLY_SPEED_STEP : FLY_SPEED_STEP) };
-			this.onChange('flySpeed');
+			const step = 2 ** (e.shiftKey ? -FLY_SPEED_STEP : FLY_SPEED_STEP);
+			if (this.controls.smartSpeed) this.settings = { flySpeed: this.controls.speedScale * step };
+			else this.settings = { fixedSpeed: this.controls.fixedSpeed * step };
+			this.onChange(this.controls.smartSpeed ? 'flySpeed' : 'fixedSpeed');
 		} else if (e.code === 'KeyN') {
 			this.resetTime();
 			this.onChange('time');

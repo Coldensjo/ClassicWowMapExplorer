@@ -27,7 +27,11 @@ interface ChunkInfo {
  */
 export function decodeBlte(input: Uint8Array, allowPartial = false): BlteResult {
 	const r = new Reader(input);
-	if (r.u32be() !== BLTE_MAGIC) throw new Error('Not a BLTE stream');
+	if (input.length < 8 || r.u32be() !== BLTE_MAGIC) {
+		const head = toHex(input.subarray(0, 16));
+		const text = String.fromCharCode(...input.subarray(0, 16)).replace(/[^\x20-\x7e]/g, '.');
+		throw new Error(`Not a BLTE stream (${input.length} bytes, starts with ${head || 'nothing'} "${text}")`);
+	}
 	const headerSize = r.u32be();
 
 	const chunks: ChunkInfo[] = [];

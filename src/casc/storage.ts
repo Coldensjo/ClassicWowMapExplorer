@@ -43,7 +43,20 @@ class ArchiveReader {
 		if (!entry) throw new NotLocalError(what);
 		const archive = await this.archive(entry.archive);
 		const bytes = await archive.read(entry.offset + ARCHIVE_ENTRY_HEADER, entry.size - ARCHIVE_ENTRY_HEADER);
-		return decodeBlte(bytes, allowPartial);
+		try {
+			return decodeBlte(bytes, allowPartial);
+		} catch (e) {
+			if (!(e instanceof Error) || !e.message.startsWith('Not a BLTE stream')) throw e;
+			// The entry header holds the key reversed; if it differs, the index points at the wrong place.
+			const header = await archive.read(entry.offset, ARCHIVE_ENTRY_HEADER);
+			const headerKey = toHex(header.subarray(0, 16).slice().reverse());
+			const where = `data.${entry.archive.toString().padStart(3, '0')} offset ${entry.offset} size ${entry.size}` +
+				` (archive is ${archive.size} bytes)`;
+			const keyNote = headerKey.startsWith(toHex(ekey.subarray(0, 9)))
+				? 'entry header key matches, so the data itself is damaged or unexpected'
+				: `entry header key is ${headerKey}, not ${toHex(ekey)}, so the index and archive disagree`;
+			throw new Error(`${what}: ${e.message} at ${where}; ${keyNote}`);
+		}
 	}
 
 	private archive(n: number): Promise<RandomAccessFile> {

@@ -42,12 +42,17 @@ const SMALL_CASTER = 3;
 /** Creatures further than this (yards) from the camera stand still. */
 const MOVE_RANGE = 300;
 
+/** The nearest and furthest the detail distance can be set, as a multiple of the usual. */
+export const DETAIL_RANGE_MIN = 0.25;
+export const DETAIL_RANGE_MAX = 4;
+
 /**
  * View distance for a doodad of a given (scaled) radius, like the game's doodad LOD: small props
- * vanish within a few hundred yards, big trees stay visible much further.
+ * vanish within a few hundred yards, big trees stay visible much further. scale stretches or
+ * shrinks it all (the detail distance setting).
  */
-function viewDistance(radius: number): number {
-	return THREE.MathUtils.clamp(radius * 80, 150, 1600);
+function viewDistance(radius: number, scale: number): number {
+	return THREE.MathUtils.clamp(radius * 80, 150, 1600) * scale;
 }
 
 /** One model's geometry, drawn with a single InstancedMesh for every placed copy. */
@@ -550,7 +555,11 @@ export class ObjectManager {
 		}
 		entry.liquids = (data.liquids ?? []).map((l) => ({ geometry: liquidGeometry(l.positions, l.indices), material: liquidMaterial(l.kind, l.type), type: l.type, mesh: null }));
 		// Warm the instanced shader variants, which are what the model and its liquids will be drawn with.
-		const warm = new THREE.Group().add(new THREE.InstancedMesh(geometry, entry.materials, 1), ...entry.liquids.map((l) => new THREE.InstancedMesh(l.geometry, l.material, 1)));
+		const model = new THREE.InstancedMesh(geometry, entry.materials, 1);
+		// And its shadow's (see shadowStandIns); a skinned model's depth material is warmed below.
+		model.castShadow = true;
+		if (entry.depthMaterial) model.customDepthMaterial = entry.depthMaterial;
+		const warm = new THREE.Group().add(model, ...entry.liquids.map((l) => new THREE.InstancedMesh(l.geometry, l.material, 1)));
 		const warming = [this.prepare(warm)];
 		if (entry.depthMaterial) {
 			// The shadow pass draws the depth material with each batch's texture and alpha test,
@@ -590,6 +599,23 @@ export class ObjectManager {
 		for (const entry of this.models.values()) entry.dirty = true;
 	}
 
+	private detailScale = 1;
+
+	/**
+	 * How far doodads, creatures and objects show, as a multiple of the usual distance for their
+	 * size. They're only placed on the detailed tiles around the camera, so that bounds it too.
+	 */
+	get detailRange(): number {
+		return this.detailScale;
+	}
+
+	set detailRange(scale: number) {
+		scale = THREE.MathUtils.clamp(scale, DETAIL_RANGE_MIN, DETAIL_RANGE_MAX);
+		if (scale === this.detailScale) return;
+		this.detailScale = scale;
+		for (const entry of this.models.values()) entry.dirty = true;
+	}
+
 	private readonly hiddenKinds = new Set<Hideable>();
 
 	/** Shows or hides every creature (NPCs and monsters), game object (chests, herbs, doors...) or spirit healer. */
@@ -620,7 +646,7 @@ export class ObjectManager {
 		const e = m.elements;
 		const scale = Math.hypot(e[0], e[1], e[2]);
 		const dx = e[12] - this.camera.x, dy = e[13] - this.camera.y, dz = e[14] - this.camera.z;
-		return dx * dx + dy * dy + dz * dz < viewDistance(entry.radius * scale) ** 2;
+		return dx * dx + dy * dy + dz * dz < viewDistance(entry.radius * scale, this.detailScale) ** 2;
 	}
 
 	private visibilityChanged(entry: ModelEntry): boolean {

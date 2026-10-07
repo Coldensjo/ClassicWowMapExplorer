@@ -206,6 +206,22 @@ export class TerrainShadowPass {
 		terrainShadowUniforms.uTerrainShade.value = this.shadeTarget.texture;
 	}
 
+	/**
+	 * Builds the pass's shader for detailed tiles (plain meshes; the low-detail ones are batched,
+	 * drawn at the start) in the background, rather than mid-frame when the first one arrives.
+	 */
+	async warm(renderer: THREE.WebGLRenderer): Promise<void> {
+		// three builds a shader for the attributes a mesh has: a tile's position and normal.
+		const geometry = new THREE.BufferGeometry();
+		geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+		geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(9), 3));
+		const mesh = new THREE.Mesh(geometry, this.scene.overrideMaterial!);
+		renderer.setRenderTarget(this.target);
+		const compiled = renderer.compileAsync(mesh, this.camera, this.scene);
+		renderer.setRenderTarget(null);
+		await compiled;
+	}
+
 	/** Redraws the maps when they're due; strength: how dark the shadows are (0 for none, when they aren't drawn either). */
 	update(renderer: THREE.WebGLRenderer, terrain: THREE.Object3D, position: THREE.Vector3, altitude: number, lightDir: THREE.Vector3, shadowRange: number, strength: number, now: number): void {
 		const u = terrainShadowUniforms;

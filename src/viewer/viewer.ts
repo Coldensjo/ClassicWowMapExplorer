@@ -25,13 +25,14 @@ import { MapLabels } from './mapLabels';
 import { DAY, Lighting, Sky, sunDirection } from './lighting';
 import { MusicPlayer, type MusicTarget } from './music';
 import { Nameplates, type Plate, type Side } from './nameplates';
-import { ClutterManager } from './clutter';
+import { CLUTTER_RANGE_DEFAULT, ClutterManager } from './clutter';
 import { headPosition, ObjectManager } from './objects';
 import { perf } from './perf';
 import { TerrainManager, type ContinentPlacement } from './terrain';
 import { GroundDistancePass } from './groundDistance';
+import { UploadQueue } from './gpuUploads';
 import { PostPass, type FogSettings } from './post';
-import { installShadowGroups, setShadowLight } from './shadows';
+import { commonShadowStandIns, installShadowGroups, setShadowLight, shadowStandIns } from './shadows';
 import { TerrainShadowPass } from './terrainShadow';
 import { animateFlipbooks, flipbooks, liquidKindOf, liquidMaterials, liquidTime, seaMask, setLiquidLooks, setLiquidsFromBelow } from './terrainMaterials';
 import { UnderwaterAudio } from './underwater';
@@ -184,6 +185,10 @@ export interface ViewSettings {
 	torch: boolean;
 	/** Grass, flowers and pebbles (V). */
 	clutter: boolean;
+	/** How far the grass, flowers and pebbles reach, in yards. */
+	clutterRange: number;
+	/** How far doodads (trees, rocks, props), creatures and objects show, as a multiple of the usual. */
+	detailRange: number;
 	/** Walls, floors and the ground stop the camera (G). */
 	collision: boolean;
 	/** Whose eyes name colours are seen through (F). */
@@ -445,6 +450,7 @@ export class Viewer {
 	/** How far the ground is under each pixel, for how deep the water there looks. */
 	private groundPass!: GroundDistancePass;
 	private readonly post: PostPass;
+	private readonly uploads: UploadQueue;
 	private readonly terrainShadow: TerrainShadowPass;
 	/**
 	 * A screenshot being prepared (P): when it started, how many tiles are held for it, since
@@ -473,6 +479,9 @@ export class Viewer {
 		const reversed = supportsClipControl();
 		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, reversedDepthBuffer: reversed, logarithmicDepthBuffer: !reversed });
 		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+		// Checking a new shader for errors asks the GPU process and waits for the answer, a stall
+		// for each one; while developing, the errors are worth it.
+		this.renderer.debug.checkShaderErrors = import.meta.env.DEV;
 		this.camera = new THREE.PerspectiveCamera(60, 1, 0.5, 400000);
 		this.controls = new FlyControls(this.camera, canvas);
 		this.walker = new WalkControls(this.camera, canvas);
@@ -481,6 +490,7 @@ export class Viewer {
 		this.groundPass = new GroundDistancePass(this.renderer);
 		// Antialiased there rather than on the canvas.
 		this.post = new PostPass(this.renderer, storage);
+		this.uploads = new UploadQueue(this.renderer);
 		this.terrainShadow = new TerrainShadowPass(this.renderer);
 
 		this.scene.background = SKY;
@@ -728,6 +738,8 @@ export class Viewer {
 		return {
 			torch: this.torchOn,
 			clutter: this.clutter?.enabled ?? true,
+			clutterRange: this.clutter?.range ?? CLUTTER_RANGE_DEFAULT,
+			detailRange: this.objects?.detailRange ?? 1,
 			collision: !this.controls.ghost,
 			side: this.side,
 			mapNames: this.mapLabels?.enabled ?? false,
@@ -750,6 +762,8 @@ export class Viewer {
 	set settings(next: Partial<ViewSettings>) {
 		if (next.torch !== undefined && next.torch !== this.torchOn) this.setTorch(next.torch);
 		if (next.clutter !== undefined && this.clutter) this.clutter.enabled = next.clutter;
+		if (typeof next.clutterRange === 'number' && next.clutterRange > 0 && this.clutter) this.clutter.range = next.clutterRange;
+		if (typeof next.detailRange === 'number' && next.detailRange > 0 && this.objects) this.objects.detailRange = next.detailRange;
 		if (next.collision !== undefined) this.controls.ghost = !next.collision;
 		if (next.side) {
 			this.side = next.side;
@@ -819,8 +833,17 @@ export class Viewer {
 	/** Loads the low-detail world, places the camera and starts streaming textures. */
 	async load(onStatus: (text: string) => void): Promise<void> {
 		const anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-		// Compiles shaders in the background (KHR_parallel_shader_compile) before objects are shown.
-		const prepare = (object: THREE.Object3D, shadowPass?: boolean) => this.post.compileAsync(this.renderer, object, this.camera, this.scene, shadowPass);
+		// Compiles shaders in the background (KHR_parallel_shader_compile) before objects are shown,
+		// then sends their textures to the GPU a few per frame (see UploadQueue).
+		// Its shadow's shaders too (see shadowStandIns): left to the shadow pass, each new kind was
+		// built there, mid-frame, freezing it.
+		const prepare = async (object: THREE.Object3D, shadowPass?: boolean) => {
+			await Promise.all([
+				this.post.compileAsync(this.renderer, object, this.camera, this.scene, shadowPass),
+				...(shadowPass ? [] : shadowStandIns(object).map((o) => this.post.compileAsync(this.renderer, o, this.camera, this.scene, true))),
+			]);
+			await this.uploads.upload(object);
+		};
 		this.objects = new ObjectManager(this.storage, this.usesCompressedTextures, anisotropy, prepare);
 		// Buildings (and the caves and mines built as buildings) are solid.
 		this.controls.collide = (from, move) => {
@@ -830,6 +853,7 @@ export class Viewer {
 			return allowed.add(this.objects.pushOut(from.clone().add(allowed), CAMERA_RADIUS));
 		};
 		this.terrain = new TerrainManager(this.storage, this.usesCompressedTextures, anisotropy, this.objects, prepare);
+		this.terrain.preloadTexture = (texture) => this.uploads.texture(texture);
 		this.setUpWalker();
 		this.character = new Character(this.storage, this.usesCompressedTextures, anisotropy, prepare);
 		this.scene.add(this.character.group);
@@ -911,8 +935,16 @@ export class Viewer {
 		});
 		void this.terrain.loadFarTextures(this.camera.position);
 		// Whatever's in the world already (low-detail land, sea, sky), compiled before the first frame.
+		// Only compiled: the upload queue is drained by frames, which haven't started yet.
 		onStatus('Preparing shaders');
-		await prepare(this.scene);
+		// With them, what the first detailed tiles and models will need: the shadows' depth shaders
+		// and the ground-distance and mountain-shadow passes' for detailed tiles.
+		await Promise.all([
+			this.post.compileAsync(this.renderer, this.scene, this.camera, this.scene),
+			...commonShadowStandIns().map((o) => this.post.compileAsync(this.renderer, o, this.camera, this.scene, true)),
+			this.groundPass.warm(this.renderer),
+			this.terrainShadow.warm(this.renderer),
+		]);
 		// One frame drawn behind the loading screen compiles the rest: the shadow, ground-distance
 		// and full-screen passes, which draw with shaders of their own.
 		this.tick(0, performance.now());
@@ -1598,6 +1630,7 @@ export class Viewer {
 		// Before the objects, so the transports' new places are drawn this frame.
 		this.transports?.update(Date.now(), pos);
 		perf.time('objects.update', () => this.objects.update(now, pos));
+		perf.time('uploads', () => this.uploads.drain());
 		this.clutter.update(now, pos, this.terrain.surfaceAt(pos.x, pos.z));
 		// Under water the surface is seen from below, where its depth isn't used.
 		if (!this.underwater) perf.time('groundDistance', () => this.groundPass.render(this.renderer, this.terrain.group, this.camera));
@@ -1648,6 +1681,7 @@ export class Viewer {
 		}
 		perf.record('drawCalls', this.renderer.info.render.calls);
 		perf.record('triangles', this.renderer.info.render.triangles);
+		perf.endFrame(now, this.renderer.info.programs?.length ?? 0);
 
 		this.frames++;
 		if (now - this.lastFpsTime > 500) {

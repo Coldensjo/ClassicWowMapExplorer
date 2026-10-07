@@ -104,8 +104,8 @@ Press **Ctrl+C** in the terminal to stop it. To update later, run `git pull` and
 
 - The whole world at once: distant terrain for both continents, with full detail streamed in around you
 - Terrain textures, water and other liquids, with the game's underwater look and sound
-- Buildings and props placed as in the game, with animated fire, smoke and sparks
-- Ground clutter: the grass, flowers and pebbles that grow on each terrain texture, swaying in the wind
+- Buildings and props placed as in the game, with animated fire, smoke and sparks; how far props, trees and NPCs show is set in the View panel
+- Ground clutter: the grass, flowers and pebbles that grow on each terrain texture, swaying in the wind; how far it reaches is set in the View panel (25–400 yards)
 - Sky, fog and lighting from the game's own light data, with a time-of-day control
 - Zone names and zone music, including inside inns, Ironforge and other buildings
 - Each area's background sounds (birds, wind, wildlife, city bustle), by day and by night, cross-faded

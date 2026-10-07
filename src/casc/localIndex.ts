@@ -94,22 +94,30 @@ export function bucketOf(ekey: Uint8Array): number {
 
 /** The local storage's map from encoding key to a location in a data.### archive. */
 export class LocalIndex {
-	private readonly buckets: (IndexBucket | null)[] = new Array(16).fill(null);
+	/** Per bucket, its index files newest first: an entry missing from the newest may be in an older one. */
+	private readonly buckets: IndexBucket[][] = Array.from({ length: 16 }, () => []);
+	/** Names of the index files that were read, for explaining a failure. */
+	readonly names: string[] = [];
 
-	addBucket(bucket: number, bytes: Uint8Array): void {
-		this.buckets[bucket] = IndexBucket.parse(bytes);
+	addBucket(bucket: number, bytes: Uint8Array, name = ''): void {
+		this.buckets[bucket].push(IndexBucket.parse(bytes));
+		this.names.push(name);
 	}
 
 	/** The buckets an index file was added for, as a list like "0,1,2". */
 	get loadedBuckets(): string {
-		return this.buckets.flatMap((b, i) => (b ? [i] : [])).join(',');
+		return this.buckets.flatMap((b, i) => (b.length ? [i] : [])).join(',');
 	}
 
 	get entryCount(): number {
-		return this.buckets.reduce((n, b) => n + (b?.count ?? 0), 0);
+		return this.buckets.reduce((n, files) => n + files.reduce((m, b) => m + b.count, 0), 0);
 	}
 
 	find(ekey: Uint8Array): IndexEntry | null {
-		return this.buckets[bucketOf(ekey)]?.find(ekey) ?? null;
+		for (const bucket of this.buckets[bucketOf(ekey)]) {
+			const entry = bucket.find(ekey);
+			if (entry) return entry;
+		}
+		return null;
 	}
 }

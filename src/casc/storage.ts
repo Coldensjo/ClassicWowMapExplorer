@@ -42,7 +42,7 @@ class ArchiveReader {
 		const entry = this.index.find(ekey);
 		if (!entry) {
 			const bucket = bucketOf(ekey);
-			throw new NotLocalError(what, ` (key ${toHex(ekey)}, bucket ${bucket}; index has ${this.index.entryCount} entries in buckets ${this.index.loadedBuckets})`);
+			throw new NotLocalError(what, ` (key ${toHex(ekey)}, bucket ${bucket}; index has ${this.index.entryCount} entries in buckets ${this.index.loadedBuckets}; index files ${this.index.names.join(' ')})`);
 		}
 		const archive = await this.archive(entry.archive);
 		const bytes = await archive.read(entry.offset + ARCHIVE_ENTRY_HEADER, entry.size - ARCHIVE_ENTRY_HEADER);
@@ -200,21 +200,32 @@ function requireConfig(config: Map<string, string[]>, key: string): string[] {
 }
 
 async function loadLocalIndex(source: FileSource): Promise<LocalIndex> {
-	// Index files are named BBvvvvvvvv.idx (bucket, version); only the newest per bucket is live.
-	const latest = new Map<number, { version: number; name: string }>();
+	// Index files are named BBvvvvvvvv.idx (bucket, version); the newest per bucket is live, older ones
+	// are kept as a fallback (an install that was patched may leave entries only in an older file).
+	const files: { bucket: number; version: number; name: string }[] = [];
 	for (const name of await source.listDir(['Data', 'data'])) {
 		const m = /^([0-9a-f]{2})([0-9a-f]{8})\.idx$/i.exec(name);
 		if (!m) continue;
 		const bucket = parseInt(m[1], 16);
-		const version = parseInt(m[2], 16);
-		if (bucket < 16 && (latest.get(bucket)?.version ?? -1) < version) latest.set(bucket, { version, name });
+		if (bucket < 16) files.push({ bucket, version: parseInt(m[2], 16), name });
 	}
-	if (latest.size === 0) throw new Error('No local index files found in Data/data');
+	if (files.length === 0) throw new Error('No local index files found in Data/data');
+	files.sort((a, b) => b.version - a.version);
 
 	const index = new LocalIndex();
-	await Promise.all([...latest].map(async ([bucket, { name }]) => {
+	const bytes = await Promise.all(files.map(async ({ name }) => {
 		const file = await source.openFile(['Data', 'data', name]);
-		index.addBucket(bucket, await file.read(0, file.size));
+		return file.read(0, file.size);
 	}));
+	const newest = new Set<number>();
+	files.forEach(({ bucket, name }, i) => {
+		try {
+			index.addBucket(bucket, bytes[i], name);
+			newest.add(bucket);
+		} catch (e) {
+			// An older file in a layout this doesn't read is only a lost fallback.
+			if (!newest.has(bucket)) throw e;
+		}
+	});
 	return index;
 }

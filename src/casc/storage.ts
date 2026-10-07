@@ -49,12 +49,16 @@ class ArchiveReader {
 			if (!(e instanceof Error) || !e.message.startsWith('Not a BLTE stream')) throw e;
 			// The entry header holds the key reversed; if it differs, the index points at the wrong place.
 			const header = await archive.read(entry.offset, ARCHIVE_ENTRY_HEADER);
+			// Some installs (seen with Forever Beta) store the stream right at the offset, with no entry header.
+			if (header[0] === 0x42 && header[1] === 0x4c && header[2] === 0x54 && header[3] === 0x45) {
+				return decodeBlte(await archive.read(entry.offset, Math.min(entry.size, archive.size - entry.offset)), allowPartial);
+			}
 			const headerKey = toHex(header.subarray(0, 16).slice().reverse());
 			const where = `data.${entry.archive.toString().padStart(3, '0')} offset ${entry.offset} size ${entry.size}` +
 				` (archive is ${archive.size} bytes)`;
 			const keyNote = headerKey.startsWith(toHex(ekey.subarray(0, 9)))
 				? 'entry header key matches, so the data itself is damaged or unexpected'
-				: `entry header key is ${headerKey}, not ${toHex(ekey)}, so the index and archive disagree`;
+				: `entry header key is ${headerKey}, not ${toHex(ekey)}, so the entry is not where the index says or has an unknown layout`;
 			throw new Error(`${what}: ${e.message} at ${where}; ${keyNote}`);
 		}
 	}

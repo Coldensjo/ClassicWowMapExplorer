@@ -97,8 +97,28 @@ export class CascStorage {
 		};
 
 		const products = await readBuildInfo(source);
-		const info = products.find((p) => p.product === product && p.active) ?? products.find((p) => p.product === product);
-		if (!info) throw new Error(`Product ${product} is not installed`);
+		// Several builds of a product can be listed (a rebuilt .build.info has no Active flag, and old
+		// builds' configs stay behind after a patch); the first whose files are all stored here wins.
+		const candidates = [...products.filter((p) => p.product === product && p.active), ...products.filter((p) => p.product === product && !p.active)];
+		if (!candidates.length) throw new Error(`Product ${product} is not installed`);
+		const failures: string[] = [];
+		for (const info of candidates) {
+			try {
+				return await CascStorage.openBuild(source, info, timings, time);
+			} catch (e) {
+				if (!(e instanceof NotLocalError)) throw e;
+				failures.push(`build ${info.buildKey}: ${e.message}`);
+			}
+		}
+		throw new Error(`${failures.length === 1 ? 'The build' : `None of the ${failures.length} builds`} of ${product} can't be read: ${failures.join('; ')}`);
+	}
+
+	private static async openBuild(
+		source: FileSource,
+		info: ProductInfo,
+		timings: Record<string, number>,
+		time: <T>(label: string, fn: () => Promise<T>) => Promise<T>,
+	): Promise<CascStorage> {
 		const buildConfig = await readConfig(source, info.buildKey);
 
 		const index = await time('Reading local indexes', () => loadLocalIndex(source));

@@ -7,7 +7,7 @@ Built for WoW Classic, with Eastern Kingdoms and Kalimdor loaded as one seamless
 ## Get started on Windows
 
 You need **Windows 10 or 11** and **World of Warcraft Classic** installed. Nothing else to install.
-On Linux, see **[Get started on Linux](#get-started-on-linux)**.
+On Linux, see **[Get started on Linux](#get-started-on-linux)**; on a Mac, **[Get started on macOS](#get-started-on-macos)**.
 
 1. Download **MapExplorer-portable.zip** from the
    **[latest release](https://github.com/Coldensjo/ClassicWowMapExplorer/releases/latest)** and unzip
@@ -99,6 +99,31 @@ or click **Choose your World of Warcraft folder** in the page and pick it there.
 
 Press **Ctrl+C** in the terminal to stop it. To update later, run `git pull` and `npm install` in the
 `ClassicWowMapExplorer` folder.
+
+## Get started on macOS
+
+There's no portable version for macOS, and it hasn't been tested there; Map Explorer runs from source
+instead. You need **World of Warcraft Classic** installed with Battle.net, **Chrome** (or another
+Chromium-based browser; Safari isn't supported), **git**, and **[Node.js](https://nodejs.org)** 22.12 or
+newer (check with `node -v`).
+
+```sh
+git clone https://github.com/Coldensjo/ClassicWowMapExplorer.git
+cd ClassicWowMapExplorer
+npm install
+npm run dev
+```
+
+It looks for the game in `/Applications/World of Warcraft` and `~/Applications/World of Warcraft`, and
+prints where it found it, or *World of Warcraft not found*. If it doesn't, point it at the folder that
+contains `_classic_` or `_classic_beta_`:
+
+```sh
+WOW_DIR="/Applications/World of Warcraft" npm run dev
+```
+
+Then open **http://localhost:5173** in Chrome. If you choose the folder in the page instead, drag it
+onto the page: the browser's folder dialog may leave out the hidden `.build.info` file the game keeps there.
 
 ## Features
 

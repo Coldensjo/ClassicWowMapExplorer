@@ -1,7 +1,7 @@
 // Serves the World of Warcraft install found on this computer under /__wow/ in the dev server,
 // as the portable launcher does, so the page opens it without asking for the folder.
 // WOW_DIR=<folder> picks the install; otherwise it's looked up as the launcher does on Windows,
-// and in the Wine prefixes of Lutris, Bottles, Steam (Proton) and Heroic on Linux.
+// in the Wine prefixes of Lutris, Bottles, Steam (Proton) and Heroic on Linux, and in Applications on macOS.
 import { execFileSync } from 'node:child_process';
 import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -109,6 +109,11 @@ function linuxCandidates(): string[] {
 	]);
 }
 
+/** Where Battle.net puts World of Warcraft on macOS, for all users or just this one. */
+function macCandidates(): string[] {
+	return ['/Applications/World of Warcraft', join(homedir(), 'Applications', 'World of Warcraft'), '/Users/Shared/World of Warcraft', '/Users/Shared/Battle.net/World of Warcraft'];
+}
+
 function findWow(): string | null {
 	if (process.env.WOW_DIR) return installRoot(process.env.WOW_DIR);
 	let candidates: string[];
@@ -120,6 +125,8 @@ function findWow(): string | null {
 		];
 	} else if (process.platform === 'linux') {
 		candidates = linuxCandidates();
+	} else if (process.platform === 'darwin') {
+		candidates = macCandidates();
 	} else {
 		return null;
 	}

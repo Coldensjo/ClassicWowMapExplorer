@@ -94,11 +94,25 @@ async function useSource(init: SourceInit): Promise<void> {
 		hideProgress();
 		$('product-step').hidden = products.length === 0;
 		setStatus(products.length ? 'No Classic version found; choose a game version and press Explore.' : 'No World of Warcraft game found in this folder.', true);
-	} catch {
-		setStatus(init.kind === 'http'
-			? 'World of Warcraft was found but couldn\'t be read. Choose its folder instead.'
-			: 'That isn\'t the World of Warcraft folder. Choose the folder that contains _classic_ or _classic_beta_ (not that folder itself).', true);
+	} catch (e) {
+		console.error('Reading the game folder failed', e);
+		setStatus(folderProblem(init, e), true);
 	}
+}
+
+/** What to tell the user when a folder couldn't be read, with the reason. */
+function folderProblem(init: SourceInit, error: unknown): string {
+	const reason = error instanceof Error ? error.message : String(error);
+	if (init.kind === 'http') return `World of Warcraft was found but couldn't be read (${reason}). Choose its folder instead.`;
+	if (init.kind === 'handle') return `That folder couldn't be read (${reason}). Choose the folder that contains _classic_ or _classic_beta_ (not that folder itself).`;
+	const hasBuildInfo = init.files.some(({ path }) => path === '.build.info');
+	const dataFiles = init.files.filter(({ path }) => /^data\/data\//i.test(path)).length;
+	const counts = `Got ${init.files.length} files: ${hasBuildInfo ? '.build.info found' : '.build.info missing'}, ${dataFiles} in Data/data.`;
+	if (!hasBuildInfo && dataFiles) {
+		// The browser's folder dialog leaves out hidden files (.build.info) on macOS and Linux.
+		return `${counts} The browser's folder dialog left out .build.info, a hidden file. Drag the folder onto this page instead, or use "Open with direct access" under Help (Chrome or Edge).`;
+	}
+	return `${counts} That doesn't look like the World of Warcraft folder: choose the one that contains _classic_ or _classic_beta_ (not that folder itself). Reason: ${reason}`;
 }
 
 /**

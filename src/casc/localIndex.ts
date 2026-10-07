@@ -100,6 +100,11 @@ export class LocalIndex {
 		this.buckets[bucket] = IndexBucket.parse(bytes);
 	}
 
+	/** The buckets an index file was added for, as a list like "0,1,2". */
+	get loadedBuckets(): string {
+		return this.buckets.flatMap((b, i) => (b ? [i] : [])).join(',');
+	}
+
 	get entryCount(): number {
 		return this.buckets.reduce((n, b) => n + (b?.count ?? 0), 0);
 	}

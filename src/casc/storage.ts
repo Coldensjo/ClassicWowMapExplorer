@@ -2,7 +2,7 @@ import { decodeBlte, EncryptedError, type BlteResult } from './blte';
 import { readBuildInfo, readConfig, type ProductInfo } from './config';
 import { EncodingTable } from './encoding';
 import { hashPath } from './jenkins96';
-import { LocalIndex } from './localIndex';
+import { LocalIndex, bucketOf } from './localIndex';
 import { fromHex, toHex } from './reader';
 import { RootTable } from './root';
 import type { FileSource, RandomAccessFile } from './source';
@@ -24,8 +24,8 @@ export interface StorageStats {
 }
 
 export class NotLocalError extends Error {
-	constructor(what: string) {
-		super(`${what} is not in local storage`);
+	constructor(what: string, detail = '') {
+		super(`${what} is not in local storage${detail}`);
 		this.name = 'NotLocalError';
 	}
 }
@@ -40,7 +40,10 @@ class ArchiveReader {
 
 	async read(ekey: Uint8Array, what: string, allowPartial = false): Promise<BlteResult> {
 		const entry = this.index.find(ekey);
-		if (!entry) throw new NotLocalError(what);
+		if (!entry) {
+			const bucket = bucketOf(ekey);
+			throw new NotLocalError(what, ` (key ${toHex(ekey)}, bucket ${bucket}; index has ${this.index.entryCount} entries in buckets ${this.index.loadedBuckets})`);
+		}
 		const archive = await this.archive(entry.archive);
 		const bytes = await archive.read(entry.offset + ARCHIVE_ENTRY_HEADER, entry.size - ARCHIVE_ENTRY_HEADER);
 		try {

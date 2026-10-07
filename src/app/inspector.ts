@@ -93,7 +93,7 @@ $('pick-direct').addEventListener('click', async () => {
 $<HTMLInputElement>('pick-input').addEventListener('change', async (event) => {
 	const files = (event.target as HTMLInputElement).files ?? [];
 	setStatus(`Selected ${files.length.toLocaleString()} files`);
-	await useSource(filesToSource(files));
+	await useSource(await filesToSource(files));
 });
 
 $('open').addEventListener('click', async () => {

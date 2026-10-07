@@ -174,7 +174,7 @@ $('pick-input').addEventListener('cancel', () => {
 $<HTMLInputElement>('pick-input').addEventListener('change', async (event) => {
 	choosingFolder = false;
 	const input = event.target as HTMLInputElement;
-	const source = filesToSource(input.files ?? []);
+	const source = await filesToSource(input.files ?? []);
 	// Emptied once read: the browser keeps a filled file input in the page's saved state, and
 	// re-sends that (every file in the install, tens of MB) after each key press, a stall each time.
 	input.value = '';

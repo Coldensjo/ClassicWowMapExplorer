@@ -16,13 +16,40 @@ export async function pickDirectory(): Promise<SourceInit | null> {
 
 /**
  * Converts an <input webkitdirectory> selection into a source, keeping only the files the
- * storage reader needs. Paths become relative to the picked folder.
+ * storage reader needs. Paths become relative to the picked folder. Browsers on macOS and
+ * Linux leave hidden files (.build.info) out of that selection; it is then rebuilt from the
+ * build configs in Data/config.
  */
-export function filesToSource(files: FileList | File[]): SourceInit {
+export async function filesToSource(files: FileList | File[]): Promise<SourceInit> {
 	const entries = [...files]
 		.map((file) => ({ path: file.webkitRelativePath.split('/').slice(1).join('/'), file }))
 		.filter(({ path }) => path === '.build.info' || /^data\/(config|data)\//i.test(path));
+	if (!entries.some(({ path }) => path === '.build.info')) {
+		const rebuilt = await rebuildBuildInfo(entries);
+		if (rebuilt) entries.push({ path: '.build.info', file: rebuilt });
+	}
 	return { kind: 'files', files: entries };
+}
+
+/**
+ * A stand-in .build.info made from the build configs in Data/config ("build-uid = wow_classic"
+ * and the like), newest first. The reader only needs each product's name and build config key.
+ */
+async function rebuildBuildInfo(entries: { path: string; file: File }[]): Promise<File | null> {
+	const rows: { product: string; key: string; version: string; time: number }[] = [];
+	for (const { path, file } of entries) {
+		// Config files are Data/config/xx/yy/<32 hex digits>, a few hundred bytes each.
+		if (!/^data\/config\/[0-9a-f]{2}\/[0-9a-f]{2}\/[0-9a-f]{32}$/i.test(path) || file.size > 65536) continue;
+		const text = await file.text();
+		const product = text.match(/^build-uid\s*=\s*(\S+)/m)?.[1];
+		if (!product || !/^root\s*=/m.test(text)) continue;
+		rows.push({ product, key: file.name, version: text.match(/^build-name\s*=\s*(.+?)\s*$/m)?.[1] ?? '', time: file.lastModified });
+	}
+	if (!rows.length) return null;
+	rows.sort((a, b) => b.time - a.time);
+	const lines = ['Branch!STRING:0|Active!DEC:1|Build Key!HEX:16|CDN Key!HEX:16|Version!STRING:0|Product!STRING:0',
+		...rows.map((r) => `|1|${r.key}||${r.version}|${r.product}`)];
+	return new File([lines.join('\n')], '.build.info');
 }
 
 /** A dropped folder's entries in a directory, all of them (readEntries returns them in batches). */

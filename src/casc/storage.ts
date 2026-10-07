@@ -42,7 +42,7 @@ class ArchiveReader {
 		const entry = this.index.find(ekey);
 		if (!entry) {
 			const bucket = bucketOf(ekey);
-			throw new NotLocalError(what, ` (key ${toHex(ekey)}, bucket ${bucket}; index has ${this.index.entryCount} entries in buckets ${this.index.loadedBuckets}; index files ${this.index.names.join(' ')})`);
+			throw new NotLocalError(what, ` (key ${toHex(ekey)}, bucket ${bucket}; index has ${this.index.entryCount} entries in buckets ${this.index.loadedBuckets}})`);
 		}
 		const archive = await this.archive(entry.archive);
 		const bytes = await archive.read(entry.offset + ARCHIVE_ENTRY_HEADER, entry.size - ARCHIVE_ENTRY_HEADER);
@@ -133,9 +133,20 @@ export class CascStorage {
 
 		const [rootCKey] = requireConfig(buildConfig, 'root');
 		const root = await time('Reading root table', async () => {
-			const ekey = encoding.lookup(fromHex(rootCKey));
-			if (!ekey) throw new Error('Root file missing from encoding table');
-			return RootTable.parse((await archives.read(ekey, 'root table')).data);
+			const ckey = fromHex(rootCKey);
+			const ekeys = encoding.lookupAll(ckey);
+			if (!ekeys.length) throw new Error('Root file missing from encoding table');
+			// Normally one key; use the first that is stored here.
+			const ekey = ekeys.find((key) => archives.index.find(key)) ?? ekeys[0];
+			try {
+				return RootTable.parse((await archives.read(ekey, 'root table')).data);
+			} catch (e) {
+				if (!(e instanceof NotLocalError)) throw e;
+				const elsewhere = ekeys.map((key) => archives.index.findInAnyBucket(key)).find(Boolean);
+				throw new NotLocalError('root table', ` (content key ${rootCKey} has ${ekeys.length} encoding key(s) ${ekeys.map(toHex).join(' ')}; ` +
+					`content key in index: ${archives.index.find(ckey) ? 'yes' : 'no'}; in another bucket: ${elsewhere ? `bucket ${elsewhere.bucket}` : 'no'}; ` +
+					`index has ${archives.index.entryCount} entries in buckets ${archives.index.loadedBuckets})`);
+			}
 		});
 
 		return new CascStorage(archives, encoding, root, {

@@ -39,6 +39,11 @@ export class EncodingTable {
 
 	/** Returns the first encoding key for a content key, or null if unknown. */
 	lookup(ckey: Uint8Array): Uint8Array | null {
+		return this.lookupAll(ckey)[0] ?? null;
+	}
+
+	/** Returns every encoding key for a content key (empty if unknown). */
+	lookupAll(ckey: Uint8Array): Uint8Array[] {
 		// Find the last page whose first key is <= ckey.
 		let lo = 0;
 		let hi = this.pageCount - 1;
@@ -52,7 +57,7 @@ export class EncodingTable {
 				hi = mid - 1;
 			}
 		}
-		if (page < 0) return null;
+		if (page < 0) return [];
 
 		const data = this.data;
 		let pos = this.pagesStart + page * this.pageSize;
@@ -62,10 +67,10 @@ export class EncodingTable {
 			if (keyCount === 0) break;
 			const ckeyPos = pos + 6; // after key count and 40-bit file size
 			const cmp = compareBytes(data, ckeyPos, ckey, 0, 16);
-			if (cmp === 0) return data.slice(ckeyPos + 16, ckeyPos + 32);
+			if (cmp === 0) return Array.from({ length: keyCount }, (_, i) => data.slice(ckeyPos + 16 + i * 16, ckeyPos + 32 + i * 16));
 			if (cmp > 0) break;
 			pos = ckeyPos + 16 + keyCount * 16;
 		}
-		return null;
+		return [];
 	}
 }

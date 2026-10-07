@@ -120,4 +120,15 @@ export class LocalIndex {
 		}
 		return null;
 	}
+
+	/** Finds a key in whichever bucket holds it, for explaining a failed find. */
+	findInAnyBucket(ekey: Uint8Array): { bucket: number; entry: IndexEntry } | null {
+		for (let bucket = 0; bucket < 16; bucket++) {
+			for (const file of this.buckets[bucket]) {
+				const entry = file.find(ekey);
+				if (entry) return { bucket, entry };
+			}
+		}
+		return null;
+	}
 }

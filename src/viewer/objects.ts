@@ -858,22 +858,13 @@ export class ObjectManager {
 		return out;
 	}
 
-	private readonly sightRay = new THREE.Raycaster();
-
-	/** Whether a building (any model with a BVH) blocks the straight line between two points. */
+	/** Whether a building or a solid doodad (tree, rock) blocks the straight line between two points. */
 	blocksSight(from: THREE.Vector3, to: THREE.Vector3): boolean {
 		const direction = to.clone().sub(from);
 		const distance = direction.length();
 		if (distance < 1e-3) return false;
-		this.sightRay.set(from, direction.divideScalar(distance));
 		// Stop just short of the target so its own surroundings (a doorway, the floor) don't count.
-		this.sightRay.far = distance - 0.5;
-		this.sightRay.firstHitOnly = true;
-		for (const entry of this.models.values()) {
-			if (!entry.mesh?.visible || !entry.geometry?.boundsTree) continue;
-			if (this.sightRay.intersectObject(entry.mesh, false).length) return true;
-		}
-		return false;
+		return this.castBuildings(from, direction.divideScalar(distance), distance - 0.5) !== null;
 	}
 
 	private readonly sweepRay = new THREE.Raycaster();

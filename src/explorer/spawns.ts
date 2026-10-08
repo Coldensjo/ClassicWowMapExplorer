@@ -311,7 +311,14 @@ export class DisplayResolver {
 				// beyond the old set fall back to the first.
 				const hairSet = (await this.hairTextures())[race];
 				const hair = hairSet?.[looks.hairColor] ?? hairSet?.[0] ?? 0;
-				return { fdid: sd, options: { textures: { 1: sdBake, 6: hair, ...cape }, geosets, attachments, defaultGeosets: true, stand: true } };
+				// The skin's extra texture (a tauren's horns, tail and mane) comes in fewer colours than
+				// the skin: take the nearest one at or below.
+				const extras = (await this.skinExtras())[race]?.[sex] ?? [];
+				let extra8 = 0;
+				for (let c = Math.min(looks.skinColor, extras.length - 1); c >= 0 && !extra8; c--) extra8 = extras[c] ?? 0;
+				extra8 ||= extras.find((f) => f) ?? 0;
+				const extraSkin: Record<number, number> = extra8 ? { 8: extra8 } : {};
+				return { fdid: sd, options: { textures: { 1: sdBake, 6: hair, ...extraSkin, ...cape }, geosets, attachments, defaultGeosets: true, stand: true } };
 			}
 			const bake = materials.get(displayExtra.getInt(extra, 6) ?? 0) ?? sdBake ?? 0;
 			return { fdid, options: { textures: { 1: bake, 6: looks.hdHair, ...cape }, geosets, attachments, defaultGeosets: true, stand: true } };
@@ -523,19 +530,21 @@ export class DisplayResolver {
 	/**
 	 * An NPC's appearance choices (CreatureDisplayInfoOption -> ChrCustomizationChoice ->
 	 * ChrCustomizationElement): the geosets they turn on (group * 100 + variant: hairstyle,
-	 * facial hair, ears, ...) and the hair colour's index in its option.
+	 * facial hair, ears, ...) and the hair and skin colours' indices in their options.
 	 */
-	private async customization(extra: number): Promise<{ geosets: number[]; hairColor: number; hdHair: number }> {
+	private async customization(extra: number): Promise<{ geosets: number[]; hairColor: number; skinColor: number; hdHair: number }> {
 		const [{ optionsByExtra, elementsByChoice, element, geoset, choice, option, material }, { materials }] = await Promise.all([this.loadCustomization(), this.load()]);
 		const picks = optionsByExtra.get(extra) ?? [];
 		const chosen = new Set(picks.map(([, c]) => c));
 		const geosets: number[] = [];
 		let hairColor = 0;
+		let skinColor = 0;
 		let hdHair = 0;
 		for (const [optionId, choiceId] of picks) {
 			// Choice field 5 is its order within the option, which matches the old colour index.
 			const optionName = option.getString(optionId, 0);
 			if (optionName === 'Hair Color') hairColor = choice.getInt(choiceId, 5) ?? 0;
+			if (optionName === 'Skin Color') skinColor = choice.getInt(choiceId, 5) ?? 0;
 			for (const e of elementsByChoice.get(choiceId) ?? []) {
 				// Some elements only apply together with another choice (field 1).
 				const related = element.getInt(e, 1) ?? 0;
@@ -550,7 +559,7 @@ export class DisplayResolver {
 				geosets.push((geoset.getInt(geosetId, 0) ?? 0) * 100 + (geoset.getInt(geosetId, 1) ?? 0));
 			}
 		}
-		return { geosets, hairColor, hdHair };
+		return { geosets, hairColor, skinColor, hdHair };
 	}
 
 	private hair: Promise<Record<number, number[]>> | null = null;
@@ -559,6 +568,14 @@ export class DisplayResolver {
 	private hairTextures(): Promise<Record<number, number[]>> {
 		this.hair ??= fetch(spawnFile('hair.json')).then((r) => (r.ok ? r.json() : {}), () => ({}));
 		return this.hair;
+	}
+
+	private extras: Promise<Record<number, number[][]>> | null = null;
+
+	/** SD skin extra textures by race, sex and skin colour, from public/spawns/skinExtra.json (built from the listfile). */
+	private skinExtras(): Promise<Record<number, number[][]>> {
+		this.extras ??= fetch(spawnFile('skinExtra.json')).then((r) => (r.ok ? r.json() : {}), () => ({}));
+		return this.extras;
 	}
 
 	private lookIndex: Promise<Map<string, number[]>> | null = null;

@@ -90,6 +90,17 @@ if (existsSync(LISTFILE)) {
 	}
 	writeFileSync('public/spawns/hair.json', JSON.stringify(hair));
 	console.log('public/spawns/hair.json', Object.keys(hair).length, 'races');
+	// SD skin extra textures (a tauren's horns, tail and mane),
+	// character/<race>/<sex>/<race><sex>skin00_<colour>_extra.blp, by ChrRaces ID, sex and colour.
+	const extras: Record<number, number[][]> = {};
+	for (const line of readFileSync(LISTFILE, 'utf8').split('\n')) {
+		const m = /^(\d+);character\/([a-z]+)\/(male|female)\/\2\3skin00_(\d\d)_extra\.blp$/.exec(line.trim());
+		const race = m && RACE_FOLDERS[m[2]];
+		if (!m || !race) continue;
+		((extras[race] ??= [[], []])[m[3] === 'male' ? 0 : 1])[Number(m[4])] = Number(m[1]);
+	}
+	writeFileSync('public/spawns/skinExtra.json', JSON.stringify(extras));
+	console.log('public/spawns/skinExtra.json', Object.keys(extras).length, 'races');
 } else {
 	console.warn(`${LISTFILE} not found; NPCs will have no hair textures`);
 }

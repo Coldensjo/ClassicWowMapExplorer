@@ -38,7 +38,7 @@ import { UploadQueue } from './gpuUploads';
 import { PostPass, type FogSettings } from './post';
 import { commonShadowStandIns, installShadowGroups, setShadowLight, shadowStandIns } from './shadows';
 import { TerrainShadowPass } from './terrainShadow';
-import { animateFlipbooks, flipbooks, liquidKindOf, liquidMaterials, liquidTime, seaMask, setLiquidLooks, setLiquidsFromBelow } from './terrainMaterials';
+import { animateFlipbooks, flipbooks, liquidBelowStandIns, liquidKindOf, liquidMaterials, liquidTime, seaMask, setLiquidLooks, setLiquidsFromBelow } from './terrainMaterials';
 import { UnderwaterAudio } from './underwater';
 import { BackgroundAudio, type BackgroundSounds } from './ambience';
 import type { LiquidKind } from '../formats/mh2o';
@@ -998,6 +998,7 @@ export class Viewer {
 			...commonShadowStandIns().map((o) => this.post.compileAsync(this.renderer, o, this.camera, this.scene, true)),
 			this.groundPass.warm(this.renderer),
 			this.terrainShadow.warm(this.renderer),
+			this.post.compileAsync(this.renderer, liquidBelowStandIns(), this.camera, this.scene),
 		]);
 		// One frame drawn behind the loading screen compiles the rest: the shadow, ground-distance
 		// and full-screen passes, which draw with shaders of their own.

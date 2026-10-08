@@ -613,6 +613,29 @@ export function liquidMaterial(kind: LiquidKind, type: number, flow: FlowBinding
 	return entry.material;
 }
 
+/**
+ * The liquids as seen from under their surface (back faces, see setLiquidsFromBelow), on the
+ * meshes they're drawn with: a tile's own, a building's instanced, and the sea. Built while the
+ * world loads, so going under water the first time doesn't build them mid-frame. Their materials
+ * are kept, never disposed or flipped back (they're not in kinds): that would let three delete
+ * the programs.
+ */
+export function liquidBelowStandIns(): THREE.Object3D {
+	const geometry = new THREE.BufferGeometry();
+	geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+	geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(9), 3));
+	const below = (material: THREE.Material) => {
+		material.side = THREE.BackSide;
+		return material;
+	};
+	const group = new THREE.Group();
+	for (const material of [...(['water', 'ocean', 'slime'] as const).map((kind) => waterMaterial(kind, OPACITY[kind])), magmaMaterial(0xff5b14)].map(below)) {
+		group.add(new THREE.Mesh(geometry, material), new THREE.InstancedMesh(geometry, material, 1));
+	}
+	group.add(new THREE.Mesh(geometry, below(waterMaterial('ocean', OPACITY.ocean, true))));
+	return group;
+}
+
 /** Copies made for flowing water (see liquidMaterial), with what they're of. */
 const flowing = new Map<THREE.Material, { kind: WaterKind; type: number }>();
 

@@ -61,4 +61,6 @@ export type Request = { id: number; method: keyof StorageApi; args: unknown[] };
 export type Response =
 	| { id: number; result: unknown }
 	| { id: number; error: string }
-	| { id: -1; progress: string };
+	| { id: -1; progress: string }
+	/** The game was updated since the storage was opened: reads fail until the page is reloaded. */
+	| { id: -1; changed: true };

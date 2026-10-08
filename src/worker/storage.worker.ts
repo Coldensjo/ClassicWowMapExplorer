@@ -1,5 +1,5 @@
 import { FileListSource, DirectoryHandleSource, HttpSource, type FileSource } from '../casc/source';
-import { CascStorage } from '../casc/storage';
+import { CascStorage, StorageChangedError } from '../casc/storage';
 import { describeError, MapExplorer } from '../explorer/maps';
 import { setPageUrl } from '../explorer/spawns';
 import { WorldLoader } from '../explorer/world';
@@ -36,6 +36,7 @@ const api: AsyncStorageApi = {
 	async open(product) {
 		if (!source) throw new Error('No folder selected');
 		const storage = await CascStorage.open(source, product, (progress) => send({ id: -1, progress }));
+		storage.onChanged(() => send({ id: -1, changed: true }));
 		explorer = new MapExplorer(storage);
 		world = null;
 		return storage.stats;
@@ -141,7 +142,8 @@ onmessage = async (event: MessageEvent<Request>) => {
 		const result = await (api[method] as (...a: unknown[]) => Promise<unknown>)(...args);
 		send({ id, result }, [...transferables(result)]);
 	} catch (e) {
-		console.error(e);
+		// Once the game has been updated every read fails; the page says so once instead.
+		if (!(e instanceof StorageChangedError)) console.error(e);
 		send({ id, error: describeError(e) });
 	}
 };

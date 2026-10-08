@@ -25,7 +25,8 @@ import { WorldMap } from './worldMap';
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = $('status');
 
-const storage = createStorageClient((message) => showProgress(message));
+const storage = createStorageClient((message) => showProgress(message), () => ($('game-updated').hidden = false));
+$('game-updated-reload').addEventListener('click', () => location.reload());
 
 /** A message under the buttons; errors also end the loading bar, so the buttons come back. */
 function setStatus(text: string, isError = false): void {

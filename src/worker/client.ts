@@ -2,7 +2,8 @@ import type { AsyncStorageApi, Request, Response, StorageApi } from './protocol'
 import { perf } from '../viewer/perf';
 
 /** Main-thread proxy for the storage worker. */
-export function createStorageClient(onProgress: (message: string) => void): AsyncStorageApi {
+/** onChanged: called once if the game is updated while the storage is open (see Response). */
+export function createStorageClient(onProgress: (message: string) => void, onChanged: () => void = () => {}): AsyncStorageApi {
 	const worker = new Worker(new URL('./storage.worker.ts', import.meta.url), { type: 'module' });
 	const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; method: string; args: string; start: number }>();
 	let nextId = 1;
@@ -11,6 +12,11 @@ export function createStorageClient(onProgress: (message: string) => void): Asyn
 		const msg = event.data;
 		if ('progress' in msg) {
 			onProgress(msg.progress);
+			return;
+		}
+		if ('changed' in msg) {
+			perf.log('storage', 'the game was updated while open');
+			onChanged();
 			return;
 		}
 		const call = pending.get(msg.id);

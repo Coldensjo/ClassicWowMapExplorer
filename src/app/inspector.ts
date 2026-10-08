@@ -17,7 +17,7 @@ const log = $('log');
 const overview = $<HTMLCanvasElement>('overview');
 const hover = $('hover');
 
-const storage = createStorageClient((message) => setStatus(`${message}…`));
+const storage = createStorageClient((message) => setStatus(`${message}…`), () => setStatus('The game was updated while this page was open; reload it to read the new files.', true));
 
 let current: { summary: MapSummary; x0: number; y0: number; cols: number; rows: number } | null = null;
 let overviewToken = 0;

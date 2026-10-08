@@ -452,6 +452,27 @@ kbd {
 }
 
 /* Zone text, like the game's: large gold zone name, smaller subzone below. */
+/* The game updated under the open storage: shown even with the interface hidden, until reloaded. */
+#game-updated {
+	position: fixed;
+	top: 12px;
+	left: 50%;
+	transform: translateX(-50%);
+	max-width: calc(100% - 32px);
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 8px 8px 8px 14px;
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	font-size: 13px;
+}
+
+#game-updated[hidden] {
+	display: none;
+}
+
 /* Screenshot progress (P): shown even with the interface hidden. */
 #shot-status {
 	position: fixed;
@@ -1060,7 +1081,7 @@ kbd {
 }
 
 /* The interface stays above the names, which can grow large up close. */
-:is(#top-left, #side, #help-hint, #help, #notice, #shot-status, #zone-banner) {
+:is(#top-left, #side, #help-hint, #help, #notice, #shot-status, #game-updated, #zone-banner) {
 	z-index: 1;
 }
 
@@ -1105,7 +1126,7 @@ body.wow-ui {
 }
 
 /* Tooltip backdrop: 16-unit edges, the dark blue fill inset under them. */
-.wow-ui :is(#hud, #goto, #info, .panel, #help-hint, #notice, #shot-status) {
+.wow-ui :is(#hud, #goto, #info, .panel, #help-hint, #notice, #shot-status, #game-updated) {
 	border: 5px solid transparent;
 	border-radius: 6px;
 	border-image: var(--wow-tooltip-border) 16 / 16px / 0 round;

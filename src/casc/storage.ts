@@ -9,6 +9,8 @@ import type { FileSource, RandomAccessFile } from './source';
 
 /** Size of the header in front of each file in a data.### archive. */
 const ARCHIVE_ENTRY_HEADER = 0x1e;
+/** Index files are named BBvvvvvvvv.idx (bucket, version). */
+const IDX_NAME = /^([0-9a-f]{2})([0-9a-f]{8})\.idx$/i;
 
 export type FileStatus = 'ok' | 'unknown' | 'no-encoding' | 'not-local';
 
@@ -30,15 +32,77 @@ export class NotLocalError extends Error {
 	}
 }
 
+/**
+ * The game was updated (or repaired) since the storage was opened: its index files were replaced,
+ * so the archives no longer hold what the index read at the start says.
+ */
+export class StorageChangedError extends Error {
+	constructor(what: string) {
+		super(`${what}: the game was updated while Map Explorer was open; reload to read the new files`);
+		this.name = 'StorageChangedError';
+	}
+}
+
 export { EncryptedError };
 
 /** Reads files by encoding key from the data.### archives. */
 class ArchiveReader {
 	private readonly archives = new Map<number, Promise<RandomAccessFile>>();
+	/** Set once the install is seen to have changed; every read fails from then on. */
+	private changed = false;
+	/** Whether any read has worked yet. */
+	private hasRead = false;
+	/** A check under way, shared by the reads that fail meanwhile. */
+	private checking: Promise<boolean> | null = null;
+	/** Called once, when the install is found to have changed. */
+	onChanged: () => void = () => {};
 
-	constructor(private readonly source: FileSource, readonly index: LocalIndex) {}
+	/** idxNames: the index files Data/data held when the index was read. */
+	constructor(private readonly source: FileSource, readonly index: LocalIndex, private readonly idxNames: string[]) {}
 
 	async read(ekey: Uint8Array, what: string, allowPartial = false): Promise<BlteResult> {
+		if (this.changed) throw new StorageChangedError(what);
+		try {
+			const result = await this.readEntry(ekey, what, allowPartial);
+			this.hasRead = true;
+			return result;
+		} catch (e) {
+			// A file that isn't stored or is encrypted says nothing about the install changing.
+			if (e instanceof NotLocalError || e instanceof EncryptedError) throw e;
+			// A browser refuses to read a picked file that has changed since; a folder list picked
+			// with an <input> stays as it was, so this is the only sign there. Before any read has
+			// worked, it is more likely the folder's permissions.
+			if (this.hasRead && e instanceof DOMException && e.name === 'NotReadableError') this.markChanged();
+			if (!await this.hasChanged()) throw e;
+			throw new StorageChangedError(what);
+		}
+	}
+
+	private markChanged(): void {
+		if (this.changed) return;
+		this.changed = true;
+		this.onChanged();
+	}
+
+	/** Whether Data/data's index files differ from those read at the start; an update replaces them. */
+	private hasChanged(): Promise<boolean> {
+		if (this.changed) return Promise.resolve(true);
+		this.checking ??= (async () => {
+			try {
+				const now = (await this.source.listDir(['Data', 'data'])).filter((name) => IDX_NAME.test(name)).sort();
+				const changed = now.join() !== this.idxNames.join();
+				if (changed) this.markChanged();
+				return changed;
+			} catch {
+				return false;
+			} finally {
+				this.checking = null;
+			}
+		})();
+		return this.checking;
+	}
+
+	private async readEntry(ekey: Uint8Array, what: string, allowPartial: boolean): Promise<BlteResult> {
 		const entry = this.index.find(ekey);
 		if (!entry) {
 			const bucket = bucketOf(ekey);
@@ -151,8 +215,8 @@ export class CascStorage {
 	): Promise<CascStorage> {
 		const buildConfig = await readConfig(source, info.buildKey);
 
-		const index = await time('Reading local indexes', () => loadLocalIndex(source));
-		const archives = new ArchiveReader(source, index);
+		const { index, names } = await time('Reading local indexes', () => loadLocalIndex(source));
+		const archives = new ArchiveReader(source, index, names);
 
 		const [, encodingEKey] = requireConfig(buildConfig, 'encoding');
 		const encoding = await time('Reading encoding table', async () =>
@@ -186,6 +250,11 @@ export class CascStorage {
 			rootNamedFiles: root.namedCount,
 			timings,
 		});
+	}
+
+	/** Calls back once if the game turns out to have been updated since the storage was opened. */
+	onChanged(callback: () => void): void {
+		this.archives.onChanged = callback;
 	}
 
 	/** Resolves a game path like "world/maps/azeroth/azeroth.wdt" via its root name hash. */
@@ -237,12 +306,15 @@ function requireConfig(config: Map<string, string[]>, key: string): string[] {
 	return value;
 }
 
-async function loadLocalIndex(source: FileSource): Promise<LocalIndex> {
-	// Index files are named BBvvvvvvvv.idx (bucket, version); the newest per bucket is live, older ones
-	// are kept as a fallback (an install that was patched may leave entries only in an older file).
+/** The index, and the names of every index file in Data/data (sorted), to tell when an update replaces them. */
+async function loadLocalIndex(source: FileSource): Promise<{ index: LocalIndex; names: string[] }> {
+	// The newest index file per bucket is live, older ones are kept as a fallback (an install that
+	// was patched may leave entries only in an older file).
 	const files: { bucket: number; version: number; name: string }[] = [];
+	const names: string[] = [];
 	for (const name of await source.listDir(['Data', 'data'])) {
-		const m = /^([0-9a-f]{2})([0-9a-f]{8})\.idx$/i.exec(name);
+		const m = IDX_NAME.exec(name);
+		if (m) names.push(name);
 		if (!m) continue;
 		const bucket = parseInt(m[1], 16);
 		if (bucket < 16) files.push({ bucket, version: parseInt(m[2], 16), name });
@@ -265,7 +337,7 @@ async function loadLocalIndex(source: FileSource): Promise<LocalIndex> {
 			if (!newest.has(bucket)) throw e;
 		}
 	});
-	return index;
+	return { index, names: names.sort() };
 }
 
 /** Shortens a key for a report line: its first 8 hex digits. */
@@ -282,8 +354,8 @@ async function describeStorage(source: FileSource, products: ProductInfo[]): Pro
 	if (typeof navigator !== 'undefined') lines.push(`Browser: ${navigator.userAgent}`);
 	lines.push(`.build.info: ${products.map((p) => `${p.product} ${p.version || '(no version)'} ${short(p.buildKey)}${p.active ? ' active' : ''}`).join('; ')}`);
 
-	const index = await loadLocalIndex(source);
-	const archives = new ArchiveReader(source, index);
+	const { index, names } = await loadLocalIndex(source);
+	const archives = new ArchiveReader(source, index, names);
 	lines.push(`Index files: ${index.names.length}, ${index.entryCount} entries`);
 
 	const present = new Set<number>();

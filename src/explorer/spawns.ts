@@ -306,7 +306,9 @@ export class DisplayResolver {
 			const geosets = [...gear.geosets, ...looks.geosets.filter((g) => !gearGroups.has(Math.floor(g / 100)))];
 			const attachments = [...gear.attachments, ...held];
 			const cape: Record<number, number> = gear.cape ? { 2: gear.cape } : {};
-			if (!hd && sd && sdBake && this.storage.status(sd) === 'ok') {
+			// Goblins have only the one model, laid out for the HD bake; their SD bake was made for the
+			// vanilla model this install doesn't have.
+			if (!hd && sd && sd !== fdid && sdBake && this.storage.status(sd) === 'ok') {
 				// SD hair textures are per race and colour (the HD ones don't fit SD geometry). Colours
 				// beyond the old set fall back to the first.
 				const hairSet = (await this.hairTextures())[race];
@@ -321,7 +323,13 @@ export class DisplayResolver {
 				return { fdid: sd, options: { textures: { 1: sdBake, 6: hair, ...extraSkin, ...cape }, geosets, attachments, defaultGeosets: true, stand: true } };
 			}
 			const bake = materials.get(displayExtra.getInt(extra, 6) ?? 0) ?? sdBake ?? 0;
-			return { fdid, options: { textures: { 1: bake, 6: looks.hdHair, ...cape }, geosets, attachments, defaultGeosets: true, stand: true } };
+			// The goblin model's own hair textures fit it when the customization names none.
+			let hair = looks.hdHair;
+			if (!hair && sd === fdid) {
+				const hairSet = (await this.hairTextures())[race];
+				hair = hairSet?.[looks.hairColor] ?? hairSet?.[0] ?? 0;
+			}
+			return { fdid, options: { textures: { 1: bake, 6: hair, ...cape }, geosets, attachments, defaultGeosets: true, stand: true } };
 		}
 		const skins = [0, 1, 2].map((k) => creatureDisplay.getInt(displayId, 27, k) ?? 0);
 		return { fdid, options: { textures: { 11: skins[0], 12: skins[1], 13: skins[2] }, attachments: held, defaultGeosets: true, stand: true } };

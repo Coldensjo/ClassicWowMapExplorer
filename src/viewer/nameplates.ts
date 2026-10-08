@@ -24,6 +24,10 @@ const MAX_PLATES = 80;
 const NAME_HEIGHT = 0.32;
 const NAME_MIN_PX = 4;
 const NAME_MAX_PX = 72;
+/** Opacity a second a name gains coming into sight or loses going out of it (a quarter second). */
+const FADE_RATE = 4;
+/** Milliseconds out of the list after which a name's fade starts over (from nothing) when it returns. */
+const FADE_FORGET = 500;
 
 /**
  * Names above NPCs' heads, like the game's: coloured by how they react to the chosen side
@@ -32,6 +36,9 @@ const NAME_MAX_PX = 72;
 export class Nameplates {
 	private readonly pool: HTMLDivElement[] = [];
 	private readonly projected = new THREE.Vector3();
+	/** Each creature's current opacity, which follows whether it is in sight so names ease in and out. */
+	private readonly fades = new WeakMap<SpawnInfo, { alpha: number; seen: number }>();
+	private lastFrame = 0;
 
 	constructor(private readonly container: HTMLElement) {}
 
@@ -54,14 +61,24 @@ export class Nameplates {
 		plates.sort((a, b) => a.distance - b.distance);
 		// Pixels a yard spans one yard from the camera: half the view's height over tan(half the field of view).
 		const pixelsPerYard = (camera.projectionMatrix.elements[5] * height) / 2;
+		const now = performance.now();
+		const step = Math.min(0.1, (now - this.lastFrame) / 1000) * FADE_RATE;
+		this.lastFrame = now;
 		let shown = 0;
 		for (const plate of plates) {
 			if (shown >= MAX_PLATES) break;
-			if (plate.visible === false) continue;
 			this.projected.copy(plate.position).project(camera);
 			// Behind the camera or off screen.
 			if (behindCamera(this.projected, camera) || Math.abs(this.projected.x) > 1.1 || Math.abs(this.projected.y) > 1.1) continue;
+			let fade = this.fades.get(plate.info);
+			if (!fade || now - fade.seen > FADE_FORGET) fade = { alpha: 0, seen: now };
+			fade.seen = now;
+			fade.alpha = plate.visible === false ? Math.max(0, fade.alpha - step) : Math.min(1, fade.alpha + step);
+			this.fades.set(plate.info, fade);
+			if (fade.alpha <= 0) continue;
 			const el = this.element(shown++);
+			const opacity = String(Math.round(fade.alpha * 100) / 100);
+			if (el.style.opacity !== opacity) el.style.opacity = opacity;
 			const reaction: Reaction = plate.info.reaction?.[side] ?? 'neutral';
 			const [name, sub] = el.children as unknown as [HTMLElement, HTMLElement];
 			if (name.textContent !== plate.info.name) name.textContent = plate.info.name;

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
+import { lookPerPixel } from './look';
 import { isTyping } from './typing';
 
-const LOOK_SENSITIVITY = 0.0022;
 const MAX_PITCH = THREE.MathUtils.degToRad(89.5);
 const MIN_CLEARANCE = 2;
 /** How quickly the cinematic camera catches up with the mouse: about 1/e of the way left after 1/rate seconds. */
@@ -68,8 +68,8 @@ export class FlyControls {
 			if (Math.abs(e.movementX) > window.innerWidth / 3 || Math.abs(e.movementY) > window.innerHeight / 3) return;
 			this.flight = null;
 			if (this.riding) this.riding.looked = 0;
-			this.lookYaw -= e.movementX * LOOK_SENSITIVITY;
-			this.lookPitch = THREE.MathUtils.clamp(this.lookPitch - e.movementY * LOOK_SENSITIVITY, -MAX_PITCH, MAX_PITCH);
+			this.lookYaw -= e.movementX * lookPerPixel();
+			this.lookPitch = THREE.MathUtils.clamp(this.lookPitch - e.movementY * lookPerPixel(), -MAX_PITCH, MAX_PITCH);
 		});
 		element.addEventListener('wheel', (e) => {
 			e.preventDefault();

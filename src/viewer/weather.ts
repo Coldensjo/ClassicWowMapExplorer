@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { MusicPlayer } from './music';
+import { newAudio, setLevel, stopAudio } from './audioOut';
 import { volume } from './volume';
 
 /** What the weather setting asks for: the zone's own (as the server rolls it), the zone's own without rain or snow, none, or one kind. */
@@ -308,9 +309,9 @@ export class Weather {
 		if (!this.loop) return;
 		const target = on ? this.strength * (open ? 1 : 0.35) : 0;
 		this.loopLevel += (target - this.loopLevel) * Math.min(1, dt * 2);
-		this.loop.audio.volume = THREE.MathUtils.clamp(this.loopLevel * LOOP_VOLUME * volume('ambience'), 0, 1);
+		setLevel(this.loop.audio, this.loopLevel * LOOP_VOLUME * volume('ambience'));
 		if (!on && this.loopLevel < 0.005) {
-			this.loop.audio.pause();
+			stopAudio(this.loop.audio);
 			this.loop = null;
 		}
 	}
@@ -322,10 +323,9 @@ export class Weather {
 		if (this.loading !== file) return;
 		this.loading = 0;
 		if (!url) return;
-		this.loop?.audio.pause();
-		const audio = new Audio(url);
+		if (this.loop) stopAudio(this.loop.audio);
+		const audio = newAudio(url);
 		audio.loop = true;
-		audio.volume = 0;
 		this.loop = { audio, file };
 		this.loopLevel = 0;
 		void audio.play().catch(() => {});

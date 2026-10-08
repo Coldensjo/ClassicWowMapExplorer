@@ -8,6 +8,7 @@ import type { HighlightGroup, HighlightSettings } from './highlights';
 import { CLUTTER_RANGE_DEFAULT, CLUTTER_RANGE_MAX, CLUTTER_RANGE_MIN } from './clutter';
 import { Minimap } from './minimap';
 import { DETAIL_RANGE_MAX, DETAIL_RANGE_MIN } from './objects';
+import { MOUSE_SPEED_MAX, MOUSE_SPEED_MIN } from './look';
 import type { TintMode } from './regionOverlay';
 import { isTyping } from './typing';
 import { loadUiAssets } from './uiAssets';
@@ -422,6 +423,12 @@ function setUpView(viewer: Viewer): void {
 		set: (value) => ({ detailRange: value }),
 		label: (value) => `${Math.round(value * 100)}%`,
 	}, remember);
+	const syncMouseSpeed = setUpRangeSlider(viewer, 'mouse-speed', {
+		min: MOUSE_SPEED_MIN, max: MOUSE_SPEED_MAX, step: 0.05, normal: 1,
+		get: (s) => s.mouseSpeed,
+		set: (value) => ({ mouseSpeed: value }),
+		label: (value) => `${Math.round(value * 100)}%`,
+	}, remember);
 
 	viewer.onChange = (change) => {
 		const s = viewer.settings;
@@ -430,6 +437,7 @@ function setUpView(viewer: Viewer): void {
 		syncSpeed();
 		syncClutterRange();
 		syncDetailRange();
+		syncMouseSpeed();
 		syncSound(viewer);
 		remember();
 		notify({
@@ -437,6 +445,7 @@ function setUpView(viewer: Viewer): void {
 			clutter: () => `Grass and flowers ${onOff(s.clutter)}`,
 			clutterRange: () => `Grass and flowers out to ${s.clutterRange} yd`,
 			detailRange: () => `Details out to ${Math.round(s.detailRange * 100)}% of the usual distance`,
+			mouseSpeed: () => `Mouse speed ${Math.round(s.mouseSpeed * 100)}%`,
 			collision: () => (s.collision ? 'Collision on: walls and floors stop you' : 'Collision off: flying through walls'),
 			side: () => `Name colours as the ${s.side === 'alliance' ? 'Alliance' : 'Horde'} sees them`,
 			mapNames: () => `Dungeon and raid names ${onOff(s.mapNames)}`,

@@ -1,4 +1,5 @@
 import type { MusicPlayer } from './music';
+import { newAudio, setLevel, stopAudio } from './audioOut';
 import { volume } from './volume';
 
 /**
@@ -62,9 +63,9 @@ export class UnderwaterAudio {
 		}
 		if (!this.loop) return;
 		this.level = on ? Math.min(1, this.level + dt / FADE) : Math.max(0, this.level - dt / FADE);
-		this.loop.volume = this.level * LOOP_VOLUME * volume('ambience');
+		setLevel(this.loop, this.level * LOOP_VOLUME * volume('ambience'));
 		if (!on && this.level === 0) {
-			this.loop.pause();
+			stopAudio(this.loop);
 			this.loop = null;
 		}
 	}
@@ -83,9 +84,8 @@ export class UnderwaterAudio {
 		// Surfaced again while it loaded, or already looping.
 		if (!url || token !== this.token || !this.under) return;
 		if (this.loop) return;
-		const audio = new Audio(url);
+		const audio = newAudio(url);
 		audio.loop = true;
-		audio.volume = 0;
 		this.loop = audio;
 		void audio.play().catch(() => {});
 	}
@@ -94,8 +94,8 @@ export class UnderwaterAudio {
 		if (!file) return;
 		const url = await this.music.soundUrl(file, true).catch(() => null);
 		if (!url) return;
-		const audio = new Audio(url);
-		audio.volume = level * volume('effects');
+		const audio = newAudio(url);
+		setLevel(audio, level * volume('effects'));
 		void audio.play().catch(() => {});
 	}
 }

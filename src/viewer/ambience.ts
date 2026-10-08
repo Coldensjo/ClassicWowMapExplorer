@@ -1,4 +1,5 @@
 import type { MusicPlayer } from './music';
+import { newAudio, setLevel, stopAudio } from './audioOut';
 import { volume } from './volume';
 
 /** Volume of the background loop at full setting in the Sound panel. */
@@ -76,10 +77,9 @@ export class BackgroundAudio {
 		for (let i = this.voices.length - 1; i >= 0; i--) {
 			const v = this.voices[i];
 			v.level = v.target > v.level ? Math.min(v.target, v.level + dt / FADE) : Math.max(v.target, v.level - dt / FADE);
-			v.audio.volume = Math.min(1, v.level * this.gain * VOLUME * volume('ambience'));
+			setLevel(v.audio, v.level * this.gain * VOLUME * volume('ambience'));
 			if (v.target === 0 && v.level === 0) {
-				v.audio.pause();
-				v.audio.removeAttribute('src');
+				stopAudio(v.audio);
 				this.voices.splice(i, 1);
 			}
 		}
@@ -105,9 +105,8 @@ export class BackgroundAudio {
 		}
 		void this.music.soundUrl(file, true).then((url) => {
 			if (token !== this.token) return;
-			const audio = new Audio(url);
+			const audio = newAudio(url);
 			audio.loop = true;
-			audio.volume = 0;
 			this.voices.push({ audio, file, target: 1, level: 0 });
 			void audio.play().catch(() => {});
 		}, (e) => console.warn(`Ambience ${file}:`, e));

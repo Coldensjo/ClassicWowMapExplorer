@@ -1,6 +1,7 @@
 import type * as THREE from 'three';
 import type { FootstepSounds } from '../explorer/clientDb';
 import type { MusicPlayer } from './music';
+import { newAudio, setLevel } from './audioOut';
 import { volume } from './volume';
 
 /** Yards from the camera within which footsteps are heard; they fade out toward it. */
@@ -51,8 +52,8 @@ export class Footsteps {
 		this.playing++;
 		try {
 			const url = await this.music.soundUrl(file, true);
-			const audio = new Audio(url);
-			audio.volume = Math.min(1, level);
+			const audio = newAudio(url);
+			setLevel(audio, level);
 			await new Promise<void>((resolve) => {
 				audio.addEventListener('ended', () => resolve(), { once: true });
 				audio.addEventListener('error', () => resolve(), { once: true });

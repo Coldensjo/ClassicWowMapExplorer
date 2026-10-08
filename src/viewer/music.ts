@@ -1,5 +1,6 @@
 import type { MusicData, MusicSet } from '../explorer/music';
 import type { AsyncStorageApi } from '../worker/protocol';
+import { audioContext, newAudio, setLevel, stopAudio } from './audioOut';
 import { volume } from './volume';
 
 /** Seconds to fade a track in or out. */
@@ -63,18 +64,16 @@ export class MusicPlayer {
 	private readonly filter: { context: AudioContext; node: BiquadFilterNode } | null = null;
 
 	constructor(private readonly storage: AsyncStorageApi, readonly data: MusicData) {
-		try {
-			const context = new AudioContext();
+		// Without Web Audio, music just isn't muffled.
+		const context = audioContext();
+		if (context) {
 			const node = context.createBiquadFilter();
 			node.type = 'lowpass';
 			node.frequency.value = CLEAR;
 			node.connect(context.destination);
 			this.filter = { context, node };
-		} catch {
-			// Without Web Audio, music just isn't muffled.
 		}
 		const unblock = () => {
-			void this.filter?.context.resume();
 			if (!this.blocked) return;
 			this.blocked = false;
 			for (const v of this.voices) void v.audio.play().catch(() => (this.blocked = true));
@@ -176,10 +175,7 @@ export class MusicPlayer {
 		}
 		if (token !== this.token || !this.enabledValue) return;
 		this.fadeOutCurrent();
-		const audio = new Audio(url);
-		audio.volume = 0;
-		// Through the filter only while Web Audio runs; otherwise the track would be silent.
-		if (this.filter?.context.state === 'running') this.filter.context.createMediaElementSource(audio).connect(this.filter.node);
+		const audio = newAudio(url, this.filter?.node);
 		const voice: Voice = { audio, target: 1, level: 0 };
 		this.voices.push(voice);
 		this.current = voice;
@@ -229,10 +225,9 @@ export class MusicPlayer {
 		for (let i = this.voices.length - 1; i >= 0; i--) {
 			const v = this.voices[i];
 			v.level = v.target > v.level ? Math.min(v.target, v.level + dt / FADE_IN) : Math.max(v.target, v.level - dt / FADE_OUT);
-			v.audio.volume = v.level * v.level * VOLUME * volume('music');
+			setLevel(v.audio, v.level * v.level * VOLUME * volume('music'));
 			if (v.target === 0 && v.level === 0) {
-				v.audio.pause();
-				v.audio.removeAttribute('src');
+				stopAudio(v.audio);
 				this.voices.splice(i, 1);
 			}
 		}

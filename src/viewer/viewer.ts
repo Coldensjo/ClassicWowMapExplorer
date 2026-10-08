@@ -21,6 +21,7 @@ import { SNOWFLAKE_TEXTURE, Weather, type WeatherSetting } from './weather';
 import type { WorldMapView } from './worldMap';
 import { Highlights, type HighlightSettings } from './highlights';
 import { setWalkableShown } from './walkable';
+import { mouseSpeed, setMouseSpeed } from './look';
 import { MapLabels } from './mapLabels';
 import { DAY, Lighting, Sky, sunDirection } from './lighting';
 import { MusicPlayer, type MusicTarget } from './music';
@@ -189,6 +190,8 @@ export interface ViewSettings {
 	clutterRange: number;
 	/** How far doodads (trees, rocks, props), creatures and objects show, as a multiple of the usual. */
 	detailRange: number;
+	/** How fast the mouse turns the view, as a multiple of the usual. */
+	mouseSpeed: number;
 	/** Walls, floors and the ground stop the camera (G). */
 	collision: boolean;
 	/** Whose eyes name colours are seen through (F). */
@@ -740,6 +743,7 @@ export class Viewer {
 			clutter: this.clutter?.enabled ?? true,
 			clutterRange: this.clutter?.range ?? CLUTTER_RANGE_DEFAULT,
 			detailRange: this.objects?.detailRange ?? 1,
+			mouseSpeed: mouseSpeed(),
 			collision: !this.controls.ghost,
 			side: this.side,
 			mapNames: this.mapLabels?.enabled ?? false,
@@ -764,6 +768,7 @@ export class Viewer {
 		if (next.clutter !== undefined && this.clutter) this.clutter.enabled = next.clutter;
 		if (typeof next.clutterRange === 'number' && next.clutterRange > 0 && this.clutter) this.clutter.range = next.clutterRange;
 		if (typeof next.detailRange === 'number' && next.detailRange > 0 && this.objects) this.objects.detailRange = next.detailRange;
+		if (typeof next.mouseSpeed === 'number' && next.mouseSpeed > 0) setMouseSpeed(next.mouseSpeed);
 		if (next.collision !== undefined) this.controls.ghost = !next.collision;
 		if (next.side) {
 			this.side = next.side;

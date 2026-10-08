@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { lookPerPixel } from './look';
 import { isTyping } from './typing';
 import { WALKABLE } from './walkable';
 
@@ -39,7 +40,6 @@ const SWIM_RISE = 4;
 /** Out of the water, a shore up to this far above the surface can be climbed onto. */
 const SHORE_CLIMB = 0.6;
 
-const LOOK_SENSITIVITY = 0.0022;
 /** A press that moves the mouse further than this (pixels) is a drag, not a click. */
 const DRAG_THRESHOLD = 4;
 /** ms before asking again to hide the mouse when the browser refused (still showing it from the last press). */
@@ -204,10 +204,10 @@ export class WalkControls {
 			this.dragged += Math.abs(e.movementX) + Math.abs(e.movementY);
 			// A left press that turns into a drag hides the mouse too; a plain click leaves it be.
 			if (this.wasDrag) this.capture();
-			const turn = -e.movementX * LOOK_SENSITIVITY;
+			const turn = -e.movementX * lookPerPixel();
 			if (this.steering) this.facing += turn;
 			else this.orbit += turn;
-			this.pitch = THREE.MathUtils.clamp(this.pitch - e.movementY * LOOK_SENSITIVITY, -MAX_PITCH, MAX_PITCH);
+			this.pitch = THREE.MathUtils.clamp(this.pitch - e.movementY * lookPerPixel(), -MAX_PITCH, MAX_PITCH);
 		});
 		element.addEventListener('wheel', (e) => {
 			if (!this.active) return;

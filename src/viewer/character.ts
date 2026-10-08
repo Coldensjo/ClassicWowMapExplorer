@@ -4,6 +4,7 @@ import type { CharacterModel } from '../explorer/world';
 import type { AnimationClip } from '../formats/m2Pose';
 import { ANIM } from '../formats/m2Pose';
 import type { AsyncStorageApi } from '../worker/protocol';
+import { EMOTE_CLIPS, isPose, type Emote } from './emotes';
 import { createModelMaterial, createSkinnedDepthMaterial, type SkinUniforms } from './modelMaterials';
 import { useShadows } from './shadows';
 import { TextureCache } from './textureCache';
@@ -24,8 +25,8 @@ const MAX_SWIM_TILT = THREE.MathUtils.degToRad(75);
 const SWIM_TILT_RATE = 4;
 /** Landing after this long in the air (s), standing still, plays JumpEnd. */
 const LAND_AFTER = 0.3;
-/** Every sequence the character plays, sampled into its bone texture. */
-const CLIPS: number[] = Object.values(ANIM);
+/** Every sequence the character plays, sampled into its bone texture: moving about, then the emotes. */
+const CLIPS: number[] = [...Object.values(ANIM), ...EMOTE_CLIPS];
 /** What to play when a model lacks a sequence: the next that it has, else Stand. */
 const FALLBACK: Partial<Record<number, number[]>> = {
 	[ANIM.Walk]: [ANIM.Run],
@@ -58,11 +59,31 @@ export interface CharacterLook {
 /** World axes from a model's (x forward, y left, z up): forward is north (-z), left is west (-x). */
 const MODEL_BASIS = new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, -1), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 1, 0));
 
-/** A clip playing: which, how far in (s), how fast. */
+/** A clip playing: which, how far in (s), how fast, and whether it plays once and holds its last frame rather than looping. */
 interface Playing {
 	clip: AnimationClip;
 	time: number;
 	rate: number;
+	once: boolean;
+}
+
+/** What to play next: an animation, how fast, played once or looped, and whether to start it over even if it's playing. */
+interface Choice {
+	id: number;
+	rate: number;
+	once?: boolean;
+	restart?: boolean;
+}
+
+/**
+ * An emote being performed: getting down into a pose, playing (or holding the pose), or getting
+ * back up; repeat plays a once-off emote over and over. fresh starts the phase's clip from the top.
+ */
+interface Emoting {
+	emote: Emote;
+	repeat: boolean;
+	phase: 'down' | 'play' | 'up';
+	fresh: boolean;
 }
 
 /**
@@ -79,6 +100,7 @@ class Animator {
 	private airTime = 0;
 	/** Seconds JumpEnd still has to play. */
 	private landing = 0;
+	private emoting: Emoting | null = null;
 	/** Called when a foot comes down in the clip playing (its footstep events). */
 	onStep: (() => void) | null = null;
 
@@ -95,12 +117,70 @@ class Animator {
 		return this.clips.values().next().value!;
 	}
 
+	/**
+	 * Starts an emote; false when the model hasn't its sequence. Asked for again while it loops,
+	 * repeats or holds a pose, it stops instead (getting up from a pose); a once-off one starts over.
+	 */
+	perform(emote: Emote, repeat: boolean): boolean {
+		if (!this.clips.has(emote.play)) return false;
+		const now = this.emoting;
+		if (now?.emote === emote && now.phase !== 'up' && (emote.loop || isPose(emote) || now.repeat)) {
+			this.stopEmote();
+			return true;
+		}
+		const down = emote.down !== undefined && this.clips.has(emote.down) ? 'down' : 'play';
+		this.emoting = { emote, repeat, phase: down, fresh: true };
+		return true;
+	}
+
+	/** Drops the emote at once, without getting up. */
+	cancelEmote(): void {
+		this.emoting = null;
+	}
+
+	/** Ends the emote: a pose is got up from, anything else stops where it is. */
+	stopEmote(): void {
+		const e = this.emoting;
+		if (!e) return;
+		if (e.phase !== 'up' && e.emote.up !== undefined && this.clips.has(e.emote.up)) this.emoting = { ...e, phase: 'up', fresh: true };
+		else this.emoting = null;
+	}
+
+	/** The emote being performed, if any. */
+	get emote(): Emote | null {
+		return this.emoting?.emote ?? null;
+	}
+
+	/** Whether the clip playing has reached its end (for those played once). */
+	private ended(id: number): boolean {
+		const p = this.current;
+		return !!p && p.clip.id === id && p.time >= p.clip.duration * 0.999 - 1e-6;
+	}
+
+	/** The emote's animation now, moving on from each phase as its clip ends; null once it's over. */
+	private chooseEmote(): Choice | null {
+		const e = this.emoting!;
+		const { emote } = e;
+		const once = !(emote.loop || isPose(emote) || e.repeat);
+		if (!e.fresh) {
+			if (e.phase === 'down' && this.ended(emote.down!)) Object.assign(e, { phase: 'play', fresh: true });
+			else if (e.phase === 'up' && this.ended(emote.up!)) this.emoting = null;
+			else if (e.phase === 'play' && once && this.ended(emote.play)) this.emoting = null;
+		}
+		if (!this.emoting) return null;
+		const restart = e.fresh;
+		e.fresh = false;
+		if (e.phase === 'down') return { id: emote.down!, rate: 1, once: true, restart };
+		if (e.phase === 'up') return { id: emote.up!, rate: 1, once: true, restart };
+		return { id: emote.play, rate: 1, once, restart };
+	}
+
 	private speedOf(clip: AnimationClip, fallback: number): number {
 		return clip.speed || fallback;
 	}
 
 	/** What to play for the walker now, and how fast. */
-	private choose(dt: number, w: WalkControls): { id: number; rate: number } {
+	private choose(dt: number, w: WalkControls): Choice {
 		const { x: forward, y: right } = w.intent;
 		const moving = forward !== 0 || right !== 0;
 		const landed = this.wasState === 'air' && w.state !== 'air';
@@ -108,6 +188,13 @@ class Animator {
 		if (landed && this.airTime > LAND_AFTER && !moving && w.state === 'ground') this.landing = this.find(ANIM.JumpEnd).duration;
 		this.landing = moving || w.state !== 'ground' ? 0 : Math.max(0, this.landing - dt);
 		this.wasState = w.state;
+
+		// Moving, jumping, falling or swimming ends an emote at once, as in the game.
+		if (this.emoting && (moving || w.state !== 'ground')) this.emoting = null;
+		if (this.emoting) {
+			const emote = this.chooseEmote();
+			if (emote) return emote;
+		}
 
 		if (w.state === 'swim') {
 			// Mostly upward: the swimming-up animation. Down (sinking, diving) is Swim, tilted (see swimTilt).
@@ -123,7 +210,7 @@ class Animator {
 		if (w.state === 'air') {
 			if (w.jumped) return { id: w.airTime < this.find(ANIM.JumpStart).duration && this.clips.has(ANIM.JumpStart) ? ANIM.JumpStart : ANIM.Jump, rate: 1 };
 			// A short drop (off a step, down a slope) keeps whatever it was doing.
-			if (w.airTime < FALL_AFTER && this.current) return { id: this.current.clip.id ?? ANIM.Stand, rate: this.current.rate };
+			if (w.airTime < FALL_AFTER && this.current) return { id: this.current.clip.id ?? ANIM.Stand, rate: this.current.rate, once: this.current.once };
 			return { id: ANIM.Fall, rate: 1 };
 		}
 		if (this.landing > 0) return { id: ANIM.JumpEnd, rate: 1 };
@@ -151,27 +238,28 @@ class Animator {
 	}
 
 	update(dt: number, walker: WalkControls): void {
-		const { id, rate } = this.choose(dt, walker);
+		const { id, rate, once = ONCE.has(id), restart } = this.choose(dt, walker);
 		const clip = this.find(id);
-		if (!this.current || this.current.clip !== clip) {
+		if (!this.current || this.current.clip !== clip || restart) {
 			// Mid-blend, the newest pose so far is what fades out.
 			this.previous = this.current && this.fade < 0.5 && this.previous ? this.previous : this.current;
-			this.current = { clip, time: 0, rate };
+			this.current = { clip, time: 0, rate, once };
 			this.fade = this.previous ? 0 : 1;
 		}
 		this.current.rate = rate;
+		this.current.once = once;
 		for (const p of [this.current, this.previous]) {
 			if (!p) continue;
 			const before = p.time;
 			p.time += dt * p.rate;
 			// Footfalls of the clip blending in (not of the one fading out), round the end of the loop too.
-			if (p === this.current && this.onStep && p.clip.steps?.length && !ONCE.has(p.clip.id ?? -1)) {
+			if (p === this.current && this.onStep && p.clip.steps?.length && !p.once) {
 				const end = p.clip.duration;
 				const after = p.time;
 				if (p.clip.steps.some((t) => (after < end ? t > before && t <= after : t > before || t <= after - end))) this.onStep();
 			}
 			const end = p.clip.duration;
-			if (ONCE.has(p.clip.id ?? -1)) p.time = Math.min(p.time, end * 0.999);
+			if (p.once) p.time = Math.min(p.time, end * 0.999);
 			else p.time = THREE.MathUtils.euclideanModulo(p.time, end);
 		}
 		this.fade = Math.min(1, this.fade + dt / BLEND_TIME);
@@ -184,10 +272,10 @@ class Animator {
 
 	/** The two sampled frames a moment in a clip falls between, and how far between, as rows of the bone texture. */
 	private static pose(p: Playing, out: THREE.Vector3): void {
-		const { row, frames, duration, id } = p.clip;
+		const { row, frames, duration } = p.clip;
 		const at = (p.time / duration) * frames;
 		const i = Math.min(Math.floor(at), frames - 1);
-		const next = i + 1 < frames ? i + 1 : ONCE.has(id ?? -1) ? i : 0;
+		const next = i + 1 < frames ? i + 1 : p.once ? i : 0;
 		out.set(row + i, row + next, at - Math.floor(at));
 	}
 }
@@ -332,10 +420,29 @@ export class Character {
 		this.textures.release(model.textures);
 	}
 
+	/** Performs an emote (over and over with repeat); false when the model hasn't it, null while it's still loading. */
+	emote(emote: Emote, repeat: boolean): boolean | null {
+		return this.model ? this.model.animator.perform(emote, repeat) : null;
+	}
+
+	/** Stops the emote being performed, getting up from a pose. */
+	stopEmote(): void {
+		this.model?.animator.stopEmote();
+	}
+
+	/** The emote being performed, if any. */
+	get emoting(): Emote | null {
+		return this.model?.animator.emote ?? null;
+	}
+
 	/** Follows the walker: its place, size, the way it faces, its animation; hidden when the camera's in its head. */
 	update(dt: number, walker: WalkControls): void {
 		this.group.visible = walker.active && !walker.firstPerson;
-		if (!walker.active) return;
+		if (!walker.active) {
+			// Back on foot later, it stands rather than carrying on where it left off.
+			this.model?.animator.cancelEmote();
+			return;
+		}
 		const model = this.model;
 		walker.scale = model ? THREE.MathUtils.clamp(model.height / WALKER_HEIGHT, 0.5, 1.5) : 1;
 		const target = bodyTurn(walker);

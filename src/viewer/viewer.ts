@@ -10,6 +10,7 @@ import type { Place } from '../explorer/places';
 import type { SpawnInfo } from '../explorer/spawns';
 import { Character, type CharacterLook } from './character';
 import { Portraits } from './portraits';
+import type { Emote } from './emotes';
 import type { CharacterRace } from '../explorer/spawns';
 import { FlyControls } from './flyControls';
 import { Footsteps } from './footsteps';
@@ -657,6 +658,29 @@ export class Viewer {
 		return this.storage.characterRaces();
 	}
 
+	/**
+	 * Has the travel form perform an emote, over and over with repeat; asked again while it
+	 * repeats, loops or holds a pose, it stops. Returns why it can't, or null.
+	 */
+	emote(emote: Emote, repeat: boolean): string | null {
+		if (!this.walker.active) return 'Walk on the ground to perform emotes';
+		if (this.walker.state === 'swim') return 'Emotes can’t be performed swimming';
+		if (this.walker.state !== 'ground') return 'Emotes can’t be performed in the air';
+		const done = this.character?.emote(emote, repeat);
+		if (done === null || done === undefined) return 'Your travel form is still loading';
+		return done ? null : `This travel form has no ${emote.name.toLowerCase()} emote`;
+	}
+
+	/** Stops the emote being performed, getting up from a pose. */
+	stopEmote(): void {
+		this.character?.stopEmote();
+	}
+
+	/** The emote the travel form is performing, if any. */
+	get emoting(): Emote | null {
+		return this.walker.active ? this.character?.emoting ?? null : null;
+	}
+
 	/** Pictures of travel forms for the picker, drawn on a renderer of their own made when first wanted. */
 	portraits(): Portraits {
 		this.portraitRenderer ??= new Portraits(this.storage);
@@ -1263,7 +1287,8 @@ export class Viewer {
 		} else if (e.code === 'Escape' && this.shot) this.endShot();
 		else if (e.code === 'KeyO') this.overview();
 		else if (e.code === 'KeyR') this.controls.flyTo(this.startPosition(), 0, -0.3, 2.5);
-		else if (e.code.startsWith('Digit')) this.goToContinent(Number(e.code.slice(5)) - 1);
+		// Walking, the number keys perform emotes instead (see the Emotes menu).
+		else if (e.code.startsWith('Digit') && !this.walker.active) this.goToContinent(Number(e.code.slice(5)) - 1);
 		else if (e.code === 'Backquote' && !e.ctrlKey && !e.metaKey && !e.altKey) {
 			const problem = this.setWalking(!this.walker.active);
 			if (problem) this.onNotice(problem);

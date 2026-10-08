@@ -152,6 +152,30 @@
 				</div>
 			</details>
 
+			<details id="emotes" name="menu">
+				<summary>Emotes</summary>
+				<div class="menu-body panel">
+					<p class="muted small">Walking, press a number to have your travel form perform its emote, with the interface shown or hidden. Moving or jumping stops it.</p>
+					<label title="Once-off emotes play over and over until you move or press their key again; Shift and a number does the same for one"><input type="checkbox" id="emote-repeat"> Perform over and over</label>
+					<div class="flight-buttons"><button id="emote-stop" title="Stop, or get up from sitting, kneeling or sleeping">Stop</button> <button id="emote-keys-reset" title="Back to the emotes the keys start with">Reset keys</button></div>
+					<h3 class="travel-heading">Keys</h3>
+					<div class="emote-slots">
+						<kbd data-key="Digit1">1</kbd><select data-slot="0" aria-label="Emote on 1"></select><button data-slot="0" title="Perform it">Play</button>
+						<kbd data-key="Digit2">2</kbd><select data-slot="1" aria-label="Emote on 2"></select><button data-slot="1" title="Perform it">Play</button>
+						<kbd data-key="Digit3">3</kbd><select data-slot="2" aria-label="Emote on 3"></select><button data-slot="2" title="Perform it">Play</button>
+						<kbd data-key="Digit4">4</kbd><select data-slot="3" aria-label="Emote on 4"></select><button data-slot="3" title="Perform it">Play</button>
+						<kbd data-key="Digit5">5</kbd><select data-slot="4" aria-label="Emote on 5"></select><button data-slot="4" title="Perform it">Play</button>
+						<kbd data-key="Digit6">6</kbd><select data-slot="5" aria-label="Emote on 6"></select><button data-slot="5" title="Perform it">Play</button>
+						<kbd data-key="Digit7">7</kbd><select data-slot="6" aria-label="Emote on 7"></select><button data-slot="6" title="Perform it">Play</button>
+						<kbd data-key="Digit8">8</kbd><select data-slot="7" aria-label="Emote on 8"></select><button data-slot="7" title="Perform it">Play</button>
+						<kbd data-key="Digit9">9</kbd><select data-slot="8" aria-label="Emote on 9"></select><button data-slot="8" title="Perform it">Play</button>
+						<kbd data-key="Digit0">0</kbd><select data-slot="9" aria-label="Emote on 0"></select><button data-slot="9" title="Perform it">Play</button>
+					</div>
+					<h3 class="travel-heading">All emotes</h3>
+					<div id="emote-list" class="emote-list"></div>
+				</div>
+			</details>
+
 			<details id="highlight" name="menu">
 				<summary>Highlight</summary>
 				<div class="menu-body panel">
@@ -294,13 +318,14 @@
 					<div>Drag with the left button to turn the camera; hold the right button to turn yourself too (then <kbd>A</kbd> / <kbd>D</kbd> strafe); both buttons run</div>
 					<div><kbd>Wheel</kbd> zoom · <kbd data-key="Backslash">\</kbd> or numpad <kbd>/</kbd> walk / run</div>
 					<div>In water: <kbd>Space</kbd> / <kbd>X</kbd> up / down; <kbd>Space</kbd> at the surface jumps out</div>
+					<div><kbd>1</kbd> … <kbd>0</kbd> emotes (set in the Emotes menu) · with <kbd>Shift</kbd>, over and over</div>
 				</section>
 				<section>
 					<h3>Going places</h3>
 
 					<div><kbd>/</kbd> go to a zone, town, dungeon or raid</div>
 					<div>Click the minimap to fly there</div>
-					<div><kbd>O</kbd> whole world · <kbd>1</kbd> / <kbd>2</kbd> continents</div>
+					<div><kbd>O</kbd> whole world · <kbd>1</kbd> / <kbd>2</kbd> continents (when flying)</div>
 					<div><kbd>R</kbd> back to the start</div>
 					<div>Click the coordinates to copy a link to the view</div>
 				</section>

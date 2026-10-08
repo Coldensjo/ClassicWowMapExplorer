@@ -16,6 +16,7 @@ import { loadUiAssets } from './uiAssets';
 import { FIXED_SPEED_DEFAULT, FIXED_SPEED_MAX, FIXED_SPEED_MIN, FLY_SPEED_RANGE, FLY_SPEED_STEP, Viewer, type HudInfo, type MeetingStone, type ViewSettings } from './viewer';
 import type { CharacterLook } from './character';
 import { FormPicker } from './formPicker';
+import { DEFAULT_EMOTE_KEYS, EMOTES, type Emote } from './emotes';
 import { CHARACTER_OUTFITS, type CharacterOutfit, type CharacterRace } from '../explorer/spawns';
 
 import { setVolume, volumeSetting, type VolumeChannel } from './volume';
@@ -229,6 +230,7 @@ async function explore(): Promise<void> {
 		setUpHighlights(viewer);
 		setUpTravel(viewer, minimapArrow);
 		setUpWalking(viewer);
+		setUpEmotes(viewer);
 		setUpSound(viewer);
 		setUpHelp();
 	} catch (e) {
@@ -805,6 +807,108 @@ function setUpWalking(viewer: Viewer): void {
 	sync();
 }
 
+const EMOTE_KEY = 'mapExplorer.emotes';
+/** The number keys in the order of the Emotes menu's slots: 1 to 9, then 0. */
+const EMOTE_DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
+
+/**
+ * The Emotes menu and the number keys: walking, each key performs the emote put on it (1 to 9
+ * and 0), whether the interface is shown or not, with Shift or Repeat over and over. Which emote
+ * is on which key, and Repeat, are remembered.
+ */
+function setUpEmotes(viewer: Viewer): void {
+	const saved = readSaved<{ keys: string[]; repeat: boolean }>(EMOTE_KEY);
+	const byKey = new Map(EMOTES.map((e) => [e.key, e]));
+	/** The emote on each number key ('' for none), in slot order. */
+	let keys = EMOTE_DIGITS.map((_, i) => {
+		const k = saved.keys?.[i];
+		return k === '' || (k && byKey.has(k)) ? k : DEFAULT_EMOTE_KEYS[i];
+	});
+	const repeat = $<HTMLInputElement>('emote-repeat');
+	repeat.checked = !!saved.repeat;
+	const remember = () => save(EMOTE_KEY, { keys, repeat: repeat.checked });
+	repeat.addEventListener('change', remember);
+
+	const perform = (emote: Emote, over: boolean) => {
+		const problem = viewer.emote(emote, over);
+		if (problem) notify(problem);
+		sync();
+	};
+
+	const selects = [...document.querySelectorAll<HTMLSelectElement>('.emote-slots select')];
+	for (const select of selects) {
+		select.replaceChildren(new Option('None', ''), ...EMOTES.map((e) => new Option(e.name, e.key)));
+		select.addEventListener('change', () => {
+			keys[Number(select.dataset.slot)] = select.value;
+			remember();
+			showKeys();
+		});
+	}
+	for (const button of document.querySelectorAll<HTMLButtonElement>('.emote-slots button')) {
+		button.addEventListener('click', () => {
+			const emote = byKey.get(keys[Number(button.dataset.slot)]);
+			if (emote) perform(emote, repeat.checked);
+		});
+	}
+	$('emote-keys-reset').addEventListener('click', () => {
+		keys = [...DEFAULT_EMOTE_KEYS];
+		remember();
+		showKeys();
+	});
+	$('emote-stop').addEventListener('click', () => {
+		viewer.stopEmote();
+		sync();
+	});
+
+	// Every emote, with the key it's on, to perform with a click.
+	const list = $('emote-list');
+	const buttons = new Map<string, HTMLButtonElement>();
+	for (const emote of EMOTES) {
+		const button = document.createElement('button');
+		button.addEventListener('click', () => perform(emote, repeat.checked));
+		buttons.set(emote.key, button);
+		list.append(button);
+	}
+
+	/** The slots' choices and each emote's key, after a change. */
+	function showKeys(): void {
+		selects.forEach((select, i) => {
+			select.value = keys[i];
+			(select.nextElementSibling as HTMLButtonElement).disabled = !keys[i];
+		});
+		for (const emote of EMOTES) {
+			const button = buttons.get(emote.key)!;
+			const slot = keys.indexOf(emote.key);
+			button.replaceChildren(emote.name);
+			if (slot >= 0) {
+				const kbd = document.createElement('kbd');
+				kbd.textContent = $('emotes').querySelector<HTMLElement>(`kbd[data-key="Digit${EMOTE_DIGITS[slot]}"]`)?.textContent ?? EMOTE_DIGITS[slot];
+				button.append(' ', kbd);
+			}
+		}
+	}
+
+	/** Marks the emote being performed. */
+	function sync(): void {
+		const playing = viewer.emoting?.key;
+		for (const [key, button] of buttons) button.classList.toggle('primary', key === playing);
+	}
+
+	// On the number row or the numpad; the interface hidden or not. Flying, 1 and 2 go to the continents instead.
+	window.addEventListener('keydown', (e) => {
+		if (!viewer.walking || e.repeat || isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+		const digit = /^(?:Digit|Numpad)(\d)$/.exec(e.code)?.[1];
+		if (digit === undefined) return;
+		e.preventDefault();
+		const emote = byKey.get(keys[EMOTE_DIGITS.indexOf(digit)]);
+		if (emote) perform(emote, repeat.checked || e.shiftKey);
+		else notify(`No emote on ${digit}: choose one in the Emotes menu`);
+	});
+
+	showKeys();
+	hudFollowers.push(sync);
+	sync();
+}
 
 /** The tint's key under the Ground choice: what its colours mean. */
 function showTintKey(viewer: Viewer): void {

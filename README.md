@@ -152,6 +152,8 @@ onto the page: the browser's folder dialog may leave out the hidden `.build.info
 - Walking: a travel form of any race the install has models for, dressed as one of its NPCs (picked
   from pictures of every look, to scroll through and zoom), run, jumped and swum around the world as
   in the game, with a camera that follows behind
+- Emotes for the travel form: wave, bow, dance, sit, sleep and twenty more, on the number keys
+  (which emote is on which key is up to you), once or over and over
 
 ## Controls
 
@@ -163,7 +165,7 @@ onto the page: the browser's folder dialog may leave out the hidden `.build.info
 | Shift | Move faster |
 | G | Go through walls, floors and the ground on / off |
 | Mouse wheel | Zoom |
-| 1, 2 | Jump to a continent |
+| 1, 2 | Jump to a continent (walking, the number keys perform emotes) |
 | O | Overview of the whole world |
 | R | Return to the start position |
 | T / Shift+T | Hold to run the time of day forward / back |
@@ -198,6 +200,7 @@ where the walking camera was.
 | Left mouse button drag | Hides the mouse and turns the camera round the character (a click still selects creatures and objects) |
 | Right mouse button held | Hides the mouse, which then turns the character too; both buttons run forward |
 | Mouse wheel | Camera nearer / further (up to 35 yards) |
+| 1 … 9, 0 (or the numpad) | Perform the emote on that key; with Shift, over and over |
 
 The speeds, the jump and the falling are the game's (the server emulators' constants: 7 yards a
 second running, 4.5 backpedalling, 4.72 swimming). There's no steering in the air beyond the way you
@@ -211,6 +214,15 @@ The Travel menu chooses who walks: the race and sex (those the install has model
 or HD model, and the outfit: a Stormwind City Guard's, with sword and shield (the default; guards are
 human), or any NPC's look of that race, simply dressed ones first. The choice is remembered.
 Flying anywhere (a flight path, Go to, the minimap, R, O) ends walking.
+
+**Emotes** (the menu of that name) are what the travel form can act out: wave, bow, cheer, dance, laugh,
+point, salute, applaud, sit, sleep, kneel, flex, roar and more, played from the race model's own
+animations. Walking, the number keys 1 to 9 and 0 perform the emote put on each, whether the
+interface is shown or hidden; choose which emote is on which key in the menu, where every emote can
+also be played with a click. Most play once; *Perform over and over* (or Shift with the number)
+repeats them until you move or press the key again. Dance loops by itself, and sit, kneel and sleep
+are held until you press their key again, Stop, or move. Moving, jumping or swimming ends any emote,
+as in the game. The keys and the choice to repeat are remembered.
 
 Every key that switches something shows what it did, low in the middle of the screen. All of them are
 also in the **View** and **Sound** menus at the top left, which remember your choices between visits.

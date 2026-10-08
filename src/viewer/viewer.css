@@ -1610,6 +1610,68 @@ body.wow-ui {
 	font-weight: 600;
 }
 
+/* The Emotes menu: the number keys' emotes, then every emote as a button with its key. */
+#emotes .menu-body {
+	padding: 8px 12px;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 6px;
+}
+
+#emotes p {
+	margin: 0;
+}
+
+#emotes label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	cursor: pointer;
+	user-select: none;
+}
+
+#emotes .travel-heading {
+	margin: 6px 0 0;
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.emote-slots {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 4px 6px;
+}
+
+.emote-slots kbd {
+	justify-self: center;
+	margin: 0;
+}
+
+.emote-slots select {
+	width: 100%;
+	min-width: 0;
+	padding: 1px 4px;
+	font-size: 12px;
+}
+
+.emote-slots button,
+.emote-list button {
+	padding: 1px 8px;
+	font-size: 12px;
+}
+
+.emote-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+}
+
+.emote-list kbd {
+	margin-left: 2px;
+	font-size: 10px;
+}
+
 #transport {
 	width: 100%;
 	min-width: 0;

@@ -41,10 +41,10 @@ Close the window when you're done.
 
 ### Running from source
 
-On any system with Chrome or Edge, and **[Node.js](https://nodejs.org)** (the LTS version):
+On any system with Chrome or Edge, and **[Bun](https://bun.sh)**:
 
 1. `git clone https://github.com/Coldensjo/ClassicWowMapExplorer.git` (or **Code → Download ZIP**)
-2. In the project folder, run `npm install`, then `npm run dev`.
+2. In the project folder, run `bun install`, then `bun run dev`.
 3. Open **http://localhost:5173** in Chrome or Edge. The dev server finds World of Warcraft as the
    portable version does (set `WOW_DIR` to point it elsewhere); if it can't, choose the folder as above.
 
@@ -53,19 +53,18 @@ On any system with Chrome or Edge, and **[Node.js](https://nodejs.org)** (the LT
 There's no portable version for Linux; Map Explorer runs from source instead. You need
 **World of Warcraft Classic** installed through Wine, Lutris, Bottles, Steam (Proton) or Heroic,
 a Chromium-based browser (**Chrome**, **Chromium**, **Edge** or **Brave**), **git**, and
-**[Node.js](https://nodejs.org)** 22.12 or newer.
+**[Bun](https://bun.sh)**.
 
-1. Install git and Node.js. Many distributions ship an older Node.js, so check with `node -v`; if
-   it's older than 22.12, install the current LTS from [nodejs.org](https://nodejs.org/en/download) or with
-   [nvm](https://github.com/nvm-sh/nvm):
+1. Install git and Bun (see [bun.sh](https://bun.sh); `curl -fsSL https://bun.sh/install | bash`), then your
+   distribution's git:
 
    ```sh
    # Debian / Ubuntu
-   sudo apt install git nodejs npm
+   sudo apt install git
    # Fedora
-   sudo dnf install git nodejs npm
+   sudo dnf install git
    # Arch
-   sudo pacman -S git nodejs npm
+   sudo pacman -S git
    ```
 
 2. Download Map Explorer and its packages:
@@ -73,13 +72,13 @@ a Chromium-based browser (**Chrome**, **Chromium**, **Edge** or **Brave**), **gi
    ```sh
    git clone https://github.com/Coldensjo/ClassicWowMapExplorer.git
    cd ClassicWowMapExplorer
-   npm install
+   bun install
    ```
 
 3. Start it:
 
    ```sh
-   npm run dev
+   bun run dev
    ```
 
    It looks for World of Warcraft in your Wine prefixes: `$WINEPREFIX`, `~/.wine`, `~/Games`
@@ -92,26 +91,25 @@ a Chromium-based browser (**Chrome**, **Chromium**, **Edge** or **Brave**), **gi
 If it doesn't find the game, point it at the folder that contains `_classic_` or `_classic_beta_`:
 
 ```sh
-WOW_DIR="$HOME/Games/battlenet/drive_c/Program Files (x86)/World of Warcraft" npm run dev
+WOW_DIR="$HOME/Games/battlenet/drive_c/Program Files (x86)/World of Warcraft" bun run dev
 ```
 
 or click **Choose your World of Warcraft folder** in the page and pick it there.
 
-Press **Ctrl+C** in the terminal to stop it. To update later, run `git pull` and `npm install` in the
+Press **Ctrl+C** in the terminal to stop it. To update later, run `git pull` and `bun install` in the
 `ClassicWowMapExplorer` folder.
 
 ## Get started on macOS
 
 There's no portable version for macOS, and it hasn't been tested there; Map Explorer runs from source
 instead. You need **World of Warcraft Classic** installed with Battle.net, **Chrome** (or another
-Chromium-based browser; Safari isn't supported), **git**, and **[Node.js](https://nodejs.org)** 22.12 or
-newer (check with `node -v`).
+Chromium-based browser; Safari isn't supported), **git**, and **[Bun](https://bun.sh)** (check with `bun -v`).
 
 ```sh
 git clone https://github.com/Coldensjo/ClassicWowMapExplorer.git
 cd ClassicWowMapExplorer
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 It looks for the game in `/Applications/World of Warcraft` and `~/Applications/World of Warcraft`, and
@@ -119,7 +117,7 @@ prints where it found it, or *World of Warcraft not found*. If it doesn't, point
 contains `_classic_` or `_classic_beta_`:
 
 ```sh
-WOW_DIR="/Applications/World of Warcraft" npm run dev
+WOW_DIR="/Applications/World of Warcraft" bun run dev
 ```
 
 Then open **http://localhost:5173** in Chrome. If you choose the folder in the page instead, drag it
@@ -298,7 +296,7 @@ Add `?time=HH:MM` to set the time of day.
 Creature and object spawns, patrols and dungeon entrances in `public/spawns` come from the [VMaNGOS](https://github.com/vmangos/core) world database. To rebuild them, download the SQLite database from the VMaNGOS `db_latest` release and run:
 
 ```sh
-npm run spawns -- path/to/mangos.sqlite
+bun run spawns -- path/to/mangos.sqlite
 ```
 
 This needs `sqlite3` on the PATH. NPC hair textures come from the community listfile, expected at `.cache/listfile.csv`.
@@ -306,24 +304,24 @@ This needs `sqlite3` on the PATH. NPC hair textures come from the community list
 Regions in `public/spawns/regions.json`, the flight network in `public/spawns/flights.json` and the boats
 and zeppelins in `public/spawns/transports.json` come from VMaNGOS (areas, graveyard links, inns, weather,
 fishing, and the transports with their round trip times and game objects), each map chunk's area read from
-the game's map files, creature levels from the spawn files (run `npm run spawns` first), the client's
+the game's map files, creature levels from the spawn files (run `bun run spawns` first), the client's
 TaxiNodes, TaxiPath and TaxiPathNode tables (the transports' routes too), GameObjectDisplayInfo for their
 models, and graveyard positions (WorldSafeLocs from classic 1.13.2, downloaded
 from [wago.tools](https://wago.tools) on first run, as this client no longer ships it):
 
 ```sh
-npm run regions -- [wowDir] [product] [path/to/mangos.sqlite]
+bun run regions -- [wowDir] [product] [path/to/mangos.sqlite]
 ```
 
 ### Scripts
 
-- `npm run dev`: start the dev server
-- `npm run build`: type-check and build to `dist`
-- `npm run typecheck`: type-check only
-- `npm run probe`: inspect game data from Node
-- `npm run spawns`: rebuild the spawn files
-- `npm run regions`: rebuild the regions, flight paths, boats and zeppelins
-- `npm run portable`: build the portable version into `release/` (the zip for a GitHub release);
+- `bun run dev`: start the dev server
+- `bun run build`: type-check and build to `dist`
+- `bun run typecheck`: type-check only
+- `bun run probe`: inspect game data
+- `bun run spawns`: rebuild the spawn files
+- `bun run regions`: rebuild the regions, flight paths, boats and zeppelins
+- `bun run portable`: build the portable version into `release/` (the zip for a GitHub release);
   needs mingw-w64 (gcc, windres), ImageMagick and 7-Zip on the PATH. The launcher is
   `tools/portable/launcher.c`, its icon `public/icon.svg`
 
@@ -336,4 +334,4 @@ npm run regions -- [wowDir] [product] [path/to/mangos.sqlite]
 - `src/worker`: storage and parsing in a web worker
 - `src/explorer`: world data, meshes, lighting, spawns, music
 - `src/viewer`: three.js renderer, controls, particles, audio
-- `tools`: Node scripts for probing data and building spawns
+- `tools`: Bun scripts for probing data and building spawns

@@ -1,5 +1,5 @@
 // Dumps chunk layouts of files by ID, to explore formats.
-// Usage: npx tsx tools/inspect.ts <fdid> [<fdid>...]   (ranges allowed: 775960-775980)
+// Usage: bun tools/inspect.ts <fdid> [<fdid>...]   (ranges allowed: 775960-775980)
 import { CascStorage } from '../src/casc/storage';
 import { chunks } from '../src/formats/chunks';
 import { describeError } from '../src/explorer/maps';

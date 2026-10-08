@@ -1,8 +1,8 @@
 // Builds the portable version: release/MapExplorer/ (MapExplorer.exe next to the built app)
 // and release/MapExplorer-portable.zip. The exe serves the app on 127.0.0.1 and opens it in
 // the browser, so nothing needs installing to run it.
-// Usage: npm run portable (needs gcc and windres from mingw-w64, ImageMagick and 7-Zip on PATH).
-import { execFileSync, execSync } from 'node:child_process';
+// Usage: bun run portable (needs gcc and windres from mingw-w64, ImageMagick and 7-Zip on PATH).
+import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -22,9 +22,9 @@ mkdirSync(OUT, { recursive: true });
 mkdirSync(WORK, { recursive: true });
 
 // The app itself: type-checked and built to dist, then copied in as "app".
-// npm is a script on Windows, so it goes through the shell.
-console.log('> npm run build');
-execSync('npm run build', { stdio: 'inherit' });
+// Run with the same bun that is running this script.
+console.log('> bun run build');
+execFileSync(process.execPath, ['run', 'build'], { stdio: 'inherit' });
 cpSync('dist', join(OUT, 'app'), { recursive: true });
 
 // The icon: each size rendered from the SVG on its own, so small ones stay sharp.

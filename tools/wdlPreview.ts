@@ -1,5 +1,5 @@
 // Writes a grayscale mosaic of a map's WDL heights to out/wdl.png, for checking orientation.
-// Usage: npx tsx tools/wdlPreview.ts [wdlFdid]
+// Usage: bun tools/wdlPreview.ts [wdlFdid]
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { CascStorage } from '../src/casc/storage';

@@ -5,7 +5,7 @@
 //   terrain that's only loaded in low detail.
 // - Per area (VMaNGOS area_template): its zone, side (Alliance, Horde or contested), flags,
 //   exploration level and XP, the levels of the creatures in it (from public/spawns, so run
-//   `npm run spawns` first), and the fishing skill it takes (skill_fishing_base_level).
+//   `bun run spawns` first), and the fishing skill it takes (skill_fishing_base_level).
 // - Graveyards: the server sends a ghost to the nearest graveyard linked to the zone it died in
 //   that takes its side (game_graveyard_zone). Their positions are in WorldSafeLocs, which this
 //   client no longer ships; wago.tools has it from the first classic build.
@@ -15,7 +15,7 @@
 // - Boats and zeppelins (VMaNGOS transports): each one's model, round trip time, and route from
 //   TaxiPathNode, split where it jumps (to the other map, or across one), with its stops at the docks.
 //
-// Usage: npm run regions -- [wowDir] [product] [path/to/mangos.sqlite]
+// Usage: bun run regions -- [wowDir] [product] [path/to/mangos.sqlite]
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { CascStorage } from '../src/casc/storage';
@@ -133,7 +133,7 @@ const levels = new Map<number, number[]>();
 for (const map of KNOWN_MAPS) {
 	const file = `public/spawns/map${map.mapId}.json`;
 	if (!existsSync(file)) {
-		console.warn(`${file} missing (run npm run spawns): no creature levels for ${map.name}`);
+		console.warn(`${file} missing (run bun run spawns): no creature levels for ${map.name}`);
 		continue;
 	}
 	const spawns = JSON.parse(readFileSync(file, 'utf8')) as SpawnFile;

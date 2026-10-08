@@ -1,7 +1,7 @@
 // Builds public/spawns/map<id>.json from the VMaNGOS world database (vanilla 1.12, GPL):
 // creature and game object spawns with the template fields the viewer shows. Spawns that only
 // appear during world events (Hallow's End, Winter Veil, ...) are left out.
-// Usage: npm run spawns -- [path/to/mangos.sqlite]
+// Usage: bun run spawns -- [path/to/mangos.sqlite]
 // Get the database from https://github.com/vmangos/core/releases/tag/db_latest (db-sqlite-*.zip).
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';

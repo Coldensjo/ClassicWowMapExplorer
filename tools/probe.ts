@@ -1,5 +1,5 @@
 // Exercises the reader against a real install and writes preview PNGs to out/.
-// Usage: npm run probe -- [wowDir] [product] [tileX] [tileY]
+// Usage: bun run probe -- [wowDir] [product] [tileX] [tileY]
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { perf } from './perf';
 
 /**
  * Bytes sent to the GPU per frame, at most (one texture always goes, however big). three only
@@ -85,6 +86,7 @@ export class UploadQueue {
 		const start = performance.now();
 		let bytes = 0;
 		let sent = 0;
+		let textures = 0;
 		while (this.jobs.length) {
 			const job = this.jobs[0];
 			while (job.textures.length) {
@@ -98,6 +100,7 @@ export class UploadQueue {
 				this.renderer.initTexture(texture);
 				bytes += size;
 				sent++;
+				textures++;
 			}
 			if (job.textures.length) break;
 			// Its geometry goes up when it's first drawn, next frame; that counts against this one.
@@ -107,6 +110,9 @@ export class UploadQueue {
 			this.jobs.shift();
 			job.resolve();
 		}
+		perf.count('upload.bytes', bytes);
+		perf.count('upload.textures', textures);
+		perf.count('upload.waiting', this.jobs.length);
 	}
 
 	/** Whether the texture has data three hasn't sent to the GPU yet. */

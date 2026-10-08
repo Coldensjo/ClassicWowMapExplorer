@@ -7,6 +7,7 @@ import type { MapCategory, MapListing } from '../explorer/world';
 import type { HighlightGroup, HighlightSettings } from './highlights';
 import { CLUTTER_RANGE_DEFAULT, CLUTTER_RANGE_MAX, CLUTTER_RANGE_MIN } from './clutter';
 import { Minimap } from './minimap';
+import { perf } from './perf';
 import { DETAIL_RANGE_MAX, DETAIL_RANGE_MIN } from './objects';
 import { MOUSE_SPEED_MAX, MOUSE_SPEED_MIN } from './look';
 import type { TintMode } from './regionOverlay';
@@ -55,6 +56,7 @@ const FOLDER_CREEP = [0.42, 20] as const;
 
 /** Shows the loading bar at a step, in place of the folder buttons. */
 function showProgress(message: string): void {
+	perf.log('load', message);
 	const step = LOADING_STEPS.find(([pattern]) => pattern.test(message));
 	const appearing = $('loading').hidden;
 	$('drop').hidden = true;
@@ -215,6 +217,8 @@ async function explore(): Promise<void> {
 		$('top-left').hidden = $('side').hidden = $('help-hint').hidden = false;
 		setUpView(viewer);
 		viewer.start();
+		perf.log('load', 'world shown');
+		console.info('[MapExplorer] Freezes of 100 ms or more are written here as they happen. F9 saves the full debug log to a file; mapExplorerPerf.verbose = true writes every log line here too.');
 		setUpMinimap(viewer, minimapArrow);
 		void setUpGoTo(viewer);
 		setUpHighlights(viewer);
@@ -223,6 +227,7 @@ async function explore(): Promise<void> {
 		setUpSound(viewer);
 		setUpHelp();
 	} catch (e) {
+		perf.log('error', `could not start: ${(e as Error).message}`);
 		setStatus(`Could not start: ${(e as Error).message}`, true);
 		button.disabled = false;
 		for (const id of ['pick', 'pick-direct']) $<HTMLButtonElement>(id).disabled = false;
@@ -1082,6 +1087,16 @@ window.addEventListener('keydown', (e) => {
 	e.preventDefault();
 	const hidden = document.body.classList.toggle('ui-hidden');
 	notify(hidden ? 'Interface hidden: U brings it back' : 'Interface shown');
+});
+
+// --- Debug log ---
+
+// F9 saves what the app recorded (freezes, loading, the WebGL calls that waited) to a file, for a bug report.
+window.addEventListener('keydown', (e) => {
+	if (e.code !== 'F9' || isTyping(e)) return;
+	e.preventDefault();
+	perf.save();
+	notify('Debug log saved to your downloads');
 });
 
 // --- Screenshots ---

@@ -272,6 +272,11 @@ Add `?time=HH:MM` to set the time of day.
   your default browser is used. Press OK in the small Map Explorer message when you're done, to stop it.
 - **"No free port between 51730 and 51749"**: other programs are using those ports; close them or
   restart your computer.
+- **Freezes or stutter**: press <kbd>F9</kbd> right after one to save a debug log (a `.json` file in
+  your downloads) and attach it to the issue. It records each freeze with whether the page or the
+  graphics process held it up, the slow WebGL calls and what was loading, alongside your GPU and
+  settings. With the console open (<kbd>F12</kbd>), freezes of 100 ms or more are written there as
+  they happen; `mapExplorerPerf.verbose = true` writes every log line too.
 
 ## For developers
 

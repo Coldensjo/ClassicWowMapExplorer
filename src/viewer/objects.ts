@@ -495,9 +495,12 @@ export class ObjectManager {
 		this.requests++;
 		for (const e of batch) e.state = 'loading';
 		try {
+			const start = performance.now();
 			const results = await this.storage.loadModels(batch.map((e) => ({ fdid: e.fdid, kind: e.kind, variant: e.variant })));
+			perf.log('model', `read ${batch.length} models in ${(performance.now() - start).toFixed(0)} ms (${this.queue.length} queued)`);
 			await Promise.all(batch.map((entry, i) => this.build(entry, results[i])));
 		} catch (e) {
+			perf.log('model', `batch of ${batch.length} failed: ${(e as Error).message}`);
 			console.warn('Model batch failed:', e);
 			for (const entry of batch) entry.state = 'failed';
 		} finally {
@@ -508,9 +511,11 @@ export class ObjectManager {
 	private async build(entry: ModelEntry, data: ModelData | null): Promise<void> {
 		// Some models are only their particles (instance portals: a hidden quad and the swirl).
 		if (!data || (data.batches.length === 0 && !data.emitters?.length)) {
+			perf.log('model', `${entry.kind} ${entry.fdid}: nothing to draw`);
 			entry.state = 'failed';
 			return;
 		}
+		const start = performance.now();
 		entry.textures = [...new Set([...data.batches.map((b) => b.material.texture), ...(data.emitters ?? []).map((e) => e.texture)].filter((t) => t))];
 		const textures = await this.textures.acquire(entry.textures);
 		entry.emitters = (data.emitters ?? []).flatMap((def) => {
@@ -554,6 +559,7 @@ export class ObjectManager {
 			geometry.boundsTree = MeshBVH.deserialize({ ...data.bvh, index: data.indices } as Parameters<typeof MeshBVH.deserialize>[0], geometry, { setIndex: false });
 		}
 		entry.liquids = (data.liquids ?? []).map((l) => ({ geometry: liquidGeometry(l.positions, l.indices), material: liquidMaterial(l.kind, l.type), type: l.type, mesh: null }));
+		const built = performance.now();
 		// Warm the instanced shader variants, which are what the model and its liquids will be drawn with.
 		const model = new THREE.InstancedMesh(geometry, entry.materials, 1);
 		// And its shadow's (see shadowStandIns); a skinned model's depth material is warmed below.
@@ -579,6 +585,7 @@ export class ObjectManager {
 			}
 		}
 		await Promise.all(warming);
+		perf.log('model', `${entry.kind} ${entry.fdid}: ready after ${(performance.now() - start).toFixed(0)} ms (textures and build ${(built - start).toFixed(0)}, shaders and upload ${(performance.now() - built).toFixed(0)}; ${entry.materials.length} materials, ${(data.indices.length / 3).toFixed(0)} triangles${skin ? ', animated' : ''}${entry.liquids.length ? `, ${entry.liquids.length} liquids` : ''})`);
 		entry.geometry = geometry;
 		entry.radius = data.radius;
 		entry.data = { ...data, positions: new Float32Array(0), normals: new Float32Array(0), uvs: new Float32Array(0), baked: null, indices: new Uint32Array(0), liquids: [], animation: undefined };

@@ -493,17 +493,26 @@ export class TerrainManager {
 	private async loadNear(t: TileState): Promise<void> {
 		t.nearLoading = true;
 		this.nearInFlight++;
+		const name = `${t.continent.name} ${t.x}_${t.y}`;
+		const start = performance.now();
+		perf.log('tile', `${name}: loading (${this.nearInFlight} in flight)`);
 		try {
 			const tile = await this.storage.loadNearTile(t.continent.wdt, t.x, t.y, this.compressed);
+			const read = performance.now();
 			const sharedTextures = tile.terrain?.textures ?? [];
 			const textures = await this.layerTextures.acquire(sharedTextures);
+			const textured = performance.now();
 			// The camera may have moved on while this loaded.
 			if (t.distance > NEAR_DROP_DISTANCE && !this.held?.has(t)) {
 				this.layerTextures.release(sharedTextures);
+				perf.log('tile', `${name}: left behind before it was shown`);
 				return;
 			}
 			const near = perf.time('near.build', () => this.buildNear(tile, textures, sharedTextures, t.originX, t.originZ));
+			const built = performance.now();
 			await this.prepare(near.object);
+			const ms = (from: number, to: number) => (to - from).toFixed(0);
+			perf.log('tile', `${name}: shown after ${ms(start, performance.now())} ms (read ${ms(start, read)}, ${sharedTextures.length} textures ${ms(read, textured)}, build ${ms(textured, built)}, shaders and upload ${ms(built, performance.now())}; ${tile.liquids.length} liquids)`);
 			t.near = near;
 			t.near.object.position.set(t.originX, 0, t.originZ);
 			t.near.object.updateMatrixWorld(true);
@@ -518,6 +527,7 @@ export class TerrainManager {
 			if (this.applySea(t)) this.sea!.texture.needsUpdate = true;
 			if (t.far) t.far.batch.setVisible(t.far.id, false);
 		} catch (e) {
+			perf.log('tile', `${name}: failed: ${(e as Error).message}`);
 			console.warn(`Tile ${t.continent.name} ${t.x}_${t.y}:`, e);
 			t.nearFailed = true;
 		} finally {
@@ -582,6 +592,7 @@ export class TerrainManager {
 
 	private dropNear(t: TileState): void {
 		if (!t.near) return;
+		perf.log('tile', `${t.continent.name} ${t.x}_${t.y}: dropped`);
 		const near = t.near;
 		this.group.remove(near.object);
 		for (const g of near.geometries) g.dispose();

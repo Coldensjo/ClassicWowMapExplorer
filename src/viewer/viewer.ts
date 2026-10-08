@@ -485,6 +485,7 @@ export class Viewer {
 		// Checking a new shader for errors asks the GPU process and waits for the answer, a stall
 		// for each one; while developing, the errors are worth it.
 		this.renderer.debug.checkShaderErrors = import.meta.env.DEV;
+		perf.watch(this.renderer);
 		this.camera = new THREE.PerspectiveCamera(60, 1, 0.5, 400000);
 		this.controls = new FlyControls(this.camera, canvas);
 		this.walker = new WalkControls(this.camera, canvas);
@@ -1591,6 +1592,7 @@ export class Viewer {
 	}
 
 	private tick(dt: number, now: number): void {
+		perf.frameStart(now, this.renderer.info.programs?.length ?? 0);
 		// The camera holds still while a screenshot is prepared.
 		if (!this.shot) {
 			if (this.walker.active) {
@@ -1686,7 +1688,6 @@ export class Viewer {
 		}
 		perf.record('drawCalls', this.renderer.info.render.calls);
 		perf.record('triangles', this.renderer.info.render.triangles);
-		perf.endFrame(now, this.renderer.info.programs?.length ?? 0);
 
 		this.frames++;
 		if (now - this.lastFpsTime > 500) {

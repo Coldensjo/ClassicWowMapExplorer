@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { perf } from './perf';
 import type { SunLight } from 'three/addons/lights/SunLight.js';
 import type { AsyncStorageApi } from '../worker/protocol';
 
@@ -372,6 +373,8 @@ export class PostPass {
 	 * for the shadow maps, which three draws without the scene's fog.
 	 */
 	async compileAsync(renderer: THREE.WebGLRenderer, object: THREE.Object3D, camera: THREE.Camera, scene: THREE.Scene, shadowPass = false): Promise<void> {
+		const start = performance.now();
+		const programsBefore = renderer.info.programs?.length ?? 0;
 		const previous = renderer.getRenderTarget();
 		const fog = scene.fog;
 		renderer.setRenderTarget(this.target);
@@ -384,7 +387,9 @@ export class PostPass {
 			renderer.setRenderTarget(previous);
 			scene.fog = fog;
 		}
+		const created = renderer.info.programs?.length ?? 0;
 		await compiled;
+		const ready = performance.now();
 		// A program's first use reads back its link status and uniforms: a round trip to the
 		// GPU process that waits for all the drawing queued before it, tens of ms mid-frame.
 		// Done now, between frames, there's less queued for it to wait on.
@@ -396,6 +401,11 @@ export class PostPass {
 		for (const material of materials) {
 			const program = (renderer.properties.get(material) as { currentProgram?: { getUniforms(): unknown } }).currentProgram;
 			program?.getUniforms();
+		}
+		// Logged only when it built programs or the read-back waited: most objects reuse programs built already.
+		const readBack = performance.now() - ready;
+		if (created > programsBefore || readBack > 4) {
+			perf.log('shader', `${shadowPass ? 'shadow ' : ''}compile of ${object.name || object.type}: ${created - programsBefore} new programs, ${materials.size} materials; ready after ${(ready - start).toFixed(0)} ms, first use ${readBack.toFixed(0)} ms`);
 		}
 	}
 

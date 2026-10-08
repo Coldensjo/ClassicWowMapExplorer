@@ -132,8 +132,10 @@ const SHOT_TIMEOUT = 180000;
 const LIQUID_PROBE = 400;
 /** Half-minutes a second that holding T moves the time of day (3 hours, a day in 8 seconds). */
 const TIME_RATE = 360;
-/** Yards; NPC names show within this distance, like the game's name plates. */
-const NAMEPLATE_RANGE = 45;
+/** Yards; NPC names show within this distance, small and unfaded far away. */
+const NAMEPLATE_RANGE = 400;
+/** Names kept per scan, nearest first, so the sight tests stay cheap with a long range. */
+const NAMEPLATE_MAX = 80;
 /** Yards; clicks further than this don't select anything. */
 const PICK_DISTANCE = 400;
 const TORCH_COLOR = 0xffa650;
@@ -1635,6 +1637,9 @@ export class Viewer {
 		if (now - this.lastPlateScan > 150) {
 			this.lastPlateScan = now;
 			this.objects.nameplates(this.camera.position, NAMEPLATE_RANGE, this.plates);
+				if (this.plates.length > NAMEPLATE_MAX) {
+					this.plates.sort((a, b) => a.distance - b.distance).length = NAMEPLATE_MAX;
+				}
 			// Like the game, only name NPCs you could actually see. Underground (caves, mines) the
 			// terrain surface is overhead, so only buildings count.
 			const cam = this.camera.position;
@@ -1648,7 +1653,7 @@ export class Viewer {
 			headPosition(p.matrix, p.height, p.position);
 			p.distance = p.position.distanceTo(this.camera.position);
 		}
-		this.nameplates.update(this.plates, this.camera, this.canvas.clientWidth, this.canvas.clientHeight, this.side, NAMEPLATE_RANGE);
+		this.nameplates.update(this.plates, this.camera, this.canvas.clientWidth, this.canvas.clientHeight, this.side);
 	}
 
 	/** Whether the ground rises above the straight line between two points (sampled every 1.5 yd). */

@@ -15,14 +15,14 @@ export interface Plate {
 	visible?: boolean;
 }
 
-const MAX_PLATES = 60;
+const MAX_PLATES = 80;
 /**
  * As in the game, names have a size in the world (yards of font size), so they shrink with
  * distance like everything else and are large up close; within these pixel sizes, so far
  * ones stay legible and near ones don't fill the screen.
  */
 const NAME_HEIGHT = 0.32;
-const NAME_MIN_PX = 7;
+const NAME_MIN_PX = 4;
 const NAME_MAX_PX = 72;
 
 /**
@@ -49,7 +49,7 @@ export class Nameplates {
 	}
 
 	/** Positions labels for the given plates; call every frame. */
-	update(plates: Plate[], camera: THREE.Camera, width: number, height: number, side: Side, range: number): void {
+	update(plates: Plate[], camera: THREE.Camera, width: number, height: number, side: Side): void {
 		// Nearest first, so the closest names win when there are many.
 		plates.sort((a, b) => a.distance - b.distance);
 		// Pixels a yard spans one yard from the camera: half the view's height over tan(half the field of view).
@@ -75,8 +75,6 @@ export class Nameplates {
 			const px = Math.min(NAME_MAX_PX, Math.max(NAME_MIN_PX, (NAME_HEIGHT * pixelsPerYard) / Math.max(plate.distance, 0.1)));
 			const size = `${Math.round(px * 2) / 2}px`;
 			if (el.style.fontSize !== size) el.style.fontSize = size;
-			// Fade out towards the edge of the range.
-			el.style.opacity = String(Math.min(1, (1 - plate.distance / range) * 4));
 			el.hidden = false;
 		}
 		for (let i = shown; i < this.pool.length; i++) this.pool[i].hidden = true;

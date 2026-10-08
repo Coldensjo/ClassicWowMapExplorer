@@ -15,6 +15,7 @@ import { isTyping } from './typing';
 import { loadUiAssets } from './uiAssets';
 import { FIXED_SPEED_DEFAULT, FIXED_SPEED_MAX, FIXED_SPEED_MIN, FLY_SPEED_RANGE, FLY_SPEED_STEP, Viewer, type HudInfo, type MeetingStone, type ViewSettings } from './viewer';
 import type { CharacterLook } from './character';
+import { FormPicker } from './formPicker';
 import { CHARACTER_OUTFITS, type CharacterOutfit, type CharacterRace } from '../explorer/spawns';
 
 import { setVolume, volumeSetting, type VolumeChannel } from './volume';
@@ -700,7 +701,7 @@ void labelKeys();
 
 const WALK_KEY = 'mapExplorer.walker';
 
-/** The Travel menu's switch between flying and walking, and who walks: race, sex, model, outfit and look, remembered. */
+/** The Travel menu's switch between flying and walking, and the travel form that walks: race, sex, model, outfit and look, remembered. */
 function setUpWalking(viewer: Viewer): void {
 	const race = $<HTMLSelectElement>('walk-race');
 	const sex = $<HTMLSelectElement>('walk-sex');
@@ -751,6 +752,7 @@ function setUpWalking(viewer: Viewer): void {
 	};
 	viewer.characterRaces().then((list) => {
 		races = list;
+		picker.setRaces(list);
 		race.replaceChildren(...list.map((r) => new Option(r.name, String(r.race))));
 		apply({});
 	}, (e) => {
@@ -763,6 +765,20 @@ function setUpWalking(viewer: Viewer): void {
 	outfit.addEventListener('change', () => {
 		const chosen = (outfit.value || null) as CharacterOutfit | null;
 		apply({ outfit: chosen, race: chosen ? CHARACTER_OUTFITS[chosen].race : look.race });
+	});
+	const picker = new FormPicker({
+		root: $('forms'),
+		grid: $('forms-grid'),
+		count: $('forms-count'),
+		race: $<HTMLSelectElement>('forms-race'),
+		sex: $<HTMLSelectElement>('forms-sex'),
+		model: $<HTMLSelectElement>('forms-model'),
+		zoom: $<HTMLInputElement>('forms-zoom'),
+		close: $<HTMLButtonElement>('forms-close'),
+	}, () => viewer.portraits(), (chosen) => apply(chosen));
+	$('forms-open').addEventListener('click', () => {
+		($('travel') as HTMLDetailsElement).open = false;
+		picker.open(look);
 	});
 	$('walk-look-prev').addEventListener('click', () => apply({ look: look.outfit ? look.look : look.look - 1, outfit: null }));
 	$('walk-look-next').addEventListener('click', () => apply({ look: look.outfit ? look.look : look.look + 1, outfit: null }));

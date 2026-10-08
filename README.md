@@ -149,8 +149,9 @@ onto the page: the browser's folder dialog may leave out the hidden `.build.info
 - Rain, snow and sandstorms from each zone's seasonal chances, with the game's weather sounds
 - The game's world map, its explored parts filled in as you fly over them, with a click to go anywhere
 - A minimap from the game's own map images, and a search to go to any zone, town or map
-- Walking: a character of any race the install has models for, dressed as one of its NPCs, run,
-  jumped and swum around the world as in the game, with a camera that follows behind
+- Walking: a travel form of any race the install has models for, dressed as one of its NPCs (picked
+  from pictures of every look, to scroll through and zoom), run, jumped and swum around the world as
+  in the game, with a camera that follows behind
 
 ## Controls
 

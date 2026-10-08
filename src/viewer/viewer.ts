@@ -9,6 +9,7 @@ import type { WmoArea } from '../explorer/music';
 import type { Place } from '../explorer/places';
 import type { SpawnInfo } from '../explorer/spawns';
 import { Character, type CharacterLook } from './character';
+import { Portraits } from './portraits';
 import type { CharacterRace } from '../explorer/spawns';
 import { FlyControls } from './flyControls';
 import { Footsteps } from './footsteps';
@@ -350,6 +351,7 @@ export class Viewer {
 	private character: Character | null = null;
 	/** Who walks: race, sex, model and look (the default a Stormwind City Guard on the classic model). */
 	private characterLook: CharacterLook = { race: 1, sex: 0, hd: false, look: 0, outfit: 'guard' };
+	private portraitRenderer: Portraits | null = null;
 	/** Whether the character has been dressed as characterLook yet (it is when first needed). */
 	private dressed: Promise<number> | null = null;
 	private terrain!: TerrainManager;
@@ -653,6 +655,12 @@ export class Viewer {
 	/** The races the character can be, with how many looks each sex has (classic and HD). */
 	characterRaces(): Promise<CharacterRace[]> {
 		return this.storage.characterRaces();
+	}
+
+	/** Pictures of travel forms for the picker, drawn on a renderer of their own made when first wanted. */
+	portraits(): Portraits {
+		this.portraitRenderer ??= new Portraits(this.storage);
+		return this.portraitRenderer;
 	}
 
 	/** Who walks: race, sex, model and look. */

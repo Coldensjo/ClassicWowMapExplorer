@@ -638,6 +638,13 @@ export class ObjectManager {
 		return !this.hiddenKinds.has(kind);
 	}
 
+	/** The buildings' meshes among the group's children (not their liquids), which hide what's behind them. */
+	buildingMeshes(): Set<THREE.Object3D> {
+		const meshes = new Set<THREE.Object3D>();
+		for (const entry of this.models.values()) if (entry.kind === 'wmo' && entry.mesh) meshes.add(entry.mesh);
+		return meshes;
+	}
+
 	/** Models and tiles' placements still to load. */
 	get pending(): number {
 		let n = this.queue.length + this.requests;

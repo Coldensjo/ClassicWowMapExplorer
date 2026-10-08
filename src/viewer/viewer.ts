@@ -31,6 +31,7 @@ import { headPosition, ObjectManager } from './objects';
 import { perf } from './perf';
 import { TerrainManager, type ContinentPlacement } from './terrain';
 import { GroundDistancePass } from './groundDistance';
+import { ViewOcclusion } from './occlusion';
 import { UploadQueue } from './gpuUploads';
 import { PostPass, type FogSettings } from './post';
 import { commonShadowStandIns, installShadowGroups, setShadowLight, shadowStandIns } from './shadows';
@@ -455,6 +456,8 @@ export class Viewer {
 	private readonly post: PostPass;
 	private readonly uploads: UploadQueue;
 	private readonly terrainShadow: TerrainShadowPass;
+	/** What the ground and buildings hide from a screenshot's view; made with the first screenshot. */
+	private occlusion: ViewOcclusion | null = null;
 	/**
 	 * A screenshot being prepared (P): when it started, how many tiles are held for it, since
 	 * when nothing has been left to load, and the view it's taken from (the camera stays put).
@@ -1705,7 +1708,10 @@ export class Viewer {
 	 */
 	private startShot(): void {
 		if (this.controls.locked) document.exitPointerLock();
-		const tiles = this.terrain.holdInView(this.camera, SHOT_TILES);
+		// Only the tiles that can be seen: not those behind a hill, or above a cave from inside it.
+		this.occlusion ??= new ViewOcclusion(this.renderer);
+		this.occlusion.render(this.renderer, this.camera, this.terrain.group, this.objects.group, this.objects.buildingMeshes());
+		const tiles = this.terrain.holdInView(this.camera, SHOT_TILES, (box) => this.occlusion!.inView(box));
 		this.objects.unlimited = true;
 		this.clutter.holdInView(this.camera);
 		this.shot = { started: performance.now(), tiles, readySince: 0, position: this.camera.position.clone(), yaw: this.controls.yaw, pitch: this.controls.pitch };

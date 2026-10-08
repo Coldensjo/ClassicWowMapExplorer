@@ -20,6 +20,8 @@ const NEAR_DROP_DISTANCE = 1400;
 const MAX_NEAR_IN_FLIGHT = 3;
 /** Buildings show out to this distance; scattered doodads only on full-detail tiles. */
 const WMO_DISTANCE = 3000;
+/** Yards above a tile's highest ground that its trees and buildings may reach, for a screenshot's view (see holdInView). */
+const HELD_OBJECT_HEIGHT = 60;
 const FAR_TEXTURE_SIZE = 128;
 const FAR_TEXTURE_BATCH = 32;
 
@@ -430,10 +432,11 @@ export class TerrainManager {
 
 	/**
 	 * For a screenshot: holds the tiles in the camera's view at full detail, with all their
-	 * objects, whatever their distance; the nearest `max` of them. Null lets them go again.
-	 * Returns how many tiles are held.
+	 * objects, whatever their distance; the nearest `max` of them. seen, when given, leaves out
+	 * tiles hidden behind the ground or buildings (from a cave, all the land overhead). Null lets
+	 * them go again. Returns how many tiles are held.
 	 */
-	holdInView(camera: THREE.Camera | null, max = Infinity): number {
+	holdInView(camera: THREE.Camera | null, max = Infinity, seen?: (box: THREE.Box3) => boolean): number {
 		if (!camera) {
 			this.held = null;
 			return 0;
@@ -448,6 +451,9 @@ export class TerrainManager {
 			box.min.set(t.originX, -1000, t.originZ);
 			box.max.set(t.originX + TILE_SIZE, Math.min(t.maxHeight, 5000), t.originZ + TILE_SIZE);
 			if (!frustum.intersectsBox(box)) continue;
+			// Raised for the trees and buildings standing on it, which can show over a ridge in front.
+			box.max.y += HELD_OBJECT_HEIGHT;
+			if (seen && !seen(box)) continue;
 			t.distance = Math.hypot(this.planarDistance(t, at), Math.max(0, at.y - t.maxHeight));
 			inView.push(t);
 		}

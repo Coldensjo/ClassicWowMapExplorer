@@ -1006,6 +1006,7 @@ function matchScore(key: string, query: string): number {
  * no way in from the world). Empty, it lists the maps by kind, as a way in to all of them.
  */
 async function setUpGoTo(viewer: Viewer): Promise<void> {
+	const menu = $<HTMLDetailsElement>('goto');
 	const input = $<HTMLInputElement>('goto-query');
 	const list = $('goto-results');
 	const [maps, places] = await Promise.all([
@@ -1041,7 +1042,7 @@ async function setUpGoTo(viewer: Viewer): Promise<void> {
 		sub.className = 'sub';
 		sub.textContent = d.sub;
 		li.append(name, sub);
-		// Before the box loses focus, which closes the list.
+		// Before the box loses focus.
 		li.addEventListener('mousedown', (e) => {
 			e.preventDefault();
 			void pick(d);
@@ -1084,24 +1085,34 @@ async function setUpGoTo(viewer: Viewer): Promise<void> {
 			if (!matches.length) rows.push(note('Nothing by that name', 'empty'));
 		}
 		list.replaceChildren(...rows);
-		list.hidden = false;
 		input.setAttribute('aria-expanded', 'true');
 		setActive(query && shown.length ? 0 : -1);
 	};
-	const close = () => {
-		list.hidden = true;
-		input.setAttribute('aria-expanded', 'false');
-		input.value = '';
-		setActive(-1);
-	};
 	const pick = async (d: Destination) => {
-		input.blur();
+		menu.open = false;
 		if (!(await d.go())) notify(`${d.name} isn’t in this install`);
 	};
 
-	input.addEventListener('focus', render);
+	// Opened, the box is ready to type in, listing every map; closed, it starts afresh.
+	menu.addEventListener('toggle', () => {
+		if (menu.open) {
+			render();
+			input.focus();
+		} else {
+			input.blur();
+			input.value = '';
+			input.setAttribute('aria-expanded', 'false');
+			setActive(-1);
+		}
+	});
+	// Ready for keys as soon as it's clicked, not after the toggle event, or the first few fly the camera.
+	menu.querySelector('summary')!.addEventListener('click', (e) => {
+		if (menu.open) return;
+		e.preventDefault();
+		menu.open = true;
+		input.focus();
+	});
 	input.addEventListener('input', render);
-	input.addEventListener('blur', close);
 	input.addEventListener('keydown', (e) => {
 		if (e.code === 'ArrowDown' || e.code === 'ArrowUp') {
 			e.preventDefault();
@@ -1109,12 +1120,15 @@ async function setUpGoTo(viewer: Viewer): Promise<void> {
 		} else if (e.code === 'Enter') {
 			const d = shown[Math.max(active, 0)];
 			if (d) void pick(d);
+		} else if (e.code === 'Escape') {
+			menu.open = false;
 		}
 	});
 	window.addEventListener('keydown', (e) => {
 		if (e.key !== '/' || isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
 		e.preventDefault();
 		if (document.pointerLockElement) document.exitPointerLock();
+		menu.open = true;
 		input.focus();
 	});
 }

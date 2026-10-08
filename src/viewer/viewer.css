@@ -640,12 +640,16 @@ kbd {
 	border-color: var(--accent);
 }
 
-/* Go to: a search box at the right of the menu bar, with the matches dropping down under it. */
+/* Go to: the last menu, at the right, its panel a search box with the matches under it. */
 #goto {
-	position: relative;
 	margin-left: auto;
-	margin-right: 6px;
-	width: min(280px, 30vw);
+}
+
+#goto .menu-body {
+	left: auto;
+	right: 0;
+	width: 320px;
+	padding: 8px;
 }
 
 #goto-query {
@@ -656,7 +660,7 @@ kbd {
 	background: #1b1f25;
 	border: 1px solid var(--line);
 	border-radius: 4px;
-	padding: 4px 26px 4px 8px;
+	padding: 4px 8px;
 }
 
 #goto-query:focus {
@@ -664,28 +668,10 @@ kbd {
 	border-color: var(--accent);
 }
 
-.goto-key {
-	position: absolute;
-	right: 6px;
-	top: 50%;
-	transform: translateY(-50%);
-	pointer-events: none;
-}
-
-#goto:focus-within .goto-key {
-	display: none;
-}
-
 #goto-results {
-	position: absolute;
-	top: calc(100% + 6px);
-	right: 0;
-	width: max(100%, 320px);
 	list-style: none;
-	margin: 0;
-	padding: 6px;
-	background: var(--panel);
-	border-radius: 6px;
+	margin: 6px 0 0;
+	padding: 0;
 	max-height: min(360px, 45vh);
 	overflow-y: auto;
 	font-size: 13px;
@@ -1164,7 +1150,7 @@ body.wow-ui {
 }
 
 /* Tooltip backdrop: 16-unit edges, the dark blue fill inset under them. */
-.wow-ui :is(#menu, #hud, #goto-results, #info, .panel, #notice, #shot-status, #game-updated) {
+.wow-ui :is(#menu, #hud, #info, .panel, #notice, #shot-status, #game-updated) {
 	border: 5px solid transparent;
 	border-radius: 6px;
 	border-image: var(--wow-tooltip-border) 16 / 16px / 0 round;

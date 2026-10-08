@@ -233,11 +233,13 @@
 				<div id="highlight-status" class="muted small" aria-live="polite"></div>
 			</div>
 		</details>
-		<div id="goto">
-			<input id="goto-query" type="search" placeholder="Go to a zone, town or map…" autocomplete="off" spellcheck="false" aria-label="Go to a zone, town or map" aria-controls="goto-results" aria-expanded="false" role="combobox">
-			<kbd class="goto-key" aria-hidden="true">/</kbd>
-			<ul id="goto-results" role="listbox" hidden></ul>
-		</div>
+		<details id="goto" name="menu">
+			<summary title="A zone, town, dungeon or any map (/)">Go to</summary>
+			<div class="menu-body panel">
+				<input id="goto-query" type="search" placeholder="A zone, town or map…" autocomplete="off" spellcheck="false" aria-label="Go to a zone, town or map" aria-controls="goto-results" aria-expanded="false" role="combobox">
+				<ul id="goto-results" role="listbox"></ul>
+			</div>
+		</details>
 		<button id="help-hint" class="plain"><kbd>?</kbd> Controls</button>
 	</nav>
 

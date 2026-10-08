@@ -397,6 +397,12 @@ export class Viewer {
 	private torchOn = true;
 	/** The sun and moon cast shadows (X); see setShadows. */
 	private shadowsOn = true;
+	/**
+	 * Whether the shadow maps have been drawn yet. They're drawn once even with shadows off:
+	 * the shaders still read them (see setShadows), and until they exist three binds a stand-in
+	 * of the wrong kind, which the GPU refuses to draw with (GL_INVALID_OPERATION).
+	 */
+	private shadowMapsDrawn = false;
 	/** Whose eyes name colours are seen through (F toggles). */
 	private side: Side = 'alliance';
 	private readonly nameplates: Nameplates | null;
@@ -1693,7 +1699,8 @@ export class Viewer {
 		if (!this.underwater) perf.time('groundDistance', () => this.groundPass.render(this.renderer, this.terrain.group, this.camera));
 		// Mountains' shadows past the shadow maps' reach.
 		perf.time('terrainShadow', () => this.terrainShadow.update(this.renderer, this.terrain.group, pos, this.controls.altitude, this.sun.position, this.sun.shadow.camera.far, this.shadowsOn ? this.shadowStrength : 0, now));
-		this.renderer.shadowMap.needsUpdate = this.shadowsOn && (this.shadowFrame++ & 1) === 0;
+		this.renderer.shadowMap.needsUpdate = (this.shadowsOn || !this.shadowMapsDrawn) && (this.shadowFrame++ & 1) === 0;
+		if (this.renderer.shadowMap.needsUpdate) this.shadowMapsDrawn = true;
 		perf.time('render', () => this.post.render(this.renderer, this.scene, this.camera));
 		if (this.shot) this.updateShot(now);
 		perf.time('nameplates', () => this.updateNameplates(now));

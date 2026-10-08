@@ -42,7 +42,7 @@
 		</div>
 	</div>
 
-	<!-- Along the top: the menus, each dropping down below its name, and the controls list at the right. -->
+	<!-- Along the top: the menus, each dropping down below its name, and Go to and the controls list at the right. -->
 	<nav id="menu" aria-label="Settings" hidden>
 		<details id="view-panel" name="menu">
 			<summary>View</summary>
@@ -233,6 +233,11 @@
 				<div id="highlight-status" class="muted small" aria-live="polite"></div>
 			</div>
 		</details>
+		<div id="goto">
+			<input id="goto-query" type="search" placeholder="Go to a zone, town or map…" autocomplete="off" spellcheck="false" aria-label="Go to a zone, town or map" aria-controls="goto-results" aria-expanded="false" role="combobox">
+			<kbd class="goto-key" aria-hidden="true">/</kbd>
+			<ul id="goto-results" role="listbox" hidden></ul>
+		</div>
 		<button id="help-hint" class="plain"><kbd>?</kbd> Controls</button>
 	</nav>
 
@@ -249,7 +254,7 @@
 	<div id="nameplates" aria-hidden="true"></div>
 	<div id="crosshair" hidden></div>
 
-	<!-- Right: the minimap and Go to, then what was clicked. -->
+	<!-- Right: the minimap, then what was clicked. -->
 	<div id="side" hidden>
 		<div id="minimap-wrap">
 			<canvas id="minimap" title="Click to fly there · wheel to zoom"></canvas>
@@ -261,12 +266,6 @@
 				<button id="minimap-in" title="Zoom in" aria-label="Zoom the minimap in">+</button>
 				<button id="minimap-out" title="Zoom out" aria-label="Zoom the minimap out">−</button>
 			</div>
-		</div>
-
-		<div id="goto">
-			<input id="goto-query" type="search" placeholder="Go to a zone, town or map…" autocomplete="off" spellcheck="false" aria-label="Go to a zone, town or map" aria-controls="goto-results" aria-expanded="false" role="combobox">
-			<kbd class="goto-key" aria-hidden="true">/</kbd>
-			<ul id="goto-results" role="listbox" hidden></ul>
 		</div>
 
 		<aside id="info" hidden aria-live="polite">

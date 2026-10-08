@@ -200,6 +200,12 @@ export interface M2Options {
 	defaultGeosets?: boolean;
 	/** Explicit geosets (group * 100 + variant) that replace the default for their group. */
 	geosets?: number[];
+	/**
+	 * With defaultGeosets, a group with no variant 1 shows its lowest one instead, and group 0 its
+	 * only one besides the body: creature models, which choose no geosets, and whose only hands
+	 * or boots may be 403 or 504 (the Bloodsail pirates, ogre warlords).
+	 */
+	lowestVariant?: boolean;
 	/** Pose the mesh with the first frame of its Stand animation instead of the bind pose. */
 	stand?: boolean;
 	/**
@@ -336,6 +342,19 @@ const EYE_GLOW = 17;
 function dressM2(prepared: PreparedM2, options: M2Options) {
 	const { m2, skin } = prepared;
 	const batches: ModelBatch[] = [];
+	// Each group's lowest variant (group 0's besides the body), for creatures, which choose none.
+	// Group 0 counts only when it has just the one: several are hairstyles to choose from.
+	const lowest = new Map<number, number>();
+	if (options.lowestVariant) {
+		const hair = new Set<number>();
+		for (const b of skin.batches) {
+			if (!b.geoset) continue;
+			const group = Math.floor(b.geoset / 100);
+			if (group === 0) hair.add(b.geoset);
+			lowest.set(group, Math.min(lowest.get(group) ?? 99, b.geoset % 100));
+		}
+		if (hair.size > 1) lowest.delete(0);
+	}
 	skin.batches.forEach((b, i) => {
 		const material = m2.materials[b.materialIndex] ?? { flags: 0, blend: 0 };
 		const texture = m2.textures[m2.textureCombos[b.textureComboIndex] ?? -1];
@@ -351,6 +370,8 @@ function dressM2(prepared: PreparedM2, options: M2Options) {
 			const chosen = options.geosets?.find((g) => Math.floor(g / 100) === group && (group !== 0 || g !== 0));
 			if (chosen !== undefined) {
 				if (b.geoset !== chosen) return;
+			} else if (options.lowestVariant && group !== EYE_GLOW && (lowest.get(group) ?? 0) > (group === 0 ? 0 : 1)) {
+				if (b.geoset % 100 !== lowest.get(group)) return;
 			} else if (group === 0 || group === EYE_GLOW || b.geoset % 100 !== (group === 32 ? 2 : 1)) {
 				return;
 			}

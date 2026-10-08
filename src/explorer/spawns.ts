@@ -333,7 +333,7 @@ export class DisplayResolver {
 			return { fdid, options: { textures: { 1: bake, 6: hair, ...eyes, ...cape }, geosets, attachments, defaultGeosets: true, stand: true } };
 		}
 		const skins = [0, 1, 2].map((k) => creatureDisplay.getInt(displayId, 27, k) ?? 0);
-		return { fdid, options: { textures: { 11: skins[0], 12: skins[1], 13: skins[2] }, attachments: held, defaultGeosets: true, stand: true } };
+		return { fdid, options: { textures: { 11: skins[0], 12: skins[1], 13: skins[2] }, attachments: held, defaultGeosets: true, lowestVariant: true, stand: true } };
 	}
 
 	private itemTables: Promise<{ items: Db2; byResource: Map<number, number[]>; components: Db2; materials: Map<number, number>; helmetHides: Map<number, [number, number][]> }> | null = null;

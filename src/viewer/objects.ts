@@ -569,8 +569,9 @@ export class ObjectManager {
 		const warming = [this.prepare(warm)];
 		if (entry.depthMaterial) {
 			// The shadow pass draws the depth material with each batch's texture and alpha test,
-			// flipped to the faces away from the sun (WebGLShadowMap's getDepthMaterial).
-			const depth = entry.depthMaterial as THREE.MeshDepthMaterial;
+			// flipped to the faces away from the sun (WebGLShadowMap's getDepthMaterial). Each in a
+			// material of its own: prepare compiles in turn, later, so one changed between calls
+			// would only ever be compiled as it was left.
 			const variants = new Set<string>();
 			for (const m of entry.materials) {
 				const map = (m as THREE.MeshLambertMaterial).map ?? null;
@@ -578,6 +579,7 @@ export class ObjectManager {
 				const variant = `${!!map} ${m.alphaTest > 0} ${side}`;
 				if (variants.has(variant)) continue;
 				variants.add(variant);
+				const depth = createSkinnedDepthMaterial(skin!);
 				depth.map = map;
 				depth.alphaTest = m.alphaTest;
 				depth.side = side;

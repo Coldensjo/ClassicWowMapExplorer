@@ -1000,11 +1000,12 @@ export class Viewer {
 		// With them, what the first detailed tiles and models will need: the shadows' depth shaders
 		// and the ground-distance and mountain-shadow passes' for detailed tiles.
 		await Promise.all([
-			this.post.compileAsync(this.renderer, this.scene, this.camera, this.scene),
-			...commonShadowStandIns().map((o) => this.post.compileAsync(this.renderer, o, this.camera, this.scene, true)),
+			// Not in turn (see PostPass.compileAsync): behind the loading screen, all at once is quickest.
+			this.post.compileAsync(this.renderer, this.scene, this.camera, this.scene, false, false),
+			...commonShadowStandIns().map((o) => this.post.compileAsync(this.renderer, o, this.camera, this.scene, true, false)),
 			this.groundPass.warm(this.renderer),
 			this.terrainShadow.warm(this.renderer),
-			this.post.compileAsync(this.renderer, liquidBelowStandIns(), this.camera, this.scene),
+			this.post.compileAsync(this.renderer, liquidBelowStandIns(), this.camera, this.scene, false, false),
 		]);
 		// One frame drawn behind the loading screen compiles the rest: the shadow, ground-distance
 		// and full-screen passes, which draw with shaders of their own.

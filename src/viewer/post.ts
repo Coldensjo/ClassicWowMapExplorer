@@ -306,6 +306,8 @@ export class PostPass {
 	private fogEnabled = true;
 	private fogWanted = true;
 	private sun: SunLight | null = null;
+	/** The compile under way: compiles go one at a time (see compileAsync). */
+	private compiling: Promise<void> = Promise.resolve();
 
 	constructor(renderer: THREE.WebGLRenderer, storage: AsyncStorageApi) {
 		this.grading = new ColorGrading(storage);
@@ -371,8 +373,24 @@ export class PostPass {
 	 * must be warmed with this target set; warmed for the screen, the real one is compiled anyway
 	 * on first draw, stalling that frame. shadowPass: the object's materials are depth materials
 	 * for the shadow maps, which three draws without the scene's fog.
+	 *
+	 * One object at a time, each started once the one before is ready and read back: a burst of
+	 * models arriving together built a dozen shaders at once, and any wait on the GPU process
+	 * (this read-back, or a first draw) then waited for all of them, over a second where the GPU
+	 * process is slow at it. The object is compiled as it is when its turn comes. inTurn false
+	 * skips the queue: for what's built behind the loading screen, where the waits don't show,
+	 * and taken in turn, three's checks for each being ready (timers, slowed to once a second
+	 * in a window in the background) made loading there take many times as long.
 	 */
-	async compileAsync(renderer: THREE.WebGLRenderer, object: THREE.Object3D, camera: THREE.Camera, scene: THREE.Scene, shadowPass = false): Promise<void> {
+	compileAsync(renderer: THREE.WebGLRenderer, object: THREE.Object3D, camera: THREE.Camera, scene: THREE.Scene, shadowPass = false, inTurn = true): Promise<void> {
+		const queued = performance.now();
+		if (!inTurn) return this.compileNow(renderer, object, camera, scene, shadowPass, queued);
+		const run = this.compiling.then(() => this.compileNow(renderer, object, camera, scene, shadowPass, queued));
+		this.compiling = run.catch(() => {});
+		return run;
+	}
+
+	private async compileNow(renderer: THREE.WebGLRenderer, object: THREE.Object3D, camera: THREE.Camera, scene: THREE.Scene, shadowPass: boolean, queued: number): Promise<void> {
 		const start = performance.now();
 		const programsBefore = renderer.info.programs?.length ?? 0;
 		const previous = renderer.getRenderTarget();
@@ -405,7 +423,7 @@ export class PostPass {
 		// Logged only when it built programs or the read-back waited: most objects reuse programs built already.
 		const readBack = performance.now() - ready;
 		if (created > programsBefore || readBack > 4) {
-			perf.log('shader', `${shadowPass ? 'shadow ' : ''}compile of ${object.name || object.type}: ${created - programsBefore} new programs, ${materials.size} materials; ready after ${(ready - start).toFixed(0)} ms, first use ${readBack.toFixed(0)} ms`);
+			perf.log('shader', `${shadowPass ? 'shadow ' : ''}compile of ${object.name || object.type}: ${created - programsBefore} new programs, ${materials.size} materials; queued ${(start - queued).toFixed(0)} ms, ready after ${(ready - start).toFixed(0)} ms, first use ${readBack.toFixed(0)} ms`);
 		}
 	}
 

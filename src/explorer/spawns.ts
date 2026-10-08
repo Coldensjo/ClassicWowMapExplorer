@@ -329,7 +329,8 @@ export class DisplayResolver {
 				const hairSet = (await this.hairTextures())[race];
 				hair = hairSet?.[looks.hairColor] ?? hairSet?.[0] ?? 0;
 			}
-			return { fdid, options: { textures: { 1: bake, 6: hair, ...cape }, geosets, attachments, defaultGeosets: true, stand: true } };
+			const eyes: Record<number, number> = looks.hdEyes ? { 19: looks.hdEyes } : {};
+			return { fdid, options: { textures: { 1: bake, 6: hair, ...eyes, ...cape }, geosets, attachments, defaultGeosets: true, stand: true } };
 		}
 		const skins = [0, 1, 2].map((k) => creatureDisplay.getInt(displayId, 27, k) ?? 0);
 		return { fdid, options: { textures: { 11: skins[0], 12: skins[1], 13: skins[2] }, attachments: held, defaultGeosets: true, stand: true } };
@@ -538,9 +539,10 @@ export class DisplayResolver {
 	/**
 	 * An NPC's appearance choices (CreatureDisplayInfoOption -> ChrCustomizationChoice ->
 	 * ChrCustomizationElement): the geosets they turn on (group * 100 + variant: hairstyle,
-	 * facial hair, ears, ...) and the hair and skin colours' indices in their options.
+	 * facial hair, ears, ...), the hair and skin colours' indices in their options, and the HD
+	 * models' hair and eye textures.
 	 */
-	private async customization(extra: number): Promise<{ geosets: number[]; hairColor: number; skinColor: number; hdHair: number }> {
+	private async customization(extra: number): Promise<{ geosets: number[]; hairColor: number; skinColor: number; hdHair: number; hdEyes: number }> {
 		const [{ optionsByExtra, elementsByChoice, element, geoset, choice, option, material }, { materials }] = await Promise.all([this.loadCustomization(), this.load()]);
 		const picks = optionsByExtra.get(extra) ?? [];
 		const chosen = new Set(picks.map(([, c]) => c));
@@ -548,6 +550,7 @@ export class DisplayResolver {
 		let hairColor = 0;
 		let skinColor = 0;
 		let hdHair = 0;
+		let hdEyes = 0;
 		for (const [optionId, choiceId] of picks) {
 			// Choice field 5 is its order within the option, which matches the old colour index.
 			const optionName = option.getString(optionId, 0);
@@ -562,12 +565,16 @@ export class DisplayResolver {
 				if (optionName === 'Hair Style' && related && material.has(materialId)) {
 					hdHair = materials.get(material.getInt(materialId, 1) ?? 0) ?? hdHair;
 				}
+				// And the eye colour's is the eyeballs' texture.
+				if (optionName === 'Eye Color' && material.has(materialId)) {
+					hdEyes = materials.get(material.getInt(materialId, 1) ?? 0) ?? hdEyes;
+				}
 				const geosetId = element.getInt(e, 2) ?? 0;
 				if (!geosetId || !geoset.has(geosetId)) continue;
 				geosets.push((geoset.getInt(geosetId, 0) ?? 0) * 100 + (geoset.getInt(geosetId, 1) ?? 0));
 			}
 		}
-		return { geosets, hairColor, skinColor, hdHair };
+		return { geosets, hairColor, skinColor, hdHair, hdEyes };
 	}
 
 	private hair: Promise<Record<number, number[]>> | null = null;

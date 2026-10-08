@@ -395,6 +395,8 @@ export class Viewer {
 	/** Warm light carried with the camera, like holding a torch (L toggles it). */
 	private readonly torch = new THREE.PointLight(TORCH_COLOR, 0, TORCH_RANGE, 2);
 	private torchOn = true;
+	/** The sun and moon cast shadows (X); see setShadows. */
+	private shadowsOn = true;
 	/** Whose eyes name colours are seen through (F toggles). */
 	private side: Side = 'alliance';
 	private readonly nameplates: Nameplates | null;
@@ -584,13 +586,23 @@ export class Viewer {
 	}
 
 	/**
-	 * Adds or removes the torch. Off removes the light rather than dimming it, so shaders skip
-	 * it entirely; three.js recompiles them for the new light count, which measured as no hitch.
+	 * Turns the torch on or off. Off only puts it out (see tick): taking the light away changed
+	 * the number of lights every shader is built for, so three built them all again, those in
+	 * view at once and the rest as each came back into view, freezing the view for seconds.
 	 */
 	private setTorch(on: boolean): void {
 		this.torchOn = on;
-		if (on) this.camera.add(this.torch);
-		else this.camera.remove(this.torch);
+	}
+
+	/**
+	 * Turns the sun's and moon's shadows on or off. Off stops drawing the shadow maps and fades
+	 * the shadows out, but the sun still casts them as far as three is concerned: whether a light
+	 * casts shadows is part of every shader too (see setTorch).
+	 */
+	private setShadows(on: boolean): void {
+		this.shadowsOn = on;
+		this.post.setShadowLight(on ? this.sun : null);
+		this.sun.shadow.intensity = on ? SHADOW_INTENSITY * this.shadowStrength : 0;
 	}
 
 	/** What to highlight on the ground (chests, herbs, ore, fishing pools, names). */
@@ -785,7 +797,7 @@ export class Viewer {
 			mapNames: this.mapLabels?.enabled ?? false,
 			cinematic: this.controls.cinematic,
 			grading: this.post.gradingOn,
-			shadows: this.sun.castShadow,
+			shadows: this.shadowsOn,
 			fog: this.post.fogOn,
 			clearView: this.clearView,
 			creatures: this.objects?.kindShown('creature') ?? true,
@@ -800,7 +812,8 @@ export class Viewer {
 
 	/** Applies any of the settings; the clutter's needs load() to have run. */
 	set settings(next: Partial<ViewSettings>) {
-		if (next.torch !== undefined && next.torch !== this.torchOn) this.setTorch(next.torch);
+		perf.log('setting', JSON.stringify(next));
+		if (next.torch !== undefined) this.setTorch(next.torch);
 		if (next.clutter !== undefined && this.clutter) this.clutter.enabled = next.clutter;
 		if (typeof next.clutterRange === 'number' && next.clutterRange > 0 && this.clutter) this.clutter.range = next.clutterRange;
 		if (typeof next.detailRange === 'number' && next.detailRange > 0 && this.objects) this.objects.detailRange = next.detailRange;
@@ -815,7 +828,7 @@ export class Viewer {
 		if (next.mapNames !== undefined && this.mapLabels) this.mapLabels.enabled = next.mapNames;
 		if (next.cinematic !== undefined) this.controls.cinematic = next.cinematic;
 		if (next.grading !== undefined) this.post.gradingOn = next.grading;
-		if (next.shadows !== undefined) this.sun.castShadow = next.shadows;
+		if (next.shadows !== undefined) this.setShadows(next.shadows);
 		if (next.fog !== undefined) this.post.fogOn = next.fog;
 		if (next.clearView !== undefined) this.clearView = next.clearView;
 		if (next.creatures !== undefined) this.objects?.setKindShown('creature', next.creatures);
@@ -1664,7 +1677,7 @@ export class Viewer {
 		this.sky.mesh.position.copy(pos);
 		// A few out-of-phase sines give the flame's flicker.
 		const s = now / 1000;
-		this.torch.intensity = TORCH_INTENSITY * (1 + 0.06 * Math.sin(s * 11.3) + 0.04 * Math.sin(s * 23.7 + 1.3) + 0.03 * Math.sin(s * 5.1 + 0.4));
+		this.torch.intensity = !this.torchOn ? 0 : TORCH_INTENSITY * (1 + 0.06 * Math.sin(s * 11.3) + 0.04 * Math.sin(s * 23.7 + 1.3) + 0.03 * Math.sin(s * 5.1 + 0.4));
 
 		if (now - this.lastLodUpdate > 200) {
 			this.lastLodUpdate = now;
@@ -1678,8 +1691,8 @@ export class Viewer {
 		// Under water the surface is seen from below, where its depth isn't used.
 		if (!this.underwater) perf.time('groundDistance', () => this.groundPass.render(this.renderer, this.terrain.group, this.camera));
 		// Mountains' shadows past the shadow maps' reach.
-		perf.time('terrainShadow', () => this.terrainShadow.update(this.renderer, this.terrain.group, pos, this.controls.altitude, this.sun.position, this.sun.shadow.camera.far, this.sun.castShadow ? this.shadowStrength : 0, now));
-		this.renderer.shadowMap.needsUpdate = (this.shadowFrame++ & 1) === 0;
+		perf.time('terrainShadow', () => this.terrainShadow.update(this.renderer, this.terrain.group, pos, this.controls.altitude, this.sun.position, this.sun.shadow.camera.far, this.shadowsOn ? this.shadowStrength : 0, now));
+		this.renderer.shadowMap.needsUpdate = this.shadowsOn && (this.shadowFrame++ & 1) === 0;
 		perf.time('render', () => this.post.render(this.renderer, this.scene, this.camera));
 		if (this.shot) this.updateShot(now);
 		perf.time('nameplates', () => this.updateNameplates(now));
@@ -1903,7 +1916,7 @@ export class Viewer {
 			const lightDir = bySun ? sunDir : new THREE.Vector3(-sunDir.x, Math.abs(sunDir.y) + 0.35, sunDir.z).normalize();
 			// Shadows fade to nothing either side of the switch, so they don't jump round.
 			this.shadowStrength = bySun ? THREE.MathUtils.smoothstep(sunDir.y, SUN_TO_MOON, SUN_TO_MOON + 0.12) : THREE.MathUtils.smoothstep(-sunDir.y, -SUN_TO_MOON, 0.1);
-			this.sun.shadow.intensity = SHADOW_INTENSITY * this.shadowStrength;
+			this.sun.shadow.intensity = this.shadowsOn ? SHADOW_INTENSITY * this.shadowStrength : 0;
 			this.sun.position.copy(lightDir);
 			this.sun.color.copy(c.direct);
 			this.ambient.color.copy(c.ambient);

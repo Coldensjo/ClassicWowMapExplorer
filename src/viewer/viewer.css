@@ -858,6 +858,24 @@ kbd {
 	font-size: 12px;
 }
 
+/* A width and height of one's own for the resolution, on a line under it. */
+.resolution-custom {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 4px;
+}
+
+.resolution-custom input {
+	width: 72px;
+	font-variant-numeric: tabular-nums;
+}
+
+.resolution-custom button {
+	padding: 1px 8px;
+	font-size: 12px;
+}
+
 .time-row {
 	display: grid;
 	grid-template-columns: auto 1fr auto auto;

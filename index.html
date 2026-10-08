@@ -66,6 +66,23 @@
 		<details id="graphics" name="menu">
 			<summary>Graphics</summary>
 			<div class="menu-body panel settings">
+				<label title="How many pixels the world is drawn with: the window's own, or a fixed size scaled to fit the window, with bars where its shape differs">Resolution <select id="resolution">
+					<option value="window">The window's own</option>
+					<option value="1024x768">1024 × 768</option>
+					<option value="1280x720">1280 × 720</option>
+					<option value="1600x900">1600 × 900</option>
+					<option value="1920x1080">1920 × 1080</option>
+					<option value="1920x1200">1920 × 1200</option>
+					<option value="2560x1440">2560 × 1440</option>
+					<option value="3840x2160">3840 × 2160</option>
+					<option value="custom">Custom…</option>
+				</select></label>
+				<div id="resolution-custom" class="resolution-custom" hidden>
+					<input type="number" id="resolution-w" min="160" max="16384" step="1" aria-label="Width in pixels">
+					<span>×</span>
+					<input type="number" id="resolution-h" min="160" max="16384" step="1" aria-label="Height in pixels">
+					<button id="resolution-apply">Apply</button>
+				</div>
 				<label><input type="checkbox" data-setting="clutter"> Grass and flowers <kbd>V</kbd></label>
 				<div class="time-row" title="How far from the camera grass, flowers and pebbles grow">
 					<span>Grass</span>

@@ -228,6 +228,19 @@ export interface ViewSettings {
 	fixedSpeed: number;
 	/** Rain, snow and sandstorms: each zone's own (with or without rain and snow), none, or one kind everywhere. */
 	weather: WeatherSetting;
+	/** The size drawn: 'window' for the window's own, or a width and height in pixels ('1920x1080'), shown as large as fits. */
+	resolution: string;
+}
+
+/** The smallest width or height a fixed resolution may have, in pixels. */
+export const RESOLUTION_MIN = 160;
+
+/** A fixed resolution's width and height ('1920x1080'), or null for the window's own (or one that makes no sense). */
+export function parseResolution(resolution: string): [number, number] | null {
+	const match = /^(\d+)x(\d+)$/.exec(resolution);
+	if (!match) return null;
+	const [w, h] = [Number(match[1]), Number(match[2])];
+	return w >= RESOLUTION_MIN && h >= RESOLUTION_MIN ? [w, h] : null;
 }
 
 /** Steps of the flying speed: each Y press or slider notch multiplies it by 2^(1/4). */
@@ -374,6 +387,10 @@ export class Viewer {
 	private clearView = false;
 	/** Flat, unlit view (ViewSettings.unlit); see updateLighting. */
 	private unlit = false;
+	/** The size drawn (ViewSettings.resolution); see resize. */
+	private resolution = 'window';
+	/** Where the names and highlights are laid over the canvas, kept to its box. */
+	private readonly plateContainer: HTMLElement | null;
 	private readonly fogLook: FogSettings = {
 		color: new THREE.Color(),
 		sunColor: new THREE.Color(),
@@ -495,6 +512,7 @@ export class Viewer {
 		this.restedAreas = plateContainer ? new RestedAreas(plateContainer) : null;
 		this.flights = plateContainer ? new Flights(plateContainer) : null;
 		this.mapLabels = plateContainer ? new MapLabels(plateContainer) : null;
+		this.plateContainer = plateContainer;
 		// Depth from half a yard to the horizon: a reversed float depth buffer where the GPU has
 		// it, else a logarithmic one. The logarithmic one writes each pixel's depth from its shader,
 		// so nothing hidden can be skipped before it's shaded; the reversed one lets the GPU do that.
@@ -819,6 +837,7 @@ export class Viewer {
 			smartSpeed: this.controls.smartSpeed,
 			fixedSpeed: this.controls.fixedSpeed,
 			weather: this.weather.setting,
+			resolution: this.resolution,
 		};
 	}
 
@@ -861,6 +880,10 @@ export class Viewer {
 		if (typeof next.fixedSpeed === 'number' && next.fixedSpeed > 0) {
 			const notches = Math.round(Math.log2(next.fixedSpeed) / FLY_SPEED_STEP) * FLY_SPEED_STEP;
 			this.controls.fixedSpeed = 2 ** THREE.MathUtils.clamp(notches, FIXED_SPEED_MIN, FIXED_SPEED_MAX);
+		}
+		if (typeof next.resolution === 'string') {
+			this.resolution = parseResolution(next.resolution) ? next.resolution : 'window';
+			this.resize();
 		}
 	}
 
@@ -1641,9 +1664,36 @@ export class Viewer {
 		return false;
 	}
 
+	/**
+	 * Sizes the canvas to the window, or to the fixed resolution chosen: drawn at exactly that
+	 * many pixels (no larger than the GPU allows), scaled to fit the window and centred, with the
+	 * names and highlights laid over the same box.
+	 */
 	private resize(): void {
-		const w = this.canvas.clientWidth || window.innerWidth;
-		const h = this.canvas.clientHeight || window.innerHeight;
+		const fixed = parseResolution(this.resolution);
+		const boxes = [this.canvas.style, ...(this.plateContainer ? [this.plateContainer.style] : [])];
+		if (!fixed) {
+			for (const box of boxes) box.left = box.top = box.width = box.height = '';
+			const w = this.canvas.clientWidth || window.innerWidth;
+			const h = this.canvas.clientHeight || window.innerHeight;
+			this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+			this.renderer.setSize(w, h, false);
+			this.camera.aspect = w / h;
+			this.camera.updateProjectionMatrix();
+			return;
+		}
+		const largest = this.renderer.capabilities.maxTextureSize;
+		const shrink = Math.min(1, largest / fixed[0], largest / fixed[1]);
+		const [w, h] = fixed.map((side) => Math.floor(side * shrink));
+		const fit = Math.min(window.innerWidth / w, window.innerHeight / h);
+		const [shownW, shownH] = [w * fit, h * fit];
+		for (const box of boxes) {
+			box.width = `${shownW}px`;
+			box.height = `${shownH}px`;
+			box.left = `${(window.innerWidth - shownW) / 2}px`;
+			box.top = `${(window.innerHeight - shownH) / 2}px`;
+		}
+		this.renderer.setPixelRatio(1);
 		this.renderer.setSize(w, h, false);
 		this.camera.aspect = w / h;
 		this.camera.updateProjectionMatrix();

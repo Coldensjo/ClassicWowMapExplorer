@@ -13,7 +13,7 @@ import { MOUSE_SPEED_MAX, MOUSE_SPEED_MIN } from './look';
 import type { TintMode } from './regionOverlay';
 import { isTyping } from './typing';
 import { loadUiAssets } from './uiAssets';
-import { FIXED_SPEED_DEFAULT, FIXED_SPEED_MAX, FIXED_SPEED_MIN, FLY_SPEED_RANGE, FLY_SPEED_STEP, Viewer, type HudInfo, type MeetingStone, type ViewSettings } from './viewer';
+import { FIXED_SPEED_DEFAULT, FIXED_SPEED_MAX, FIXED_SPEED_MIN, FLY_SPEED_RANGE, FLY_SPEED_STEP, Viewer, parseResolution, RESOLUTION_MIN, type HudInfo, type MeetingStone, type ViewSettings } from './viewer';
 import type { CharacterLook } from './character';
 import { FormPicker } from './formPicker';
 import { DEFAULT_EMOTE_KEYS, EMOTES, type Emote } from './emotes';
@@ -443,9 +443,53 @@ function setUpView(viewer: Viewer): void {
 		label: (value) => `${Math.round(value * 100)}%`,
 	}, remember);
 
+	// The resolution: the window's own, one of the usual sizes, or any width and height.
+	const resolution = $<HTMLSelectElement>('resolution');
+	const custom = $('resolution-custom');
+	const customW = $<HTMLInputElement>('resolution-w');
+	const customH = $<HTMLInputElement>('resolution-h');
+	const syncResolution = () => {
+		const value = viewer.settings.resolution;
+		const preset = [...resolution.options].some((o) => o.value === value && value !== 'custom');
+		resolution.value = preset ? value : 'custom';
+		custom.hidden = preset;
+		const [w, h] = parseResolution(value) ?? [window.innerWidth, window.innerHeight];
+		customW.value = String(w);
+		customH.value = String(h);
+	};
+	resolution.addEventListener('change', () => {
+		if (resolution.value === 'custom') {
+			custom.hidden = false;
+			customW.focus();
+			return;
+		}
+		viewer.settings = { resolution: resolution.value };
+		syncResolution();
+		remember();
+	});
+	const applyCustom = () => {
+		const value = `${Math.round(Number(customW.value))}x${Math.round(Number(customH.value))}`;
+		if (!parseResolution(value)) {
+			notify(`A resolution needs a width and height of at least ${RESOLUTION_MIN} pixels`);
+			return;
+		}
+		viewer.settings = { resolution: value };
+		syncResolution();
+		remember();
+		(document.activeElement as HTMLElement | null)?.blur();
+	};
+	$('resolution-apply').addEventListener('click', applyCustom);
+	for (const input of [customW, customH]) {
+		input.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') applyCustom();
+		});
+	}
+	syncResolution();
+
 	viewer.onChange = (change) => {
 		const s = viewer.settings;
 		sync();
+		syncResolution();
 		syncTime();
 		syncSpeed();
 		syncClutterRange();
@@ -474,6 +518,7 @@ function setUpView(viewer: Viewer): void {
 			flySpeed: () => `Flying speed ${speedLabel(s.flySpeed)}`,
 			smartSpeed: () => (s.smartSpeed ? 'Smart fly speed: faster the higher you are' : `Fixed fly speed: ${fixedSpeedLabel(s.fixedSpeed)}`),
 			fixedSpeed: () => `Flying speed ${fixedSpeedLabel(s.fixedSpeed)}`,
+			resolution: () => (parseResolution(s.resolution) ? `Drawn at ${s.resolution.replace('x', ' × ')}` : 'Drawn at the window’s size'),
 			weather: () => ({ auto: 'Weather: each zone\'s own', dry: 'Weather: no rain or snow', off: 'Weather: always clear', rain: 'Weather: rain', snow: 'Weather: snow', sandstorm: 'Weather: sandstorm' }[s.weather]),
 			flight: () => (viewer.onFlight ? 'Taking flight: Esc or moving gets you off' : 'Landed'),
 			voyage: () => (viewer.onTransport ? 'All aboard: Esc or moving gets you off' : 'Got off'),

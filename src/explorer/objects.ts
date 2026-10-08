@@ -89,14 +89,25 @@ export interface ModelData {
 	/** Creatures: which footsteps they make (FootstepTerrainLookup's creature column; 0 none). */
 	footstep?: number;
 	/** WMOs only: a serialised ray-cast acceleration structure (three-mesh-bvh, indirect), for line of sight. */
-	bvh?: { version: number; roots: ArrayBuffer[]; indirectBuffer: Uint32Array | Uint16Array | null };
+	bvh?: SerializedBvh;
+	/**
+	 * Solid M2s (trees, rocks, logs): the model's own collision mesh, never drawn, and its ray-cast
+	 * structure, for walking into and onto them.
+	 */
+	collision?: { positions: Float32Array; indices: Uint32Array; bvh: SerializedBvh };
+}
+
+export interface SerializedBvh {
+	version: number;
+	roots: ArrayBuffer[];
+	indirectBuffer: Uint32Array | Uint16Array | null;
 }
 
 /**
  * Builds the ray-cast structure for a model in the worker, so the main thread never stalls on it.
  * Indirect mode leaves the index buffer (and so the material ranges) untouched.
  */
-function buildBvh(positions: Float32Array, indices: Uint32Array): ModelData['bvh'] {
+function buildBvh(positions: Float32Array, indices: Uint32Array): SerializedBvh {
 	const geometry = new BufferGeometry();
 	geometry.setAttribute('position', new BufferAttribute(positions, 3));
 	geometry.setIndex(new BufferAttribute(indices, 1));
@@ -217,6 +228,8 @@ export interface M2Options {
 	attachments?: GearAttachment[];
 	/** Which footsteps it makes (see ModelData.footstep). */
 	footstep?: number;
+	/** Keep the model's collision mesh (ModelData.collision): placed doodads and game objects. */
+	solid?: boolean;
 }
 
 /** A gear model (helmet, shoulder, weapon) and its texture, at an M2 attachment point. */
@@ -479,6 +492,14 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 	});
 	const packed = packForShadows(indices, batches);
 	const anim = prepared.animation;
+	// Copies: the arrays are transferred to the main thread, which would empty the cached ones.
+	const hull = prepared.m2.collision;
+	let collision: ModelData['collision'];
+	if (options.solid && hull.indices.length) {
+		const hullPositions = hull.positions.slice();
+		const hullIndices = Uint32Array.from(hull.indices);
+		collision = { positions: hullPositions, indices: hullIndices, bvh: buildBvh(hullPositions, hullIndices) };
+	}
 	// Fresh frames: the arrays are transferred to the main thread, which would empty the cached ones.
 	const place = (p: (typeof parts)[number], frame: Mat4) => (p.rest ? multiply(p.rest, frame) : frame.slice());
 	const emitters = parts.flatMap((p) => p.prepared.emitters.map((e) => ({
@@ -496,6 +517,7 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 			: undefined,
 		emitters: emitters.length ? emitters : undefined,
 		footstep: options.footstep,
+		collision,
 	};
 }
 /** file: the root file's bytes, when the caller has already read them. */

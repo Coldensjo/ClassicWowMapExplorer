@@ -761,9 +761,9 @@ export class Viewer {
 		const objects = this.objects;
 		const terrain = this.terrain;
 		// A hole in the ground opens only where a building lies under it (a mine's or a cave's
-		// tunnel); elsewhere (a cellar's edge, hidden in the game under rocks and props, which aren't
-		// solid here) it's still ground, or the character would fall out of the world. Found by a
-		// cast down, kept a moment per terrain cell.
+		// tunnel); elsewhere (a cellar's edge, hidden in the game under rocks and props, not all of
+		// them solid) it's still ground, or the character would fall out of the world. Found by a
+		// cast down at buildings alone (a rock over the edge isn't a tunnel), kept a moment per terrain cell.
 		const holes = new Map<string, { open: boolean; until: number }>();
 		const down = new THREE.Vector3(0, -1, 0);
 		const holeOpen = (x: number, z: number, surface: number): boolean => {
@@ -773,7 +773,7 @@ export class Viewer {
 			const known = holes.get(key);
 			if (known && known.until > now) return known.open;
 			const from = new THREE.Vector3(x, surface + 0.5, z);
-			const open = objects.nearBuilding(from, HOLE_DEPTH) && objects.castBuildings(from, down, HOLE_DEPTH) !== null;
+			const open = objects.nearBuilding(from, HOLE_DEPTH, false) && objects.castBuildings(from, down, HOLE_DEPTH, false) !== null;
 			if (holes.size > 4096) holes.clear();
 			holes.set(key, { open, until: now + 2000 });
 			return open;
@@ -917,7 +917,7 @@ export class Viewer {
 			await this.uploads.upload(object);
 		};
 		this.objects = new ObjectManager(this.storage, this.usesCompressedTextures, anisotropy, prepare);
-		// Buildings (and the caves and mines built as buildings) are solid.
+		// Buildings (and the caves and mines built as buildings) are solid, and so are trees, rocks and logs.
 		this.controls.collide = (from, move) => {
 			// Most of the time there's no building anywhere near; skip the ray casts then.
 			if (!this.objects.nearBuilding(from, move.length() + CAMERA_RADIUS)) return move;

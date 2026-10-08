@@ -77,6 +77,12 @@ class ModelEntry {
 	footstep = 0;
 	/** Buildings: each material's TerrainType (in the order of materials), for footsteps on it. */
 	grounds: number[] = [];
+	/**
+	 * Solid doodads and game objects (trees, rocks, logs): their collision mesh, never drawn (cast
+	 * at one copy at a time through mesh), and the copies in the instance buffer with each one's
+	 * bounding sphere in world space (x, y, z, radius), so a cast skips the copies it can't reach.
+	 */
+	collider: { geometry: THREE.BufferGeometry; mesh: THREE.Mesh; matrices: THREE.Matrix4[]; spheres: Float32Array } | null = null;
 	/** Particle emitters (fire, smoke), with their textures. */
 	emitters: LoadedEmitter[] = [];
 	/** Instance key for each slot in the instance buffer, for picking. */
@@ -550,13 +556,23 @@ export class ObjectManager {
 		entry.materials = batches.map((b, i) => {
 			geometry.addGroup(b.start, b.count, i);
 			const material = createModelMaterial(b.material, textures.get(b.material.texture) ?? null, !!data.baked, skin);
-			// Buildings are what the camera collides with (see sweep); doodads aren't solid.
+			// Walkable slopes show on buildings, whose drawn triangles are what's walked on (a doodad's collision mesh isn't drawn).
 			if (entry.kind === 'wmo') applyWalkable(material);
 			return material;
 		});
 		geometry.computeBoundingSphere();
 		if (data.bvh) {
 			geometry.boundsTree = MeshBVH.deserialize({ ...data.bvh, index: data.indices } as Parameters<typeof MeshBVH.deserialize>[0], geometry, { setIndex: false });
+		}
+		if (data.collision) {
+			const hull = new THREE.BufferGeometry();
+			hull.setAttribute('position', new THREE.BufferAttribute(data.collision.positions, 3));
+			hull.setIndex(new THREE.BufferAttribute(data.collision.indices, 1));
+			hull.boundsTree = MeshBVH.deserialize({ ...data.collision.bvh, index: data.collision.indices } as Parameters<typeof MeshBVH.deserialize>[0], hull, { setIndex: false });
+			hull.computeBoundingSphere();
+			const mesh = new THREE.Mesh(hull, ObjectManager.COLLIDER_MATERIAL);
+			mesh.matrixAutoUpdate = false;
+			entry.collider = { geometry: hull, mesh, matrices: [], spheres: new Float32Array(0) };
 		}
 		entry.liquids = (data.liquids ?? []).map((l) => ({ geometry: liquidGeometry(l.positions, l.indices), material: liquidMaterial(l.kind, l.type), type: l.type, mesh: null }));
 		const built = performance.now();
@@ -688,11 +704,26 @@ export class ObjectManager {
 		entry.mesh = this.syncMesh(entry.mesh, entry.geometry, entry.materials, matrices, entry.kind === 'wmo' ? -1 : 0, role);
 		if (entry.depthMaterial) entry.mesh.customDepthMaterial = entry.depthMaterial;
 		if (entry.animation) this.writePhases(entry.mesh, entry.geometry, entry.drawnKeys, entry.animation.duration);
+		if (entry.collider) ObjectManager.placeCollider(entry.collider, matrices);
 		for (const liquid of entry.liquids) {
 			// Liquids draw after the building so it shows through the surface.
 			liquid.mesh = this.syncMesh(liquid.mesh, liquid.geometry, liquid.material, matrices, 1, 'receive');
 			liquid.mesh.userData.liquidType = liquid.type;
 		}
+	}
+
+	private static readonly COLLIDER_MATERIAL = new THREE.MeshBasicMaterial();
+
+	/** Gives a collision mesh the model's copies in the instance buffer, and their bounding spheres. */
+	private static placeCollider(collider: NonNullable<ModelEntry['collider']>, matrices: THREE.Matrix4[]): void {
+		const sphere = collider.geometry.boundingSphere!;
+		const center = new THREE.Vector3();
+		collider.matrices = matrices;
+		collider.spheres = new Float32Array(matrices.length * 4);
+		matrices.forEach((m, i) => {
+			center.copy(sphere.center).applyMatrix4(m);
+			collider.spheres.set([center.x, center.y, center.z, sphere.radius * m.getMaxScaleOnAxis()], i * 4);
+		});
 	}
 
 	/** Creates or grows an InstancedMesh as needed and writes the instance matrices into it. */
@@ -781,6 +812,7 @@ export class ObjectManager {
 			entry.mesh.dispose();
 		}
 		entry.geometry?.dispose();
+		entry.collider?.geometry.dispose();
 		for (const m of entry.materials) m.dispose();
 		entry.depthMaterial?.dispose();
 		for (const l of entry.liquids) {
@@ -850,13 +882,33 @@ export class ObjectManager {
 	/**
 	 * Nearest building surface along a ray (within far), with its world-space normal and the
 	 * TerrainType it's made of (0 unknown): floors under the walking character, walls behind its camera.
+	 * Solid doodads (trees, rocks) count too, unless doodads is false.
 	 */
-	castBuildings(from: THREE.Vector3, direction: THREE.Vector3, far: number): { distance: number; normal: THREE.Vector3; ground: number } | null {
+	castBuildings(from: THREE.Vector3, direction: THREE.Vector3, far: number, doodads = true): { distance: number; normal: THREE.Vector3; ground: number } | null {
 		this.sweepRay.set(from, direction);
 		this.sweepRay.far = far;
 		this.sweepRay.firstHitOnly = true;
 		let best: { distance: number; normal: THREE.Vector3; ground: number } | null = null;
 		for (const entry of this.models.values()) {
+			const collider = entry.collider;
+			if (collider) {
+				if (!doodads) continue;
+				const s = collider.spheres;
+				for (let i = 0; i < collider.matrices.length; i++) {
+					// Skip copies whose bounds the ray doesn't come within reach of.
+					const cx = s[i * 4] - from.x, cy = s[i * 4 + 1] - from.y, cz = s[i * 4 + 2] - from.z;
+					const t = THREE.MathUtils.clamp(cx * direction.x + cy * direction.y + cz * direction.z, 0, far);
+					const ex = cx - direction.x * t, ey = cy - direction.y * t, ez = cz - direction.z * t;
+					if (ex * ex + ey * ey + ez * ez > s[i * 4 + 3] ** 2) continue;
+					collider.mesh.matrixWorld.copy(collider.matrices[i]);
+					const hit = this.sweepRay.intersectObject(collider.mesh, false)[0];
+					if (!hit?.face || (best && hit.distance >= best.distance)) continue;
+					// A collision mesh has no materials: unknown ground.
+					this.hitNormal.copy(hit.face.normal).transformDirection(collider.matrices[i]);
+					best = { distance: hit.distance, normal: this.hitNormal.clone(), ground: 0 };
+				}
+				continue;
+			}
 			if (!entry.mesh?.visible || !entry.geometry?.boundsTree) continue;
 			const hit = this.sweepRay.intersectObject(entry.mesh, false)[0];
 			if (!hit?.face || (best && hit.distance >= best.distance)) continue;
@@ -902,9 +954,19 @@ export class ObjectManager {
 		return allowed;
 	}
 
-	/** Whether any building's bounds come within `margin` of a point: collision is only needed then. */
-	nearBuilding(at: THREE.Vector3, margin: number): boolean {
+	/** Whether any building's (or solid doodad's) bounds come within `margin` of a point: collision is only needed then. */
+	nearBuilding(at: THREE.Vector3, margin: number, doodads = true): boolean {
 		for (const entry of this.models.values()) {
+			const collider = entry.collider;
+			if (collider) {
+				if (!doodads) continue;
+				const s = collider.spheres;
+				for (let i = 0; i < s.length; i += 4) {
+					const reach = s[i + 3] + margin;
+					if ((s[i] - at.x) ** 2 + (s[i + 1] - at.y) ** 2 + (s[i + 2] - at.z) ** 2 < reach * reach) return true;
+				}
+				continue;
+			}
 			const sphere = entry.geometry?.boundingSphere;
 			if (!entry.mesh?.visible || !entry.geometry?.boundsTree || !sphere) continue;
 			for (const key of entry.visible) {

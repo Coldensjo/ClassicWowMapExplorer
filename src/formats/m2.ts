@@ -49,6 +49,8 @@ export interface M2File {
 	/** The .skel file holding the bones and sequences (SKID), or 0 when the model has its own. */
 	skelFdid: number;
 	bounds: { min: [number, number, number]; max: [number, number, number]; radius: number };
+	/** The simple mesh the game collides with (tree trunks, rocks, logs), in model space; empty for grass and the like. */
+	collision: { positions: Float32Array; indices: Uint16Array };
 }
 
 export interface M2Batch {
@@ -172,6 +174,18 @@ export function parseM2(bytes: Uint8Array): M2File {
 	};
 	const uvScroll = Array.from({ length: transformCombos.count }, (_, i) => scrollOf(view.getUint16(b + transformCombos.offset + i * 2, true)));
 
+	// Collision: triangles (uint16 vertex indices) over vertices of their own, after the collision bounds.
+	const collisionIndices = arr(view, b, 0xd8);
+	const collisionVertices = arr(view, b, 0xe0);
+	const indicesFit = collisionIndices.offset + collisionIndices.count * 2 <= bytes.length - b;
+	const verticesFit = collisionVertices.offset + collisionVertices.count * 12 <= bytes.length - b;
+	const collision = indicesFit && verticesFit && collisionIndices.count >= 3 && collisionVertices.count >= 3
+		? {
+			positions: Float32Array.from({ length: collisionVertices.count * 3 }, (_, i) => view.getFloat32(b + collisionVertices.offset + i * 4, true)),
+			indices: Uint16Array.from({ length: collisionIndices.count - (collisionIndices.count % 3) }, (_, i) => view.getUint16(b + collisionIndices.offset + i * 2, true)),
+		}
+		: { positions: new Float32Array(0), indices: new Uint16Array(0) };
+
 	// Colours: M2Color = color track (vec3) + alpha track (fixed16), 40 bytes.
 	const colorAlpha = Array.from({ length: colors.count }, (_, i) =>
 		firstTrackValue(view, b, colors.offset + i * 40 + 20, (at) => view.getInt16(at, true) / 32767) ?? 1);
@@ -192,6 +206,7 @@ export function parseM2(bytes: Uint8Array): M2File {
 		animFiles,
 		skelFdid,
 		bounds: { min: [f(0xa0), f(0xa4), f(0xa8)], max: [f(0xac), f(0xb0), f(0xb4)], radius: f(0xb8) },
+		collision,
 	};
 }
 

@@ -333,10 +333,10 @@ export class WorldLoader {
 					// Read once and handed on, rather than read (and decompressed) again by the loader.
 					const bytes = await this.storage.readFile(file);
 					const isWmo = bytes[0] === 0x52 && bytes[1] === 0x45 && bytes[2] === 0x56 && bytes[3] === 0x4d; // 'REVM'
-					const model = isWmo ? await loadWmo(this.storage, file, await this.liquidKind(), bytes) : await loadM2(this.storage, file, {}, bytes);
+					const model = isWmo ? await loadWmo(this.storage, file, await this.liquidKind(), bytes) : await loadM2(this.storage, file, { solid: true }, bytes);
 					return { ...model, fdid };
 				}
-				return await loadM2(this.storage, fdid);
+				return await loadM2(this.storage, fdid, { solid: true });
 			} catch (e) {
 				console.warn(`Model ${fdid}:`, e);
 				return null;

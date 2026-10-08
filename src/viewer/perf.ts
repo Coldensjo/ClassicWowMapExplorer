@@ -1,4 +1,4 @@
-import type * as THREE from 'three';
+import * as THREE from 'three';
 
 interface Section {
 	total: number;
@@ -110,6 +110,8 @@ class Perf {
 	private readonly seenPrograms = new WeakSet<object>();
 	private programCount = 0;
 	private gpu = '';
+	/** The object three last drew, for naming what a shader built mid-draw was for. */
+	private lastDrawn: THREE.Object3D | null = null;
 
 	constructor() {
 		try {
@@ -198,6 +200,11 @@ class Perf {
 			// Not told.
 		}
 		this.log('gpu', this.gpu || 'unknown');
+		// Three calls this on each object just before drawing it (a no-op unless an object has its own).
+		const perf = this;
+		THREE.Object3D.prototype.onBeforeRender = function (this: THREE.Object3D) {
+			perf.lastDrawn = this;
+		};
 		for (const name of GL_CALLS) {
 			const fn = gl[name] as ((...args: unknown[]) => unknown) | undefined;
 			if (typeof fn !== 'function') continue;
@@ -235,7 +242,9 @@ class Perf {
 		let detail = '';
 		if (args && (name === 'getProgramParameter' || name === 'getShaderParameter')) detail = GL_PARAMS[args[1] as number] ?? String(args[1]);
 		else if (args) detail = args.filter((a) => typeof a === 'number').slice(0, 6).join(', ');
-		this.log('gl', `${name}(${detail}) took ${ms.toFixed(1)} ms, from ${callSite()}`);
+		// A program's first use mid-draw: the object it was for.
+		const drawing = name.startsWith('getProgram') || name.startsWith('getShader') ? `; last object drawn: ${describeObject(this.lastDrawn)}` : '';
+		this.log('gl', `${name}(${detail}) took ${ms.toFixed(1)} ms, from ${callSite()}${drawing}`);
 	}
 
 	/** Logs shader programs three has built since the last look. */
@@ -419,6 +428,24 @@ function describeProgram(p: { name: string; cacheKey: string }): string {
 function callSite(): string {
 	const lines = (new Error().stack ?? '').split('\n').slice(4, 8);
 	return lines.map((l) => l.trim().replace(/^at /, '').replace(/https?:\/\/[^/]+\//, '').replace(/\?v=[0-9a-f]+/, '')).join(' < ') || 'unknown';
+}
+
+/** An object for the log: its kind, name, materials and where it hangs. */
+function describeObject(o: THREE.Object3D | null): string {
+	if (!o) return 'none';
+	const material = (o as THREE.Mesh).material;
+	const materials = (Array.isArray(material) ? material : material ? [material] : []).slice(0, 4).map((m) => {
+		let key = '';
+		try {
+			key = m.customProgramCacheKey().replace(/\s+/g, ' ').slice(-40);
+		} catch {
+			// No key of its own.
+		}
+		return `${m.type}${m.name ? ` '${m.name}'` : ''}${key ? ` (${key})` : ''}`;
+	});
+	const path: string[] = [];
+	for (let p = o.parent; p && path.length < 3; p = p.parent) path.push(p.name || p.type);
+	return `${o.type}${o.name ? ` '${o.name}'` : ''} [${materials.join(', ')}] in ${path.join(' < ') || 'nothing'}`;
 }
 
 function heapMB(): number {

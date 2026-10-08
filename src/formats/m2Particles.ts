@@ -1,5 +1,5 @@
 import { multiply, translation, type Mat4 } from '../explorer/mat4';
-import { standPose, standPoses } from './m2Pose';
+import { m2Skeleton, standPose, standPoses, type Skeleton } from './m2Pose';
 
 const EMITTER_SIZE = 0x1ec;
 const TRACK_SIZE = 20;
@@ -64,14 +64,14 @@ export interface ParticleEmitter {
  * Reads a model's particle emitters (fire, smoke, sparks). Track values come from the Stand
  * sequence or a global loop; animated ones are averaged, which keeps flickers as a steady rate.
  */
-export function parseParticleEmitters(bytes: Uint8Array, md20: number, textureFdids: number[]): ParticleEmitter[] {
+export function parseParticleEmitters(bytes: Uint8Array, md20: number, textureFdids: number[], skeleton: Skeleton = m2Skeleton(bytes, md20)): ParticleEmitter[] {
 	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	const u32 = (o: number) => view.getUint32(md20 + o, true);
 	const count = u32(0x128);
 	if (!count) return [];
 	const offset = u32(0x12c);
-	const loop = standPoses(bytes, md20);
-	const bones = loop?.poses[0] ?? standPose(bytes, md20);
+	const loop = standPoses(skeleton);
+	const bones = loop?.poses[0] ?? standPose(skeleton);
 
 	// The Stand sequence's index, for picking each track's keys.
 	let stand = 0;

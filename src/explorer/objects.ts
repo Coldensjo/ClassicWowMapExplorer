@@ -3,7 +3,7 @@ import { MeshBVH } from 'three-mesh-bvh';
 import type { CascStorage } from '../casc/storage';
 import { chunks } from '../formats/chunks';
 import { Blend, M2_MATERIAL_TWO_SIDED, M2_MATERIAL_UNFOGGED, M2_MATERIAL_UNLIT, parseM2, parseSkin, type M2File, type M2Skin } from '../formats/m2';
-import { attachmentPoints, externalSequences, sequenceAnimation, skinVertex, standAnimation, standPose, type AnimationClip, type AttachmentPoint, type BoneAnimation } from '../formats/m2Pose';
+import { ANIM, attachmentPoints, externalSequences, m2Skeleton, sequenceAnimation, skelSkeleton, skinVertex, standAnimation, standPose, type AnimationClip, type AttachmentPoint, type BoneAnimation, type Skeleton } from '../formats/m2Pose';
 import { parseParticleEmitters, type ParticleEmitter } from '../formats/m2Particles';
 import {
 	parseWmoGroup, parseWmoRoot, WMO_GROUP_INTERIOR, WMO_LIQUID_CELL, type WmoGroup, visibleWmoGroups, WMO_MATERIAL_TWO_SIDED, WMO_MATERIAL_UNFOGGED, WMO_MATERIAL_UNLIT,
@@ -252,10 +252,10 @@ const PREPARED_M2_LIMIT = 600;
  * The .anim files of those listed sequences kept outside the model (the HD race models' emotes),
  * by sequence index. One that can't be read is left out, and its sequence with it.
  */
-async function readAnimFiles(storage: CascStorage, bytes: Uint8Array, m2: { md20: number; animFiles: { id: number; sub: number; fdid: number }[] }, clips: number[]): Promise<Map<number, Uint8Array>> {
+async function readAnimFiles(storage: CascStorage, skeleton: Skeleton, animFiles: { id: number; sub: number; fdid: number }[], clips: number[]): Promise<Map<number, Uint8Array>> {
 	const out = new Map<number, Uint8Array>();
-	await Promise.all(externalSequences(bytes, m2.md20, clips).map(async ({ seq, id, sub }) => {
-		const file = m2.animFiles.find((a) => a.id === id && a.sub === sub);
+	await Promise.all(externalSequences(skeleton, clips).map(async ({ seq, id, sub }) => {
+		const file = animFiles.find((a) => a.id === id && a.sub === sub);
 		if (!file || storage.status(file.fdid) !== 'ok') return;
 		try {
 			out.set(seq, await storage.readFile(file.fdid));
@@ -286,10 +286,14 @@ function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Ui
 		const normals = new Float32Array(n * 3);
 		const uvs = new Float32Array(n * 2);
 		const v = new DataView(vertices.buffer, vertices.byteOffset, vertices.byteLength);
+		// Bones and sequences in a .skel file of their own (the goblins), else in the model.
+		const skeleton = (m2.skelFdid && storage.status(m2.skelFdid) === 'ok' && skelSkeleton(await storage.readFile(m2.skelFdid), bytes, m2.md20)) || m2Skeleton(bytes, m2.md20);
+		// Stand and Walk, or the clips asked for, may be kept in .anim files.
+		const external = await readAnimFiles(storage, skeleton, skeleton.animFiles ?? m2.animFiles, clips ?? [ANIM.Stand, ANIM.Walk]);
 		// Moving models are skinned on the GPU from bind space; still ones are posed here once.
 		// Creatures (posed standing) also get their walk, for those that roam.
-		const animation = clips ? sequenceAnimation(bytes, m2.md20, clips, await readAnimFiles(storage, bytes, m2, clips)) : standAnimation(bytes, m2.md20, stand);
-		const bones = !animation && stand ? standPose(bytes, m2.md20) : null;
+		const animation = clips ? sequenceAnimation(skeleton, clips, external) : standAnimation(skeleton, stand, external);
+		const bones = !animation && stand ? standPose(skeleton, external) : null;
 		const boneIndex = animation ? new Uint16Array(n * 4) : null;
 		const boneWeight = animation ? new Uint8Array(n * 4) : null;
 		for (let i = 0; i < n; i++) {
@@ -315,8 +319,8 @@ function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Ui
 		return {
 			m2, skin, positions, normals, uvs, indices: Uint32Array.from(skin.indices),
 			// Animated bodies still need the resting frames, for held items' particles.
-			attachments: attachmentPoints(bytes, m2.md20, bones ?? (animation ? standPose(bytes, m2.md20) : null)), animation, boneIndex, boneWeight,
-			emitters: parseParticleEmitters(bytes, m2.md20, m2.textures.map((t) => t.fdid)),
+			attachments: attachmentPoints(skeleton, bones ?? (animation ? standPose(skeleton, external) : null)), animation, boneIndex, boneWeight,
+			emitters: parseParticleEmitters(bytes, m2.md20, m2.textures.map((t) => t.fdid), skeleton),
 		};
 	})();
 	entry.catch(() => preparedM2.delete(key));

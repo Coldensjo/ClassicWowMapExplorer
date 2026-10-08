@@ -46,6 +46,8 @@ export interface M2File {
 	skinFdids: number[];
 	/** Sequences kept in .anim files of their own (AFID): AnimationData ID, variation, file. */
 	animFiles: { id: number; sub: number; fdid: number }[];
+	/** The .skel file holding the bones and sequences (SKID), or 0 when the model has its own. */
+	skelFdid: number;
 	bounds: { min: [number, number, number]; max: [number, number, number]; radius: number };
 }
 
@@ -98,6 +100,7 @@ export function parseM2(bytes: Uint8Array): M2File {
 	let skinFdids: number[] = [];
 	let textureFdids: number[] = [];
 	let animFiles: M2File['animFiles'] = [];
+	let skelFdid = 0;
 	for (let p = 0; p + 8 <= bytes.length;) {
 		const id = decoder.decode(bytes.subarray(p, p + 4));
 		const size = view.getUint32(p + 4, true);
@@ -111,6 +114,7 @@ export function parseM2(bytes: Uint8Array): M2File {
 				fdid: view.getUint32(data + i * 8 + 4, true),
 			})).filter((a) => a.fdid);
 		} else if (id === 'TXID') textureFdids = Array.from({ length: size / 4 }, (_, i) => view.getUint32(data + i * 4, true));
+		else if (id === 'SKID' && size >= 4) skelFdid = view.getUint32(data, true);
 		p = data + size;
 	}
 	if (md20 < 0) {
@@ -186,6 +190,7 @@ export function parseM2(bytes: Uint8Array): M2File {
 		uvScroll,
 		skinFdids: skinFdids.slice(0, Math.max(1, skinCount)),
 		animFiles,
+		skelFdid,
 		bounds: { min: [f(0xa0), f(0xa4), f(0xa8)], max: [f(0xac), f(0xb0), f(0xb4)], radius: f(0xb8) },
 	};
 }

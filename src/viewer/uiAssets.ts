@@ -51,6 +51,18 @@ const IMAGES: [name: string, path: string, shape: Shape][] = [
 	['loading-screen', `interface/glues/loadingscreens/loadscreen${Math.random() < 0.5 ? 'easternkingdom' : 'kalimdor'}wide.blp`, { kind: 'resize', w: 1600, h: 1000 }],
 ];
 
+/**
+ * The scroll bar's pictures (see scrollbar.ts): the arrow buttons and the knob cut out of their
+ * 32×32 squares, and a stretch of the character sheet's scroll groove. Wanted but not needed:
+ * without them the bar keeps its plain look, and the rest of the game's look stands.
+ */
+const SCROLL_IMAGES: [name: string, path: string, shape: Shape][] = [
+	...(['up', 'down'] as const).flatMap((way) => (['up', 'down', 'disabled'] as const).map((state): [string, string, Shape] =>
+		[`scroll-${way}-${state}`, `interface/buttons/ui-scrollbar-scroll${way}button-${state}.blp`, { kind: 'crop', x: 6, y: 7, w: 19, h: 17 }])),
+	['scroll-knob', 'interface/buttons/ui-scrollbar-knob.blp', { kind: 'crop', x: 5, y: 6, w: 21, h: 19 }],
+	['scroll-groove', 'interface/paperdollinfoframe/ui-character-scrollbar.blp', { kind: 'crop', x: 0, y: 64, w: 31, h: 128 }],
+];
+
 /** The player's arrow on the minimap, drawn by minimap.ts rather than CSS. */
 const MINIMAP_ARROW = 'interface/minimap/minimaparrow.blp';
 
@@ -129,6 +141,16 @@ async function loadFonts(storage: AsyncStorageApi): Promise<void> {
 	}));
 }
 
+/** A picture, shaped, as an object URL to set as a --wow-* variable. */
+async function toUrl(image: Image, [name, path, how]: [string, string, Shape]): Promise<string> {
+	const canvas = shape(toCanvas(GLOWS.has(name) ? glowToAlpha(image) : image), how);
+	// Photos as JPEG: far quicker to encode than PNG at this size.
+	const type = how.kind === 'resize' ? 'image/jpeg' : 'image/png';
+	const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, 0.9));
+	if (!blob) throw new Error(`could not encode ${path}`);
+	return URL.createObjectURL(blob);
+}
+
 /**
  * Takes the game's own fonts and interface pictures from the install and dresses the page in
  * them: each picture becomes a --wow-* variable and <body> gets the wow-ui class, which
@@ -138,23 +160,21 @@ export async function loadUiAssets(storage: AsyncStorageApi): Promise<UiAssets> 
 	const fonts = loadFonts(storage);
 	let minimapArrow: HTMLCanvasElement | null = null;
 	try {
-		const images = await storage.loadInterfaceImages([...IMAGES.map(([, path]) => path), MINIMAP_ARROW]);
+		const images = await storage.loadInterfaceImages([...IMAGES.map(([, path]) => path), MINIMAP_ARROW, ...SCROLL_IMAGES.map(([, path]) => path)]);
+		const scroll = images.splice(IMAGES.length + 1);
 		const arrow = images.pop();
 		if (arrow) minimapArrow = toCanvas(arrow);
 		const missing = IMAGES.filter((_, i) => !images[i]).map(([, path]) => path);
 		if (missing.length) throw new Error(`missing ${missing.join(', ')}`);
-		const urls = await Promise.all(images.map(async (image, i) => {
-			const [name, path, how] = IMAGES[i];
-			const canvas = shape(toCanvas(GLOWS.has(name) ? glowToAlpha(image!) : image!), how);
-			// Photos as JPEG: far quicker to encode than PNG at this size.
-			const type = how.kind === 'resize' ? 'image/jpeg' : 'image/png';
-			const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, 0.9));
-			if (!blob) throw new Error(`could not encode ${path}`);
-			return URL.createObjectURL(blob);
-		}));
+		const urls = await Promise.all(images.map((image, i) => toUrl(image!, IMAGES[i])));
 		const root = document.documentElement.style;
 		IMAGES.forEach(([name], i) => root.setProperty(`--wow-${name}`, `url("${urls[i]}")`));
 		document.body.classList.add('wow-ui');
+		if (scroll.every((image) => image)) {
+			const scrollUrls = await Promise.all(scroll.map((image, i) => toUrl(image!, SCROLL_IMAGES[i])));
+			SCROLL_IMAGES.forEach(([name], i) => root.setProperty(`--wow-${name}`, `url("${scrollUrls[i]}")`));
+			document.body.classList.add('wow-scroll');
+		}
 	} catch (e) {
 		console.warn('Game interface pictures unavailable, keeping the plain look:', e);
 	}

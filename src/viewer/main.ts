@@ -769,6 +769,8 @@ function setUpWalking(viewer: Viewer): void {
 	const picker = new FormPicker({
 		root: $('forms'),
 		grid: $('forms-grid'),
+		heading: $('forms-heading'),
+		scrollbar: $('forms-scrollbar'),
 		count: $('forms-count'),
 		race: $<HTMLSelectElement>('forms-race'),
 		sex: $<HTMLSelectElement>('forms-sex'),

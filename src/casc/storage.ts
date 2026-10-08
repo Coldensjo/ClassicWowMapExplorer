@@ -85,8 +85,27 @@ export class CascStorage {
 		readonly stats: StorageStats,
 	) {}
 
-	static listProducts(source: FileSource): Promise<ProductInfo[]> {
-		return readBuildInfo(source);
+	/**
+	 * The products in .build.info, then (inactive) any build in Data/config it doesn't list: an
+	 * install can hold a product's data after the launcher has dropped it from .build.info.
+	 */
+	static async listProducts(source: FileSource): Promise<ProductInfo[]> {
+		const listed = await readBuildInfo(source);
+		const known = new Set(listed.map((p) => p.buildKey.toLowerCase()));
+		const unlisted: ProductInfo[] = [];
+		for (const key of await listConfigKeys(source)) {
+			if (known.has(key)) continue;
+			let config: Map<string, string[]>;
+			try {
+				config = await readConfig(source, key);
+			} catch {
+				continue;
+			}
+			const product = config.get('build-uid')?.[0];
+			if (!product || !config.has('root')) continue;
+			unlisted.push({ product, version: config.get('build-name')?.join(' ') ?? '', branch: '', active: false, buildKey: key, cdnKey: '' });
+		}
+		return [...listed, ...unlisted];
 	}
 
 	static async open(source: FileSource, product: string, onProgress: (msg: string) => void = () => {}): Promise<CascStorage> {
@@ -99,9 +118,10 @@ export class CascStorage {
 			return result;
 		};
 
-		const products = await readBuildInfo(source);
+		const products = await CascStorage.listProducts(source);
 		// Several builds of a product can be listed (a rebuilt .build.info has no Active flag, and old
 		// builds' configs stay behind after a patch); the first whose files are all stored here wins.
+		// Unlisted builds in Data/config come last, as inactive.
 		const candidates = [...products.filter((p) => p.product === product && p.active), ...products.filter((p) => p.product === product && !p.active)];
 		if (!candidates.length) throw new Error(`Product ${product} is not installed`);
 		const failures: string[] = [];
@@ -113,10 +133,10 @@ export class CascStorage {
 				failures.push(`build ${info.buildKey}: ${e.message}`);
 			}
 		}
-		const message = `${failures.length === 1 ? 'The build' : `None of the ${failures.length} builds`} of ${product} can't be read: ${failures.join('; ')}`;
+		const message = `${failures.length === 1 ? 'The build' : `None of the ${failures.length} builds`} of ${product} can be read: ${failures.join('; ')}`;
 		let report: string[];
 		try {
-			report = await describeStorage(source, products);
+			report = await describeStorage(source, await readBuildInfo(source));
 		} catch (e) {
 			report = [`Diagnostics failed: ${e instanceof Error ? e.message : String(e)}`];
 		}
@@ -278,14 +298,7 @@ async function describeStorage(source: FileSource, products: ProductInfo[]): Pro
 		(missing.length ? `, missing ${missing.length}: ${missing.slice(0, 10).map(archiveName).join(' ')}` : ', none missing'));
 
 	const stored = (ekey: string | undefined) => (ekey ? (index.find(fromHex(ekey)) ? 'yes' : 'no') : 'n/a');
-	const configs: string[] = [];
-	for (const a of await listOrNone(source, ['Data', 'config'])) {
-		for (const b of await listOrNone(source, ['Data', 'config', a])) {
-			for (const name of await listOrNone(source, ['Data', 'config', a, b])) {
-				if (/^[0-9a-f]{32}$/i.test(name)) configs.push(name.toLowerCase());
-			}
-		}
-	}
+	const configs = await listConfigKeys(source);
 	let buildConfigs = 0;
 	for (const key of configs) {
 		let config: Map<string, string[]>;
@@ -323,6 +336,19 @@ async function describeStorage(source: FileSource, products: ProductInfo[]): Pro
 	}
 	lines.push(`Data/config: ${configs.length} files, ${buildConfigs} build configs`);
 	return lines;
+}
+
+/** The keys of the config files in Data/config/xx/yy (build and CDN configs alike), lower case. */
+async function listConfigKeys(source: FileSource): Promise<string[]> {
+	const keys: string[] = [];
+	for (const a of await listOrNone(source, ['Data', 'config'])) {
+		for (const b of await listOrNone(source, ['Data', 'config', a])) {
+			for (const name of await listOrNone(source, ['Data', 'config', a, b])) {
+				if (/^[0-9a-f]{32}$/i.test(name)) keys.push(name.toLowerCase());
+			}
+		}
+	}
+	return keys;
 }
 
 async function listOrNone(source: FileSource, path: string[]): Promise<string[]> {

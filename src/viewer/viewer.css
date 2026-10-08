@@ -1696,3 +1696,10 @@ body.wow-ui {
 	padding: 1px 8px;
 	font-size: 12px;
 }
+
+/* Load errors carry a multi-line diagnostics report to paste into an issue. */
+#status.bad {
+	white-space: pre-line;
+	overflow-wrap: anywhere;
+	user-select: text;
+}

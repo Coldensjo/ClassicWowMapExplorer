@@ -121,6 +121,13 @@ export class LocalIndex {
 		return null;
 	}
 
+	/** The data.### archive numbers the entries point into. */
+	archiveNumbers(): Set<number> {
+		const numbers = new Set<number>();
+		for (const files of this.buckets) for (const file of files) for (const n of file.archive) numbers.add(n);
+		return numbers;
+	}
+
 	/** Finds a key in whichever bucket holds it, for explaining a failed find. */
 	findInAnyBucket(ekey: Uint8Array): { bucket: number; entry: IndexEntry } | null {
 		for (let bucket = 0; bucket < 16; bucket++) {

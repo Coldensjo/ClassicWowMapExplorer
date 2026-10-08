@@ -42,7 +42,7 @@ class ArchiveReader {
 		const entry = this.index.find(ekey);
 		if (!entry) {
 			const bucket = bucketOf(ekey);
-			throw new NotLocalError(what, ` (key ${toHex(ekey)}, bucket ${bucket}; index has ${this.index.entryCount} entries in buckets ${this.index.loadedBuckets}})`);
+			throw new NotLocalError(what, ` (key ${toHex(ekey)}, bucket ${bucket}; index has ${this.index.entryCount} entries in buckets ${this.index.loadedBuckets})`);
 		}
 		const archive = await this.archive(entry.archive);
 		const bytes = await archive.read(entry.offset + ARCHIVE_ENTRY_HEADER, entry.size - ARCHIVE_ENTRY_HEADER);
@@ -113,7 +113,14 @@ export class CascStorage {
 				failures.push(`build ${info.buildKey}: ${e.message}`);
 			}
 		}
-		throw new Error(`${failures.length === 1 ? 'The build' : `None of the ${failures.length} builds`} of ${product} can't be read: ${failures.join('; ')}`);
+		const message = `${failures.length === 1 ? 'The build' : `None of the ${failures.length} builds`} of ${product} can't be read: ${failures.join('; ')}`;
+		let report: string[];
+		try {
+			report = await describeStorage(source, products);
+		} catch (e) {
+			report = [`Diagnostics failed: ${e instanceof Error ? e.message : String(e)}`];
+		}
+		throw new Error(`${message}\n\nDiagnostics:\n${report.join('\n')}`);
 	}
 
 	private static async openBuild(
@@ -239,4 +246,89 @@ async function loadLocalIndex(source: FileSource): Promise<LocalIndex> {
 		}
 	});
 	return index;
+}
+
+/** Shortens a key for a report line: its first 8 hex digits. */
+const short = (hex: string) => hex.slice(0, 8);
+
+/**
+ * What this storage holds, for when no build of a product could be read: the browser, the
+ * listed builds, whether every archive the index points into is present, and for each build
+ * config in Data/config which of its key files are stored here. The installed build has its
+ * encoding, root and most of its encoding table's files stored; a leftover config doesn't.
+ */
+async function describeStorage(source: FileSource, products: ProductInfo[]): Promise<string[]> {
+	const lines: string[] = [];
+	if (typeof navigator !== 'undefined') lines.push(`Browser: ${navigator.userAgent}`);
+	lines.push(`.build.info: ${products.map((p) => `${p.product} ${p.version || '(no version)'} ${short(p.buildKey)}${p.active ? ' active' : ''}`).join('; ')}`);
+
+	const index = await loadLocalIndex(source);
+	const archives = new ArchiveReader(source, index);
+	lines.push(`Index files: ${index.names.length}, ${index.entryCount} entries`);
+
+	const present = new Set<number>();
+	for (const name of await source.listDir(['Data', 'data'])) {
+		const m = /^data\.(\d{3})$/i.exec(name);
+		if (m) present.add(Number(m[1]));
+	}
+	const referenced = [...index.archiveNumbers()].sort((a, b) => a - b);
+	const missing = referenced.filter((n) => !present.has(n));
+	const archiveName = (n: number) => `data.${n.toString().padStart(3, '0')}`;
+	lines.push(`Archives: ${present.size} data.### files, index points into ${referenced.length} (${archiveName(referenced[0])} to ${archiveName(referenced[referenced.length - 1])})` +
+		(missing.length ? `, missing ${missing.length}: ${missing.slice(0, 10).map(archiveName).join(' ')}` : ', none missing'));
+
+	const stored = (ekey: string | undefined) => (ekey ? (index.find(fromHex(ekey)) ? 'yes' : 'no') : 'n/a');
+	const configs: string[] = [];
+	for (const a of await listOrNone(source, ['Data', 'config'])) {
+		for (const b of await listOrNone(source, ['Data', 'config', a])) {
+			for (const name of await listOrNone(source, ['Data', 'config', a, b])) {
+				if (/^[0-9a-f]{32}$/i.test(name)) configs.push(name.toLowerCase());
+			}
+		}
+	}
+	let buildConfigs = 0;
+	for (const key of configs) {
+		let config: Map<string, string[]>;
+		try {
+			config = await readConfig(source, key);
+		} catch (e) {
+			lines.push(`Config ${short(key)}: unreadable (${e instanceof Error ? e.message : String(e)})`);
+			continue;
+		}
+		// CDN configs list archives, not a root; only build configs matter here.
+		if (!config.has('root')) continue;
+		if (++buildConfigs > 12) {
+			lines.push('(more build configs not checked)');
+			break;
+		}
+		const uid = config.get('build-uid')?.[0] ?? '(no uid)';
+		const name = config.get('build-name')?.join(' ') ?? '';
+		const encodingEKey = config.get('encoding')?.[1];
+		const parts = [`encoding ${stored(encodingEKey)}`];
+		if (encodingEKey && index.find(fromHex(encodingEKey))) {
+			try {
+				const encoding = EncodingTable.parse((await archives.read(fromHex(encodingEKey), 'encoding table')).data);
+				const rootEKeys = encoding.lookupAll(fromHex(config.get('root')![0]));
+				parts.push(rootEKeys.length
+					? `root ${rootEKeys.some((k) => index.find(k)) ? 'yes' : 'no'} (${rootEKeys.map((k) => short(toHex(k))).join(' ')})`
+					: 'root not in its encoding table');
+				const sample = encoding.sampleEncodingKeys(1000);
+				parts.push(`${sample.filter((k) => index.find(k)).length} of ${sample.length} sampled files stored`);
+			} catch (e) {
+				parts.push(`encoding unreadable (${e instanceof Error ? e.message : String(e)})`);
+			}
+		}
+		parts.push(`vfs-root ${stored(config.get('vfs-root')?.[1])}`, `install ${stored(config.get('install')?.[1])}`, `download ${stored(config.get('download')?.[1])}`);
+		lines.push(`Config ${short(key)} ${uid} ${name}: ${parts.join(', ')}`);
+	}
+	lines.push(`Data/config: ${configs.length} files, ${buildConfigs} build configs`);
+	return lines;
+}
+
+async function listOrNone(source: FileSource, path: string[]): Promise<string[]> {
+	try {
+		return await source.listDir(path);
+	} catch {
+		return [];
+	}
 }

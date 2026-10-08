@@ -37,6 +37,21 @@ export class EncodingTable {
 		return new EncodingTable(data, pageFirstKeys, r.pos, cePageSizeKB * 1024, cePageCount);
 	}
 
+	/**
+	 * The first encoding key on each of up to count evenly spread pages, for checking how much
+	 * of the table is stored locally (most of it is, for the installed build).
+	 */
+	sampleEncodingKeys(count: number): Uint8Array[] {
+		const keys: Uint8Array[] = [];
+		const pages = Math.min(count, this.pageCount);
+		for (let i = 0; i < pages; i++) {
+			const pos = this.pagesStart + Math.floor((i * this.pageCount) / pages) * this.pageSize;
+			if (pos + 38 > this.data.length || this.data[pos] === 0) continue;
+			keys.push(this.data.slice(pos + 22, pos + 38));
+		}
+		return keys;
+	}
+
 	/** Returns the first encoding key for a content key, or null if unknown. */
 	lookup(ckey: Uint8Array): Uint8Array | null {
 		return this.lookupAll(ckey)[0] ?? null;

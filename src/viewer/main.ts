@@ -210,6 +210,10 @@ async function explore(): Promise<void> {
 		// For poking at the scene from the console (and test scripts) while developing.
 		if (import.meta.env.DEV) (globalThis as unknown as { mapExplorerViewer: Viewer }).mapExplorerViewer = viewer;
 		viewer.onShotStatus = showShotStatus;
+		// Shadows and the torch are part of what three builds each shader for, and load() builds
+		// those the world will need; set only afterwards, every one was built again while flying.
+		const { stats: _, ...saved } = readSaved<SavedView>(VIEW_KEY);
+		viewer.settings = saved;
 		await viewer.load((text) => showProgress(text));
 		const { minimapArrow } = await ui;
 		showProgress('Starting');

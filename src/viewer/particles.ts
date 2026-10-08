@@ -150,6 +150,9 @@ function createMaterial(blend: number, cols: number, rows: number): THREE.Shader
 	});
 }
 
+/** A particle's quad, corners in its own space. */
+const QUAD = [-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0];
+
 const rand = (spread: number) => (Math.random() * 2 - 1) * spread;
 
 /**
@@ -173,7 +176,9 @@ export class ParticleSystem {
 		for (const blend of [Blend.Add, Blend.Alpha]) {
 			// The material is kept: disposing it would release its program, and the first
 			// particles would compile it all over again.
+			// With the quad's corners: whether there's a position attribute is part of the shader too.
 			const geometry = new THREE.InstancedBufferGeometry();
+			geometry.setAttribute('position', new THREE.Float32BufferAttribute(QUAD, 3));
 			this.warmMaterials.push(createMaterial(blend, 1, 1));
 			void prepare(new THREE.Mesh(geometry, this.warmMaterials.at(-1)!)).finally(() => geometry.dispose());
 		}
@@ -234,7 +239,7 @@ export class ParticleSystem {
 			// would break any other group sharing them.
 			const geometry = new THREE.InstancedBufferGeometry();
 			geometry.setIndex([0, 1, 2, 0, 2, 3]);
-			geometry.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
+			geometry.setAttribute('position', new THREE.Float32BufferAttribute(QUAD, 3));
 			const attribute = (size: number) => new THREE.InstancedBufferAttribute(new Float32Array(MAX_PER_GROUP * size), size).setUsage(THREE.DynamicDrawUsage);
 			const offset = attribute(3), color = attribute(4), shape = attribute(3);
 			geometry.setAttribute('offset', offset);

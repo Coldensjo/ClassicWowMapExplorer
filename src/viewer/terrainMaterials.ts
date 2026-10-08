@@ -485,16 +485,21 @@ void setFlow(vec2 xz) {
 	flowHere = vec2(-f.x, f.y) * 2.0;
 }
 vec4 flowingFlipbook(vec2 uv) {
+	// One return, the result always set: an early one read to Direct3D's compiler as a result
+	// maybe never set (warning X4000) once inlined.
+	vec4 frame = flipbook(uv);
 	// Still water (the map's 128, a hair off its middle) keeps the plain ripples.
 	float moving = smoothstep(0.02, 0.06, length(flowHere));
-	if (moving <= 0.0) return flipbook(uv);
-	float cycle = uTime * 0.5;
-	float p0 = fract(cycle);
-	float p1 = fract(cycle + 0.5);
-	vec2 drift = flowHere * ${FLOW_SPEED.toFixed(2)} * 2.0;
-	vec4 a = flipbook(uv - drift * p0);
-	vec4 b = flipbook(uv - drift * p1 + vec2(0.37, 0.61));
-	return mix(flipbook(uv), mix(a, b, abs(p0 - 0.5) * 2.0), moving);
+	if (moving > 0.0) {
+		float cycle = uTime * 0.5;
+		float p0 = fract(cycle);
+		float p1 = fract(cycle + 0.5);
+		vec2 drift = flowHere * ${FLOW_SPEED.toFixed(2)} * 2.0;
+		vec4 a = flipbook(uv - drift * p0);
+		vec4 b = flipbook(uv - drift * p1 + vec2(0.37, 0.61));
+		frame = mix(frame, mix(a, b, abs(p0 - 0.5) * 2.0), moving);
+	}
+	return frame;
 }
 `;
 

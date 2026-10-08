@@ -3,7 +3,7 @@ import { MeshBVH } from 'three-mesh-bvh';
 import type { CascStorage } from '../casc/storage';
 import { chunks } from '../formats/chunks';
 import { Blend, M2_MATERIAL_TWO_SIDED, M2_MATERIAL_UNFOGGED, M2_MATERIAL_UNLIT, parseM2, parseSkin, type M2File, type M2Skin } from '../formats/m2';
-import { attachmentPoints, sequenceAnimation, skinVertex, standAnimation, standPose, type AnimationClip, type AttachmentPoint, type BoneAnimation } from '../formats/m2Pose';
+import { attachmentPoints, externalSequences, sequenceAnimation, skinVertex, standAnimation, standPose, type AnimationClip, type AttachmentPoint, type BoneAnimation } from '../formats/m2Pose';
 import { parseParticleEmitters, type ParticleEmitter } from '../formats/m2Particles';
 import {
 	parseWmoGroup, parseWmoRoot, WMO_GROUP_INTERIOR, WMO_LIQUID_CELL, type WmoGroup, visibleWmoGroups, WMO_MATERIAL_TWO_SIDED, WMO_MATERIAL_UNFOGGED, WMO_MATERIAL_UNLIT,
@@ -248,6 +248,24 @@ const preparedM2 = new Map<string, Promise<PreparedM2>>();
 const PREPARED_M2_LIMIT = 600;
 
 /** file: the M2's bytes, when the caller has already read them. clips: see M2Options. */
+/**
+ * The .anim files of those listed sequences kept outside the model (the HD race models' emotes),
+ * by sequence index. One that can't be read is left out, and its sequence with it.
+ */
+async function readAnimFiles(storage: CascStorage, bytes: Uint8Array, m2: { md20: number; animFiles: { id: number; sub: number; fdid: number }[] }, clips: number[]): Promise<Map<number, Uint8Array>> {
+	const out = new Map<number, Uint8Array>();
+	await Promise.all(externalSequences(bytes, m2.md20, clips).map(async ({ seq, id, sub }) => {
+		const file = m2.animFiles.find((a) => a.id === id && a.sub === sub);
+		if (!file || storage.status(file.fdid) !== 'ok') return;
+		try {
+			out.set(seq, await storage.readFile(file.fdid));
+		} catch (e) {
+			console.warn(`Animation file ${file.fdid}:`, e);
+		}
+	}));
+	return out;
+}
+
 function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Uint8Array, clips?: number[]): Promise<PreparedM2> {
 	const key = `${fdid}:${stand ? 1 : 0}:${clips?.join('.') ?? ''}`;
 	let entry = preparedM2.get(key);
@@ -270,7 +288,7 @@ function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Ui
 		const v = new DataView(vertices.buffer, vertices.byteOffset, vertices.byteLength);
 		// Moving models are skinned on the GPU from bind space; still ones are posed here once.
 		// Creatures (posed standing) also get their walk, for those that roam.
-		const animation = clips ? sequenceAnimation(bytes, m2.md20, clips) : standAnimation(bytes, m2.md20, stand);
+		const animation = clips ? sequenceAnimation(bytes, m2.md20, clips, await readAnimFiles(storage, bytes, m2, clips)) : standAnimation(bytes, m2.md20, stand);
 		const bones = !animation && stand ? standPose(bytes, m2.md20) : null;
 		const boneIndex = animation ? new Uint16Array(n * 4) : null;
 		const boneWeight = animation ? new Uint8Array(n * 4) : null;

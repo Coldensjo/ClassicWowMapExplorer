@@ -44,6 +44,8 @@ export interface M2File {
 	/** Per texture-transform combo: steady UV scroll in texture units per second (scrolling fire, water). */
 	uvScroll: ([number, number] | null)[];
 	skinFdids: number[];
+	/** Sequences kept in .anim files of their own (AFID): AnimationData ID, variation, file. */
+	animFiles: { id: number; sub: number; fdid: number }[];
 	bounds: { min: [number, number, number]; max: [number, number, number]; radius: number };
 }
 
@@ -95,13 +97,20 @@ export function parseM2(bytes: Uint8Array): M2File {
 	let md20 = -1;
 	let skinFdids: number[] = [];
 	let textureFdids: number[] = [];
+	let animFiles: M2File['animFiles'] = [];
 	for (let p = 0; p + 8 <= bytes.length;) {
 		const id = decoder.decode(bytes.subarray(p, p + 4));
 		const size = view.getUint32(p + 4, true);
 		const data = p + 8;
 		if (id === 'MD21') md20 = data;
 		else if (id === 'SFID') skinFdids = Array.from({ length: size / 4 }, (_, i) => view.getUint32(data + i * 4, true));
-		else if (id === 'TXID') textureFdids = Array.from({ length: size / 4 }, (_, i) => view.getUint32(data + i * 4, true));
+		else if (id === 'AFID') {
+			animFiles = Array.from({ length: size / 8 }, (_, i) => ({
+				id: view.getUint16(data + i * 8, true),
+				sub: view.getUint16(data + i * 8 + 2, true),
+				fdid: view.getUint32(data + i * 8 + 4, true),
+			})).filter((a) => a.fdid);
+		} else if (id === 'TXID') textureFdids = Array.from({ length: size / 4 }, (_, i) => view.getUint32(data + i * 4, true));
 		p = data + size;
 	}
 	if (md20 < 0) {
@@ -176,6 +185,7 @@ export function parseM2(bytes: Uint8Array): M2File {
 		colorAlpha,
 		uvScroll,
 		skinFdids: skinFdids.slice(0, Math.max(1, skinCount)),
+		animFiles,
 		bounds: { min: [f(0xa0), f(0xa4), f(0xa8)], max: [f(0xac), f(0xb0), f(0xb4)], radius: f(0xb8) },
 	};
 }

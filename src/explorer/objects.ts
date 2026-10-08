@@ -329,6 +329,9 @@ function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Ui
 	return entry;
 }
 
+/** The geoset group of glowing eyes. */
+const EYE_GLOW = 17;
+
 /** Picks the batches a look shows (geosets, resolved runtime textures), as a standalone mesh. */
 function dressM2(prepared: PreparedM2, options: M2Options) {
 	const { m2, skin } = prepared;
@@ -339,7 +342,8 @@ function dressM2(prepared: PreparedM2, options: M2Options) {
 		const opacity = (m2.transparency[b.transparencyIndex] ?? 1) * (b.colorIndex >= 0 ? m2.colorAlpha[b.colorIndex] ?? 1 : 1);
 		if (opacity <= 0.01 || b.indexCount === 0) return;
 		// Group 0 holds the body (0) and hairstyles (1+); the others default to variant 1, except
-		// the head (group 32), whose variant 1 is an empty stub.
+		// the head (group 32), whose variant 1 is an empty stub, and eye glow (group 17), which
+		// newer models (the goblins, the HD races) give a variant 1 and is only shown when chosen.
 		if (options.defaultGeosets && b.geoset !== 0) {
 			const group = Math.floor(b.geoset / 100);
 			// A chosen geoset (hairstyle, facial hair, gear, ...) replaces its group's default; group 0
@@ -347,7 +351,7 @@ function dressM2(prepared: PreparedM2, options: M2Options) {
 			const chosen = options.geosets?.find((g) => Math.floor(g / 100) === group && (group !== 0 || g !== 0));
 			if (chosen !== undefined) {
 				if (b.geoset !== chosen) return;
-			} else if (group === 0 || b.geoset % 100 !== (group === 32 ? 2 : 1)) {
+			} else if (group === 0 || group === EYE_GLOW || b.geoset % 100 !== (group === 32 ? 2 : 1)) {
 				return;
 			}
 		}

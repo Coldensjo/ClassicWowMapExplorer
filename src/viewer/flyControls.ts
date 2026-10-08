@@ -101,7 +101,7 @@ export class FlyControls {
 	/** Turning glides after the mouse instead of following it at once (J toggles, in the viewer). */
 	cinematic = false;
 
-	/** Multiplies the flying speed (the View panel's slider, Y in the viewer). */
+	/** Multiplies the flying speed (the Camera menu's slider, Y in the viewer). */
 	speedScale = 1;
 
 	/** Speed scales with height above the ground; off, the camera flies at fixedSpeed everywhere. */

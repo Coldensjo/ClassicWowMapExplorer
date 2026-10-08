@@ -184,7 +184,7 @@ export interface HudInfo {
 	collision: string;
 }
 
-/** What can be switched from the keyboard or the View panel. */
+/** What can be switched from the keyboard or the menus. */
 export interface ViewSettings {
 	/** Light carried with the camera (L). */
 	torch: boolean;
@@ -883,7 +883,7 @@ export class Viewer {
 		this.timeOffset = Math.round(minutes * 2 - this.clockTime());
 	}
 
-	/** Whether the time of day is the local time (N, or the View panel's Now). */
+	/** Whether the time of day is the local time (N, or the View menu's Now). */
 	get timeIsLocal(): boolean {
 		return this.timeOffset === 0;
 	}

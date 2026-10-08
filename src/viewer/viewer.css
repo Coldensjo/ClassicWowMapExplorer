@@ -6,6 +6,8 @@
 	--muted: #9aa1ac;
 	--accent: #d9a441;
 	--bad: #e58080;
+	/* The menu bar's height: what sits at the top of the screen goes under it. */
+	--bar: 34px;
 	font: 14px/1.45 system-ui, sans-serif;
 }
 
@@ -225,24 +227,23 @@ button.big {
 	cursor: pointer;
 }
 
-/* Top left: the settings menu with the camera's whereabouts under it. */
-#top-left {
+/* Along the top: the menus, each dropping its panel below its name, one open at a time. */
+#menu {
 	position: fixed;
-	top: 12px;
-	left: 12px;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: var(--bar);
 	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-	gap: 8px;
-	pointer-events: none;
+	align-items: center;
+	gap: 2px;
+	padding: 0 8px;
+	background: var(--panel);
+	border-bottom: 1px solid var(--line);
 }
 
-/* View, Sound and Highlight: tabs whose panels drop down over the HUD, one open at a time. */
-#menu {
+#menu details {
 	position: relative;
-	display: flex;
-	gap: 4px;
-	pointer-events: auto;
 }
 
 #menu summary {
@@ -251,10 +252,8 @@ button.big {
 	user-select: none;
 	font-size: 13px;
 	font-weight: 600;
-	background: var(--panel);
-	border: 1px solid transparent;
-	border-radius: 6px;
-	padding: 5px 12px;
+	border-radius: 4px;
+	padding: 4px 12px;
 }
 
 #menu summary::-webkit-details-marker {
@@ -263,24 +262,37 @@ button.big {
 
 #menu summary:hover, #menu details[open] > summary {
 	color: var(--accent);
-}
-
-#menu details[open] > summary {
-	border-color: var(--accent);
+	background: rgba(255, 255, 255, 0.07);
 }
 
 #menu .menu-body {
 	position: absolute;
 	left: 0;
-	top: calc(100% + 6px);
+	top: calc(100% + 5px);
 	width: 300px;
-	max-height: calc(100vh - 70px);
+	max-height: calc(100vh - var(--bar) - 16px);
 	overflow-y: auto;
 	scrollbar-width: thin;
 }
 
+/* Under the menu bar: the camera's whereabouts. */
+#top-left {
+	position: fixed;
+	top: calc(var(--bar) + 8px);
+	left: 12px;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 8px;
+	pointer-events: none;
+}
+
 /* The HUD steps aside while a menu is open over it. */
-#top-left:has(#menu details[open]) #hud {
+body:has(#menu details[open]) #hud {
+	visibility: hidden;
+}
+
+#hud {
 	visibility: hidden;
 }
 
@@ -342,14 +354,11 @@ button.plain {
 	margin: 0;
 }
 
-/* "? Controls", bottom left; the list itself opens over the middle. */
+/* "? Controls", at the right of the menu bar; the list itself opens over the middle. */
 #help-hint {
-	position: fixed;
-	bottom: 12px;
-	left: 12px;
-	background: var(--panel);
-	border-radius: 6px;
-	padding: 5px 10px;
+	margin-left: auto;
+	border-radius: 4px;
+	padding: 4px 10px;
 	font-size: 12px;
 	color: var(--muted);
 }
@@ -455,7 +464,7 @@ kbd {
 /* The game updated under the open storage: shown even with the interface hidden, until reloaded. */
 #game-updated {
 	position: fixed;
-	top: 12px;
+	top: calc(var(--bar) + 12px);
 	left: 50%;
 	transform: translateX(-50%);
 	max-width: calc(100% - 32px);
@@ -476,7 +485,7 @@ kbd {
 /* Screenshot progress (P): shown even with the interface hidden. */
 #shot-status {
 	position: fixed;
-	top: 12px;
+	top: calc(var(--bar) + 12px);
 	left: 50%;
 	transform: translateX(-50%);
 	max-width: calc(100% - 32px);
@@ -554,7 +563,7 @@ kbd {
  */
 #side {
 	position: fixed;
-	top: 12px;
+	top: calc(var(--bar) + 8px);
 	right: 12px;
 	bottom: 12px;
 	width: min(280px, calc(100vw - 24px));
@@ -815,7 +824,7 @@ kbd {
 }
 
 /* Alt+Z or U: only the world. */
-.ui-hidden :is(#top-left, #help, #help-hint, #side, #zone-banner, #crosshair, #nameplates) {
+.ui-hidden :is(#menu, #top-left, #help, #side, #zone-banner, #crosshair, #nameplates) {
 	display: none !important;
 }
 
@@ -835,7 +844,7 @@ kbd {
 	margin-left: 2px;
 }
 
-#view-panel label {
+.settings label {
 	display: flex;
 	align-items: center;
 	gap: 6px;
@@ -844,7 +853,7 @@ kbd {
 	user-select: none;
 }
 
-#view-panel select {
+.settings select {
 	padding: 1px 4px;
 	font-size: 12px;
 }
@@ -1081,8 +1090,13 @@ kbd {
 }
 
 /* The interface stays above the names, which can grow large up close. */
-:is(#top-left, #side, #help-hint, #help, #notice, #shot-status, #game-updated, #zone-banner) {
+:is(#menu, #top-left, #side, #help, #notice, #shot-status, #game-updated, #zone-banner) {
 	z-index: 1;
+}
+
+/* The menus' panels drop over the right column too. */
+#menu {
+	z-index: 2;
 }
 
 .plate {
@@ -1126,7 +1140,7 @@ body.wow-ui {
 }
 
 /* Tooltip backdrop: 16-unit edges, the dark blue fill inset under them. */
-.wow-ui :is(#hud, #goto, #info, .panel, #help-hint, #notice, #shot-status, #game-updated) {
+.wow-ui :is(#menu, #hud, #goto, #info, .panel, #notice, #shot-status, #game-updated) {
 	border: 5px solid transparent;
 	border-radius: 6px;
 	border-image: var(--wow-tooltip-border) 16 / 16px / 0 round;

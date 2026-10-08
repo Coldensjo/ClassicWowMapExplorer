@@ -24,7 +24,7 @@ export function headPosition(matrix: THREE.Matrix4, height: number, out: THREE.V
 }
 
 type Kind = ObjectKind;
-/** What the View panel can hide: kinds of spawn, or spirit healers among the creatures. */
+/** What the View menu can hide: kinds of spawn, or spirit healers among the creatures. */
 export type Hideable = 'creature' | 'object' | 'spiritHealer';
 
 // Ray casts use a model's BVH when it has one (buildings); InstancedMesh casts go through this too.

@@ -221,7 +221,7 @@ async function explore(): Promise<void> {
 		const { minimapArrow } = await ui;
 		showProgress('Starting');
 		$('start').hidden = true;
-		$('top-left').hidden = $('side').hidden = $('help-hint').hidden = false;
+		$('menu').hidden = $('top-left').hidden = $('side').hidden = false;
 		setUpView(viewer);
 		viewer.start();
 		perf.log('load', 'world shown');
@@ -312,12 +312,12 @@ document.addEventListener('keydown', (e) => {
 	else if (e.code === 'Escape') closeMenu();
 });
 
-/** Folds away whichever of View, Sound and Highlight is open in the top-left menu. */
+/** Folds away whichever menu along the top is open. */
 function closeMenu(): void {
 	for (const menu of document.querySelectorAll<HTMLDetailsElement>('#menu details[open]')) menu.open = false;
 }
 
-// --- The View panel and the HUD ---
+// --- The View, Graphics and Camera menus and the HUD ---
 
 const VIEW_KEY = 'mapExplorer.view';
 type SavedView = Partial<ViewSettings> & { stats: boolean };
@@ -325,13 +325,13 @@ type SavedView = Partial<ViewSettings> & { stats: boolean };
 /** Called with each HUD update, for the parts of the page that follow the viewer. */
 const hudFollowers: (() => void)[] = [];
 
-/** The View panel: every setting the keys toggle, the time of day and the HUD's stats; remembered between visits. */
+/** The View, Graphics and Camera menus: every setting the keys toggle, the time of day and the HUD's stats; remembered between visits. */
 function setUpView(viewer: Viewer): void {
-	const panel = $('view-panel');
+	const menu = $('menu');
 	const { stats = false, ...settings } = readSaved<SavedView>(VIEW_KEY);
 	viewer.settings = settings;
 	const statsBox = $<HTMLInputElement>('stats-on');
-	const controls = [...panel.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-setting]')];
+	const controls = [...menu.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-setting]')];
 	const remember = () => save(VIEW_KEY, { ...viewer.settings, stats: statsBox.checked });
 	const sync = () => {
 		const s = viewer.settings;
@@ -419,7 +419,7 @@ function setUpView(viewer: Viewer): void {
 		syncSpeed();
 		remember();
 	});
-	panel.querySelector('[data-setting="smartSpeed"]')!.addEventListener('change', syncSpeed);
+	menu.querySelector('[data-setting="smartSpeed"]')!.addEventListener('change', syncSpeed);
 	syncSpeed();
 
 	// How far the grass reaches, in yards, and how far the doodads, NPCs and objects show, as a
@@ -494,7 +494,7 @@ function setUpView(viewer: Viewer): void {
 	});
 }
 
-/** A slider in the View panel for one of the distances, with its value beside it and a Reset button; returns its sync. */
+/** A slider in the menus for one of the distances, with its value beside it and a Reset button; returns its sync. */
 function setUpRangeSlider(viewer: Viewer, id: string, range: {
 	min: number; max: number; step: number; normal: number;
 	get: (s: ViewSettings) => number;
@@ -1174,7 +1174,7 @@ function setUpSound(viewer: Viewer): void {
 
 const HELP_KEY = 'mapExplorer.helpSeen';
 
-/** The list of controls: ? or F1, or the button bottom left; shown once by itself on the first visit. */
+/** The list of controls: ? or F1, or the button at the right of the menus; shown once by itself on the first visit. */
 function setUpHelp(): void {
 	const help = $('help');
 	const show = (on: boolean) => {

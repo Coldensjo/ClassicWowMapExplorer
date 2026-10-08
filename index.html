@@ -42,170 +42,185 @@
 		</div>
 	</div>
 
-	<!-- Top left: the settings menu, each opening below it, over where the camera is. -->
+	<!-- Along the top: the menus, each dropping down below its name, and the controls list at the right. -->
+	<nav id="menu" aria-label="Settings" hidden>
+		<details id="view-panel" name="menu">
+			<summary>View</summary>
+			<div class="menu-body panel settings">
+				<div class="time-row">
+					<span>Time</span>
+					<input type="range" id="time" min="0" max="1425" step="15" aria-label="Time of day">
+					<output id="time-out"></output>
+					<button id="time-now" title="Back to local time (N)">Now</button>
+				</div>
+				<label>Weather <select data-setting="weather"><option value="auto">The zone's own</option><option value="dry">The zone's own, no rain or snow</option><option value="off">Always clear</option><option value="rain">Rain</option><option value="snow">Snow</option><option value="sandstorm">Sandstorm</option></select></label>
+				<label><input type="checkbox" data-setting="torch"> Torch <kbd>L</kbd></label>
+				<label><input type="checkbox" data-setting="creatures"> NPCs and monsters</label>
+				<label><input type="checkbox" data-setting="spiritHealers"> Spirit healers</label>
+				<label><input type="checkbox" data-setting="gameObjects"> Objects (chests, herbs, ore, doors…)</label>
+				<label><input type="checkbox" data-setting="mapNames"> Dungeon and raid names <kbd>I</kbd></label>
+				<label>Name colours for <select data-setting="side"><option value="alliance">Alliance</option><option value="horde">Horde</option></select> <kbd>F</kbd></label>
+			</div>
+		</details>
+
+		<details id="graphics" name="menu">
+			<summary>Graphics</summary>
+			<div class="menu-body panel settings">
+				<label><input type="checkbox" data-setting="clutter"> Grass and flowers <kbd>V</kbd></label>
+				<div class="time-row" title="How far from the camera grass, flowers and pebbles grow">
+					<span>Grass</span>
+					<input type="range" id="clutter-range" aria-label="Grass and flowers distance">
+					<output id="clutter-range-out"></output>
+					<button id="clutter-range-reset" title="Back to the usual grass distance">Reset</button>
+				</div>
+				<div class="time-row" title="How far trees, rocks, props, NPCs and objects show, against the usual for their size (big trees reach further than crates). Only the detailed ground around you carries them, so very far settings stop there.">
+					<span>Details</span>
+					<input type="range" id="detail-range" aria-label="Detail distance">
+					<output id="detail-range-out"></output>
+					<button id="detail-range-reset" title="Back to the usual detail distance">Reset</button>
+				</div>
+				<label><input type="checkbox" data-setting="grading"> Colour grading <kbd>B</kbd></label>
+				<label><input type="checkbox" data-setting="shadows"> Shadows <kbd>X</kbd></label>
+				<label><input type="checkbox" data-setting="fog"> Fog and sun shafts <kbd>Z</kbd></label>
+				<label title="Lifts every kind of fog, distance, valley, weather and under water, so the far continents show in full"><input type="checkbox" data-setting="clearView"> No fog at all</label>
+				<label title="No lighting or shading: every surface shows its texture's own colour, with no sun, shadows, night or torch"><input type="checkbox" data-setting="unlit"> Flat, unlit view</label>
+				<label><input type="checkbox" id="stats-on"> Performance stats <kbd>K</kbd></label>
+			</div>
+		</details>
+
+		<details id="camera" name="menu">
+			<summary>Camera</summary>
+			<div class="menu-body panel settings">
+				<div class="time-row">
+					<span>Speed</span>
+					<input type="range" id="fly-speed" aria-label="Flying speed" title="Faster: Y · Slower: Shift+Y">
+					<output id="fly-speed-out"></output>
+					<button id="fly-speed-reset" title="Back to normal flying speed">Reset</button>
+				</div>
+				<label title="Flying speed follows your height above the ground; off, it stays the same everywhere"><input type="checkbox" data-setting="smartSpeed"> Smart fly speed</label>
+				<div class="time-row" title="How fast moving the mouse turns the view">
+					<span>Mouse</span>
+					<input type="range" id="mouse-speed" aria-label="Mouse look speed">
+					<output id="mouse-speed-out"></output>
+					<button id="mouse-speed-reset" title="Back to the usual mouse speed">Reset</button>
+				</div>
+				<label><input type="checkbox" data-setting="collision"> Collision with walls <kbd>G</kbd></label>
+				<label><input type="checkbox" data-setting="cinematic"> Cinematic camera <kbd>J</kbd></label>
+			</div>
+		</details>
+
+		<details id="sound" name="menu">
+			<summary>Sound</summary>
+			<div class="menu-body panel">
+				<label class="check"><input type="checkbox" id="sound-on"> Music and sound <kbd>M</kbd></label>
+				<label>Master <input type="range" min="0" max="100" step="1" data-channel="master"><output></output></label>
+				<label>Music <input type="range" min="0" max="100" step="1" data-channel="music"><output></output></label>
+				<label title="Background sounds, weather and under water">Ambience <input type="range" min="0" max="100" step="1" data-channel="ambience"><output></output></label>
+				<label title="Footsteps and splashes">Effects <input type="range" min="0" max="100" step="1" data-channel="effects"><output></output></label>
+			</div>
+		</details>
+
+		<details id="travel" name="menu">
+			<summary>Travel</summary>
+			<div class="menu-body panel">
+				<button id="walk-toggle" title="Your travel form on the ground under the camera, moved as in the game">Walk on the ground <kbd data-key="Backquote">`</kbd></button>
+				<div class="flight-grid" id="walk-character">
+					<span>Travel form</span>
+					<button id="forms-open" class="span" title="Every look there is, as pictures to choose from">Choose a look…</button>
+					<label for="walk-race">Race</label>
+					<select id="walk-race" class="span"></select>
+					<label for="walk-sex">Sex</label>
+					<select id="walk-sex" class="span"><option value="0">Male</option><option value="1">Female</option></select>
+					<label for="walk-model">Model</label>
+					<select id="walk-model" class="span"><option value="sd">Classic</option><option value="hd">HD</option></select>
+					<label for="walk-outfit">Outfit</label>
+					<select id="walk-outfit" class="span"></select>
+					<span>Look</span>
+					<output id="walk-look" title="Which NPC's outfit the travel form wears"></output>
+					<span class="walk-look-buttons"><button id="walk-look-prev" title="Previous look" aria-label="Previous look">&lt;</button><button id="walk-look-next" title="Next look" aria-label="Next look">&gt;</button></span>
+				</div>
+
+				<button id="worldmap-open">World map <kbd>Tab</kbd></button>
+				<label><input type="checkbox" id="flights-shown"> Show flight paths</label>
+				<div class="flight-grid">
+					<label for="flight-from">From</label>
+					<select id="flight-from"></select>
+					<button id="flight-nearest" title="The flight master nearest the camera">Nearest</button>
+					<label for="flight-to">To</label>
+					<select id="flight-to" class="span"></select>
+					<label for="flight-speed">Speed</label>
+					<select id="flight-speed" class="span"><option value="1">As in the game</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select>
+				</div>
+				<div class="flight-buttons"><button id="flight-go" class="primary">Fly</button> <button id="flight-stop" disabled>Get off</button></div>
+				<div id="flight-status" class="muted small" aria-live="polite"></div>
+				<h3 class="travel-heading">Boats and zeppelins</h3>
+				<select id="transport" aria-label="Boat or zeppelin"></select>
+				<div class="flight-buttons"><button id="transport-goto" title="On board, where it is now">Go to</button> <button id="transport-ride" class="primary">Ride</button> <button id="transport-stop" disabled>Get off</button></div>
+				<div id="transport-status" class="muted small"></div>
+				<div id="dock-status" class="muted small"></div>
+				<h3 class="travel-heading">Meeting stones</h3>
+				<select id="stone" aria-label="Meeting stone"></select>
+				<div class="flight-buttons"><button id="stone-goto" title="In front of the stone, as being summoned to it puts you">Go to stone</button> <button id="stone-enter" class="primary" title="Inside, where its entrance leads">Enter dungeon</button></div>
+			</div>
+		</details>
+
+		<details id="emotes" name="menu">
+			<summary>Emotes</summary>
+			<div class="menu-body panel">
+				<p class="muted small">Walking, press a number to have your travel form perform its emote, with the interface shown or hidden. Moving or jumping stops it.</p>
+				<label title="Once-off emotes play over and over until you move or press their key again; Shift and a number does the same for one"><input type="checkbox" id="emote-repeat"> Perform over and over</label>
+				<div class="flight-buttons"><button id="emote-stop" title="Stop, or get up from sitting, kneeling or sleeping">Stop</button> <button id="emote-keys-reset" title="Back to the emotes the keys start with">Reset keys</button></div>
+				<h3 class="travel-heading">Keys</h3>
+				<div class="emote-slots">
+					<kbd data-key="Digit1">1</kbd><select data-slot="0" aria-label="Emote on 1"></select><button data-slot="0" title="Perform it">Play</button>
+					<kbd data-key="Digit2">2</kbd><select data-slot="1" aria-label="Emote on 2"></select><button data-slot="1" title="Perform it">Play</button>
+					<kbd data-key="Digit3">3</kbd><select data-slot="2" aria-label="Emote on 3"></select><button data-slot="2" title="Perform it">Play</button>
+					<kbd data-key="Digit4">4</kbd><select data-slot="3" aria-label="Emote on 4"></select><button data-slot="3" title="Perform it">Play</button>
+					<kbd data-key="Digit5">5</kbd><select data-slot="4" aria-label="Emote on 5"></select><button data-slot="4" title="Perform it">Play</button>
+					<kbd data-key="Digit6">6</kbd><select data-slot="5" aria-label="Emote on 6"></select><button data-slot="5" title="Perform it">Play</button>
+					<kbd data-key="Digit7">7</kbd><select data-slot="6" aria-label="Emote on 7"></select><button data-slot="6" title="Perform it">Play</button>
+					<kbd data-key="Digit8">8</kbd><select data-slot="7" aria-label="Emote on 8"></select><button data-slot="7" title="Perform it">Play</button>
+					<kbd data-key="Digit9">9</kbd><select data-slot="8" aria-label="Emote on 9"></select><button data-slot="8" title="Perform it">Play</button>
+					<kbd data-key="Digit0">0</kbd><select data-slot="9" aria-label="Emote on 0"></select><button data-slot="9" title="Perform it">Play</button>
+				</div>
+				<h3 class="travel-heading">All emotes</h3>
+				<div id="emote-list" class="emote-list"></div>
+			</div>
+		</details>
+
+		<details id="highlight" name="menu">
+			<summary>Highlight</summary>
+			<div class="menu-body panel">
+				<label class="highlight-on"><input type="checkbox" id="highlight-on"> Highlight <kbd>H</kbd></label>
+				<div id="highlight-groups">
+					<label data-group="chest"><input type="checkbox" value="chest"> Chests</label>
+					<label data-group="herb"><input type="checkbox" value="herb"> Herbs</label>
+					<label data-group="ore"><input type="checkbox" value="ore"> Ore</label>
+					<label data-group="fishing"><input type="checkbox" value="fishing"> Fishing</label>
+					<label data-group="stone"><input type="checkbox" value="stone"> Meeting stones</label>
+				</div>
+				<label><input type="checkbox" id="highlight-walkable"> Walkable slopes</label>
+				<div id="walkable-key" class="muted small"><span data-slope="flat">Walkable</span> <span data-slope="near">Near the limit</span> <span data-slope="steep">Too steep</span></div>
+				<label title="Ground tinted by region; graveyards, territory and levels are for the side chosen under Name colours (F)">Ground <select id="highlight-tint">
+					<option value="">No tint</option>
+					<option value="graveyards">Graveyards</option>
+					<option value="territory">Territory</option>
+					<option value="levels">Creature levels</option>
+					<option value="subzones">Subzones and exploration</option>
+					<option value="fishing">Fishing skill</option>
+				</select></label>
+				<label id="tint-level-row">Your level <input type="range" id="tint-level" min="1" max="60" step="1"> <output id="tint-level-out"></output></label>
+				<div id="tint-key" class="muted small"></div>
+				<label><input type="checkbox" id="highlight-rested"> Rested areas (inns and cities)</label>
+				<input id="highlight-query" type="search" placeholder="Find anything by name…" autocomplete="off" spellcheck="false" aria-label="Highlight by name">
+				<div id="highlight-status" class="muted small" aria-live="polite"></div>
+			</div>
+		</details>
+		<button id="help-hint" class="plain"><kbd>?</kbd> Controls</button>
+	</nav>
+
+	<!-- Top left, under the menus: where the camera is. -->
 	<div id="top-left" hidden>
-		<nav id="menu" aria-label="Settings">
-			<details id="view-panel" name="menu">
-				<summary>View</summary>
-				<div class="menu-body panel">
-					<div class="time-row">
-						<span>Time</span>
-						<input type="range" id="time" min="0" max="1425" step="15" aria-label="Time of day">
-						<output id="time-out"></output>
-						<button id="time-now" title="Back to local time (N)">Now</button>
-					</div>
-					<div class="time-row">
-						<span>Speed</span>
-						<input type="range" id="fly-speed" aria-label="Flying speed" title="Faster: Y · Slower: Shift+Y">
-						<output id="fly-speed-out"></output>
-						<button id="fly-speed-reset" title="Back to normal flying speed">Reset</button>
-					</div>
-					<div class="time-row" title="How fast moving the mouse turns the view">
-						<span>Mouse</span>
-						<input type="range" id="mouse-speed" aria-label="Mouse look speed">
-						<output id="mouse-speed-out"></output>
-						<button id="mouse-speed-reset" title="Back to the usual mouse speed">Reset</button>
-					</div>
-					<label title="Flying speed follows your height above the ground; off, it stays the same everywhere"><input type="checkbox" data-setting="smartSpeed"> Smart fly speed</label>
-					<div class="time-row" title="How far from the camera grass, flowers and pebbles grow">
-						<span>Grass</span>
-						<input type="range" id="clutter-range" aria-label="Grass and flowers distance">
-						<output id="clutter-range-out"></output>
-						<button id="clutter-range-reset" title="Back to the usual grass distance">Reset</button>
-					</div>
-					<div class="time-row" title="How far trees, rocks, props, NPCs and objects show, against the usual for their size (big trees reach further than crates). Only the detailed ground around you carries them, so very far settings stop there.">
-						<span>Details</span>
-						<input type="range" id="detail-range" aria-label="Detail distance">
-						<output id="detail-range-out"></output>
-						<button id="detail-range-reset" title="Back to the usual detail distance">Reset</button>
-					</div>
-					<label><input type="checkbox" data-setting="torch"> Torch <kbd>L</kbd></label>
-					<label><input type="checkbox" data-setting="clutter"> Grass and flowers <kbd>V</kbd></label>
-					<label><input type="checkbox" data-setting="collision"> Collision with walls <kbd>G</kbd></label>
-					<label><input type="checkbox" data-setting="cinematic"> Cinematic camera <kbd>J</kbd></label>
-					<label><input type="checkbox" data-setting="grading"> Colour grading <kbd>B</kbd></label>
-					<label><input type="checkbox" data-setting="shadows"> Shadows <kbd>X</kbd></label>
-					<label><input type="checkbox" data-setting="fog"> Fog and sun shafts <kbd>Z</kbd></label>
-					<label title="Lifts every kind of fog, distance, valley, weather and under water, so the far continents show in full"><input type="checkbox" data-setting="clearView"> No fog at all</label>
-					<label title="No lighting or shading: every surface shows its texture's own colour, with no sun, shadows, night or torch"><input type="checkbox" data-setting="unlit"> Flat, unlit view</label>
-					<label><input type="checkbox" data-setting="creatures"> NPCs and monsters</label>
-					<label><input type="checkbox" data-setting="spiritHealers"> Spirit healers</label>
-					<label><input type="checkbox" data-setting="gameObjects"> Objects (chests, herbs, ore, doors…)</label>
-					<label><input type="checkbox" data-setting="mapNames"> Dungeon and raid names <kbd>I</kbd></label>
-					<label>Name colours for <select data-setting="side"><option value="alliance">Alliance</option><option value="horde">Horde</option></select> <kbd>F</kbd></label>
-					<label>Weather <select data-setting="weather"><option value="auto">The zone's own</option><option value="dry">The zone's own, no rain or snow</option><option value="off">Always clear</option><option value="rain">Rain</option><option value="snow">Snow</option><option value="sandstorm">Sandstorm</option></select></label>
-					<label><input type="checkbox" id="stats-on"> Performance stats <kbd>K</kbd></label>
-				</div>
-			</details>
-
-			<details id="sound" name="menu">
-				<summary>Sound</summary>
-				<div class="menu-body panel">
-					<label class="check"><input type="checkbox" id="sound-on"> Music and sound <kbd>M</kbd></label>
-					<label>Master <input type="range" min="0" max="100" step="1" data-channel="master"><output></output></label>
-					<label>Music <input type="range" min="0" max="100" step="1" data-channel="music"><output></output></label>
-					<label title="Background sounds, weather and under water">Ambience <input type="range" min="0" max="100" step="1" data-channel="ambience"><output></output></label>
-					<label title="Footsteps and splashes">Effects <input type="range" min="0" max="100" step="1" data-channel="effects"><output></output></label>
-				</div>
-			</details>
-
-			<details id="travel" name="menu">
-				<summary>Travel</summary>
-				<div class="menu-body panel">
-					<button id="walk-toggle" title="Your travel form on the ground under the camera, moved as in the game">Walk on the ground <kbd data-key="Backquote">`</kbd></button>
-					<div class="flight-grid" id="walk-character">
-						<span>Travel form</span>
-						<button id="forms-open" class="span" title="Every look there is, as pictures to choose from">Choose a look…</button>
-						<label for="walk-race">Race</label>
-						<select id="walk-race" class="span"></select>
-						<label for="walk-sex">Sex</label>
-						<select id="walk-sex" class="span"><option value="0">Male</option><option value="1">Female</option></select>
-						<label for="walk-model">Model</label>
-						<select id="walk-model" class="span"><option value="sd">Classic</option><option value="hd">HD</option></select>
-						<label for="walk-outfit">Outfit</label>
-						<select id="walk-outfit" class="span"></select>
-						<span>Look</span>
-						<output id="walk-look" title="Which NPC's outfit the travel form wears"></output>
-						<span class="walk-look-buttons"><button id="walk-look-prev" title="Previous look" aria-label="Previous look">&lt;</button><button id="walk-look-next" title="Next look" aria-label="Next look">&gt;</button></span>
-					</div>
-
-					<button id="worldmap-open">World map <kbd>Tab</kbd></button>
-					<label><input type="checkbox" id="flights-shown"> Show flight paths</label>
-					<div class="flight-grid">
-						<label for="flight-from">From</label>
-						<select id="flight-from"></select>
-						<button id="flight-nearest" title="The flight master nearest the camera">Nearest</button>
-						<label for="flight-to">To</label>
-						<select id="flight-to" class="span"></select>
-						<label for="flight-speed">Speed</label>
-						<select id="flight-speed" class="span"><option value="1">As in the game</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select>
-					</div>
-					<div class="flight-buttons"><button id="flight-go" class="primary">Fly</button> <button id="flight-stop" disabled>Get off</button></div>
-					<div id="flight-status" class="muted small" aria-live="polite"></div>
-					<h3 class="travel-heading">Boats and zeppelins</h3>
-					<select id="transport" aria-label="Boat or zeppelin"></select>
-					<div class="flight-buttons"><button id="transport-goto" title="On board, where it is now">Go to</button> <button id="transport-ride" class="primary">Ride</button> <button id="transport-stop" disabled>Get off</button></div>
-					<div id="transport-status" class="muted small"></div>
-					<div id="dock-status" class="muted small"></div>
-					<h3 class="travel-heading">Meeting stones</h3>
-					<select id="stone" aria-label="Meeting stone"></select>
-					<div class="flight-buttons"><button id="stone-goto" title="In front of the stone, as being summoned to it puts you">Go to stone</button> <button id="stone-enter" class="primary" title="Inside, where its entrance leads">Enter dungeon</button></div>
-				</div>
-			</details>
-
-			<details id="emotes" name="menu">
-				<summary>Emotes</summary>
-				<div class="menu-body panel">
-					<p class="muted small">Walking, press a number to have your travel form perform its emote, with the interface shown or hidden. Moving or jumping stops it.</p>
-					<label title="Once-off emotes play over and over until you move or press their key again; Shift and a number does the same for one"><input type="checkbox" id="emote-repeat"> Perform over and over</label>
-					<div class="flight-buttons"><button id="emote-stop" title="Stop, or get up from sitting, kneeling or sleeping">Stop</button> <button id="emote-keys-reset" title="Back to the emotes the keys start with">Reset keys</button></div>
-					<h3 class="travel-heading">Keys</h3>
-					<div class="emote-slots">
-						<kbd data-key="Digit1">1</kbd><select data-slot="0" aria-label="Emote on 1"></select><button data-slot="0" title="Perform it">Play</button>
-						<kbd data-key="Digit2">2</kbd><select data-slot="1" aria-label="Emote on 2"></select><button data-slot="1" title="Perform it">Play</button>
-						<kbd data-key="Digit3">3</kbd><select data-slot="2" aria-label="Emote on 3"></select><button data-slot="2" title="Perform it">Play</button>
-						<kbd data-key="Digit4">4</kbd><select data-slot="3" aria-label="Emote on 4"></select><button data-slot="3" title="Perform it">Play</button>
-						<kbd data-key="Digit5">5</kbd><select data-slot="4" aria-label="Emote on 5"></select><button data-slot="4" title="Perform it">Play</button>
-						<kbd data-key="Digit6">6</kbd><select data-slot="5" aria-label="Emote on 6"></select><button data-slot="5" title="Perform it">Play</button>
-						<kbd data-key="Digit7">7</kbd><select data-slot="6" aria-label="Emote on 7"></select><button data-slot="6" title="Perform it">Play</button>
-						<kbd data-key="Digit8">8</kbd><select data-slot="7" aria-label="Emote on 8"></select><button data-slot="7" title="Perform it">Play</button>
-						<kbd data-key="Digit9">9</kbd><select data-slot="8" aria-label="Emote on 9"></select><button data-slot="8" title="Perform it">Play</button>
-						<kbd data-key="Digit0">0</kbd><select data-slot="9" aria-label="Emote on 0"></select><button data-slot="9" title="Perform it">Play</button>
-					</div>
-					<h3 class="travel-heading">All emotes</h3>
-					<div id="emote-list" class="emote-list"></div>
-				</div>
-			</details>
-
-			<details id="highlight" name="menu">
-				<summary>Highlight</summary>
-				<div class="menu-body panel">
-					<label class="highlight-on"><input type="checkbox" id="highlight-on"> Highlight <kbd>H</kbd></label>
-					<div id="highlight-groups">
-						<label data-group="chest"><input type="checkbox" value="chest"> Chests</label>
-						<label data-group="herb"><input type="checkbox" value="herb"> Herbs</label>
-						<label data-group="ore"><input type="checkbox" value="ore"> Ore</label>
-						<label data-group="fishing"><input type="checkbox" value="fishing"> Fishing</label>
-						<label data-group="stone"><input type="checkbox" value="stone"> Meeting stones</label>
-					</div>
-					<label><input type="checkbox" id="highlight-walkable"> Walkable slopes</label>
-					<div id="walkable-key" class="muted small"><span data-slope="flat">Walkable</span> <span data-slope="near">Near the limit</span> <span data-slope="steep">Too steep</span></div>
-					<label title="Ground tinted by region; graveyards, territory and levels are for the side chosen under Name colours (F)">Ground <select id="highlight-tint">
-						<option value="">No tint</option>
-						<option value="graveyards">Graveyards</option>
-						<option value="territory">Territory</option>
-						<option value="levels">Creature levels</option>
-						<option value="subzones">Subzones and exploration</option>
-						<option value="fishing">Fishing skill</option>
-					</select></label>
-					<label id="tint-level-row">Your level <input type="range" id="tint-level" min="1" max="60" step="1"> <output id="tint-level-out"></output></label>
-					<div id="tint-key" class="muted small"></div>
-					<label><input type="checkbox" id="highlight-rested"> Rested areas (inns and cities)</label>
-					<input id="highlight-query" type="search" placeholder="Find anything by name…" autocomplete="off" spellcheck="false" aria-label="Highlight by name">
-					<div id="highlight-status" class="muted small" aria-live="polite"></div>
-				</div>
-			</details>
-		</nav>
 		<div id="hud">
 			<div id="hud-location"></div>
 			<button id="hud-coords" class="plain muted" title="Copy a link to this view"></button>
@@ -300,8 +315,6 @@
 
 	<div id="notice" role="status" aria-live="polite"></div>
 
-	<button id="help-hint" class="plain" hidden><kbd>?</kbd> Controls</button>
-
 	<div id="help" hidden>
 		<div class="help-card" role="dialog" aria-labelledby="help-title">
 			<button id="help-close" class="plain" title="Close" aria-label="Close">×</button>
@@ -353,7 +366,7 @@
 					<div><kbd>?</kbd> or <kbd>F1</kbd> this list</div>
 				</section>
 			</div>
-			<p class="muted small">Everything here is also in the View, Sound and Highlight menus at the top left.</p>
+			<p class="muted small">Everything here is also in the menus along the top.</p>
 		</div>
 	</div>
 

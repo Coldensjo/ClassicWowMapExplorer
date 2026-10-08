@@ -357,6 +357,8 @@ export class DisplayResolver {
 	 * according to ComponentModelFileData (0 sex, 2 race, 3 side), else any.
 	 */
 	private async itemModel(resource: number, race = 0, sex = 0, side = -1): Promise<number> {
+		// Resource 0 is "no model"; ModelFileData rows with no resource (newer M3 files) share it.
+		if (!resource) return 0;
 		const { byResource, components } = await this.loadItems();
 		const files = (byResource.get(resource) ?? []).filter((f) => this.storage.status(f) === 'ok');
 		const score = (f: number) => {

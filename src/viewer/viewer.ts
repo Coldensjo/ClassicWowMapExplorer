@@ -790,7 +790,7 @@ export class Viewer {
 			ready: (x, z) => terrain.detailedAt(x, z) || terrain.surfaceAt(x, z) === -Infinity,
 			nearBuilding: (at, margin) => objects.nearBuilding(at, margin),
 			cast: (from, direction, far) => objects.castBuildings(from, direction, far),
-			sweep: (from, move, radius) => objects.sweep(from, move, radius),
+			sweep: (from, move, radius) => objects.sweep(from, move, radius, true),
 			pushOut: (at, radius) => objects.pushOut(at, radius, true),
 			liquid: (at) => this.liquidOver(at),
 		};

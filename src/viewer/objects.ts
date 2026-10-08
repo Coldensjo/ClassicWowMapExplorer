@@ -872,8 +872,10 @@ export class ObjectManager {
 	/**
 	 * Limits a camera move so it can't pass through buildings (caves, mines, walls): slides along
 	 * a surface it would cross, keeping `radius` away from it. Returns the allowed move.
+	 * horizontal: slides along surfaces as if they were upright (the walking character, which
+	 * only moves across), so a sloping one can't leave part of the move still going into it.
 	 */
-	sweep(from: THREE.Vector3, move: THREE.Vector3, radius: number): THREE.Vector3 {
+	sweep(from: THREE.Vector3, move: THREE.Vector3, radius: number, horizontal = false): THREE.Vector3 {
 		let allowed = move.clone();
 		for (let pass = 0; pass < 3; pass++) {
 			const length = allowed.length();
@@ -881,6 +883,11 @@ export class ObjectManager {
 			const direction = allowed.clone().divideScalar(length);
 			const hit = this.castBuildings(from, direction, length + radius);
 			if (!hit) break;
+			if (horizontal) {
+				hit.normal.y = 0;
+				if (hit.normal.lengthSq() < 1e-8) break;
+				hit.normal.normalize();
+			}
 			// Facing away from the move (we're behind it): not a wall for this move.
 			const into = allowed.dot(hit.normal);
 			if (into >= 0) break;

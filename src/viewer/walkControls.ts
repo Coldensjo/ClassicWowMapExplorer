@@ -17,6 +17,12 @@ const GRAVITY = 19.29;
 const TERMINAL_SPEED = 60;
 /** Ledges up to this high are stepped up without jumping (yards). */
 const STEP_UP = 1;
+/**
+ * Walls are felt for at heights from the knees to the head at most this far apart (yards), and
+ * at no more than this many heights, for the tallest forms.
+ */
+const WALL_PROBE_GAP = 0.25;
+const WALL_PROBES_MAX = 16;
 /** Ground up to this far below is followed down (slopes, stairs) rather than fallen to. */
 const SNAP_DOWN = 1.2;
 /** How quickly a slide down a too-steep slope picks up speed, as a share of gravity along it. */
@@ -85,7 +91,7 @@ export interface WalkWorld {
 	nearBuilding(at: THREE.Vector3, margin: number): boolean;
 	/** Nearest building surface along a ray, within far. */
 	cast(from: THREE.Vector3, direction: THREE.Vector3, far: number): { distance: number; normal: THREE.Vector3; ground: number } | null;
-	/** A move cut short so it keeps radius from building walls, sliding along them. */
+	/** A move across cut short so it keeps radius from building walls, sliding along them as if upright. */
 	sweep(from: THREE.Vector3, move: THREE.Vector3, radius: number): THREE.Vector3;
 	/** How far to move a point so no wall is within radius of it horizontally. */
 	pushOut(at: THREE.Vector3, radius: number): THREE.Vector3;
@@ -489,8 +495,11 @@ export class WalkControls {
 	}
 
 	/**
-	 * Moves horizontally by move, stopped and slid along by building walls at the knees, the
-	 * middle and the head (ledges below the knees are stepped up instead).
+	 * Moves horizontally by move, stopped and slid along by building walls anywhere from the
+	 * knees to the head (ledges below the knees are stepped up instead). The body is felt at
+	 * heights no more than WALL_PROBE_GAP apart, so a beam, rail or sill between two of them
+	 * can't be walked through, and again after a slide at one height until none changes the
+	 * move, so sliding off one wall can't take it into another at a height already felt.
 	 */
 	private moveAcross(move: THREE.Vector3): void {
 		const world = this.world!;
@@ -500,9 +509,20 @@ export class WalkControls {
 		if (length < 1e-6) return;
 		const middle = p.clone().setY(p.y + this.height * 0.5);
 		if (world.nearBuilding(middle, length + this.height + r)) {
-			for (const at of [STEP_UP + 0.1, this.height * 0.5, this.height - 0.1]) {
-				move = world.sweep(p.clone().setY(p.y + Math.max(at, STEP_UP + 0.1)), move, r);
-				move.y = 0;
+			const low = STEP_UP + 0.1;
+			const high = Math.max(low, this.height - 0.1);
+			const probes = Math.min(WALL_PROBES_MAX, Math.ceil((high - low) / WALL_PROBE_GAP) + 1);
+			const from = new THREE.Vector3();
+			for (let round = 0; round < 3; round++) {
+				let changed = false;
+				for (let i = 0; i < probes; i++) {
+					from.set(p.x, p.y + (probes > 1 ? low + ((high - low) * i) / (probes - 1) : low), p.z);
+					const next = world.sweep(from, move, r);
+					next.y = 0;
+					if (next.distanceToSquared(move) > 1e-12) changed = true;
+					move = next;
+				}
+				if (!changed) break;
 			}
 			p.add(move);
 			// Keep off walls slid along at an angle.

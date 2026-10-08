@@ -30,6 +30,7 @@ import { MusicPlayer, type MusicTarget } from './music';
 import { Nameplates, type Plate, type Side } from './nameplates';
 import { CLUTTER_RANGE_DEFAULT, ClutterManager } from './clutter';
 import { headPosition, ObjectManager } from './objects';
+import { unlitView } from './modelMaterials';
 import { perf } from './perf';
 import { TerrainManager, type ContinentPlacement } from './terrain';
 import { GroundDistancePass } from './groundDistance';
@@ -211,6 +212,8 @@ export interface ViewSettings {
 	fog: boolean;
 	/** No fog of any kind (distance, valley, weather or under water), so the far continents show. */
 	clearView: boolean;
+	/** No lighting or shading: every surface its texture's own colour, as in full daylight with no sun. */
+	unlit: boolean;
 	/** NPCs and monsters. */
 	creatures: boolean;
 	/** Game objects: chests, herbs, ore, doors, mailboxes. */
@@ -369,6 +372,8 @@ export class Viewer {
 	private fogBase: number | null = null;
 	/** No fog at all (ViewSettings.clearView). */
 	private clearView = false;
+	/** Flat, unlit view (ViewSettings.unlit); see updateLighting. */
+	private unlit = false;
 	private readonly fogLook: FogSettings = {
 		color: new THREE.Color(),
 		sunColor: new THREE.Color(),
@@ -806,6 +811,7 @@ export class Viewer {
 			shadows: this.shadowsOn,
 			fog: this.post.fogOn,
 			clearView: this.clearView,
+			unlit: this.unlit,
 			creatures: this.objects?.kindShown('creature') ?? true,
 			gameObjects: this.objects?.kindShown('object') ?? true,
 			spiritHealers: this.objects?.kindShown('spiritHealer') ?? true,
@@ -837,6 +843,12 @@ export class Viewer {
 		if (next.shadows !== undefined) this.setShadows(next.shadows);
 		if (next.fog !== undefined) this.post.fogOn = next.fog;
 		if (next.clearView !== undefined) this.clearView = next.clearView;
+		if (next.unlit !== undefined) {
+			this.unlit = next.unlit;
+			unlitView.value = next.unlit ? 1 : 0;
+			// So the light changes on the next frame, not up to 100 ms later.
+			this.lastLightUpdate = 0;
+		}
 		if (next.creatures !== undefined) this.objects?.setKindShown('creature', next.creatures);
 		if (next.gameObjects !== undefined) this.objects?.setKindShown('object', next.gameObjects);
 		if (next.spiritHealers !== undefined) this.objects?.setKindShown('spiritHealer', next.spiritHealers);
@@ -1685,7 +1697,7 @@ export class Viewer {
 		this.sky.mesh.position.copy(pos);
 		// A few out-of-phase sines give the flame's flicker.
 		const s = now / 1000;
-		this.torch.intensity = !this.torchOn ? 0 : TORCH_INTENSITY * (1 + 0.06 * Math.sin(s * 11.3) + 0.04 * Math.sin(s * 23.7 + 1.3) + 0.03 * Math.sin(s * 5.1 + 0.4));
+		this.torch.intensity = !this.torchOn || this.unlit ? 0 : TORCH_INTENSITY * (1 + 0.06 * Math.sin(s * 11.3) + 0.04 * Math.sin(s * 23.7 + 1.3) + 0.03 * Math.sin(s * 5.1 + 0.4));
 
 		if (now - this.lastLodUpdate > 200) {
 			this.lastLodUpdate = now;
@@ -1990,6 +2002,14 @@ export class Viewer {
 			// Starting the fade in front of the camera tints even what's close, as in the game.
 			this.fog.near = -look.far * 0.3;
 			this.fog.far = look.far;
+		}
+		// Unlit: an even white ambient light of the intensity that gives each surface its texture's
+		// own colour, and no sun (so no shadows or highlights either). Only colours change, never
+		// which lights there are, so no shader is built again (see setTorch).
+		if (this.unlit) {
+			this.sun.color.setRGB(0, 0, 0);
+			this.ambient.color.setRGB(1, 1, 1);
+			this.ambient.groundColor.setRGB(1, 1, 1);
 		}
 		// The fog pushed out past where anything is drawn (near and far apart, as smoothstep needs).
 		if (this.clearView) {

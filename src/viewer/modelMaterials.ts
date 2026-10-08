@@ -77,21 +77,26 @@ const LIGHTS_BEGIN_WITH_TORCH = THREE.ShaderChunk.lights_fragment_begin.replace(
 	'vec3 torchDirect = reflectedLight.directDiffuse;\n#if ( NUM_SPOT_LIGHTS > 0 ) && defined( RE_Direct )',
 );
 
+/** 1 in the flat, unlit view (ViewSettings.unlit), where interiors set their baked lighting aside too. */
+export const unlitView: THREE.IUniform<number> = { value: 0 };
+
 /**
  * WMO interiors are lit by baked vertex colours, not the sun: per vertex, baked.a blends from
  * normal lighting (0) to baked.rgb as the ambient light plus only the torch as direct light (1).
  */
 function applyBakedLighting(material: THREE.MeshLambertMaterial): void {
 	material.onBeforeCompile = (shader) => {
+		shader.uniforms.uUnlit = unlitView;
 		shader.vertexShader = shader.vertexShader
 			.replace('#include <common>', '#include <common>\nattribute vec4 baked;\nvarying vec4 vBaked;')
 			.replace('#include <begin_vertex>', '#include <begin_vertex>\nvBaked = baked;');
 		shader.fragmentShader = shader.fragmentShader
-			.replace('#include <common>', '#include <common>\nvarying vec4 vBaked;')
+			.replace('#include <common>', '#include <common>\nvarying vec4 vBaked;\nuniform float uUnlit;')
 			.replace('#include <lights_fragment_begin>', LIGHTS_BEGIN_WITH_TORCH)
 			.replace('#include <lights_fragment_end>', /* glsl */ `#include <lights_fragment_end>
-				reflectedLight.directDiffuse = mix(reflectedLight.directDiffuse, torchDirect, vBaked.a);
-				reflectedLight.indirectDiffuse = mix(reflectedLight.indirectDiffuse, diffuseColor.rgb * vBaked.rgb, vBaked.a);`);
+				float bakedWeight = vBaked.a * (1.0 - uUnlit);
+				reflectedLight.directDiffuse = mix(reflectedLight.directDiffuse, torchDirect, bakedWeight);
+				reflectedLight.indirectDiffuse = mix(reflectedLight.indirectDiffuse, diffuseColor.rgb * vBaked.rgb, bakedWeight);`);
 	};
 	material.customProgramCacheKey = () => 'wmo-baked';
 }

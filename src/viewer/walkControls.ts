@@ -50,6 +50,8 @@ const SHORE_CLIMB = 0.6;
 const DRAG_THRESHOLD = 4;
 /** ms before asking again to hide the mouse when the browser refused (still showing it from the last press). */
 const CAPTURE_RETRY = 100;
+/** The bit in MouseEvent.buttons for each MouseEvent.button: left, middle, right, back, forward. */
+const BUTTON_BITS = [1, 4, 2, 8, 16];
 
 const MAX_PITCH = THREE.MathUtils.degToRad(87);
 /** Camera distance from the head: closest, furthest and to start with (yards). */
@@ -178,9 +180,9 @@ export class WalkControls {
 			}
 		});
 		window.addEventListener('mouseup', (e) => {
-			this.buttons = e.buttons;
+			this.buttons &= ~(BUTTON_BITS[e.button] ?? 0);
 			// The mouse shows again once neither button is held.
-			if (!(e.buttons & 3)) {
+			if (!(this.buttons & 3)) {
 				this.dragging = false;
 				this.release();
 			}
@@ -190,9 +192,11 @@ export class WalkControls {
 		});
 		document.addEventListener('mousemove', (e) => {
 			if (!this.active) return;
-			this.buttons = e.buttons;
+			// While the mouse is hidden every mouseup is heard, and Firefox on Linux reports no buttons
+			// held on its moves then, so only the presses and lets go say what's held.
+			if (document.pointerLockElement !== element) this.buttons = e.buttons;
 			// Only while a button is held: left turns the camera, right the character too.
-			if (!(this.dragging && e.buttons & 3)) {
+			if (!(this.dragging && this.buttons & 3)) {
 				// The button came up somewhere it wasn't heard: show the mouse again.
 				if (this.dragging) {
 					this.dragging = false;

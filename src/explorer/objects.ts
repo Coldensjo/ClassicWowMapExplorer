@@ -3,7 +3,7 @@ import { MeshBVH } from 'three-mesh-bvh';
 import type { CascStorage } from '../casc/storage';
 import { chunks } from '../formats/chunks';
 import { Blend, M2_MATERIAL_TWO_SIDED, M2_MATERIAL_UNFOGGED, M2_MATERIAL_UNLIT, parseM2, parseSkin, type M2File, type M2Skin } from '../formats/m2';
-import { ANIM, attachmentPoints, externalSequences, m2Skeleton, sequenceAnimation, skelSkeleton, skinVertex, standAnimation, standPose, type AnimationClip, type AttachmentPoint, type BoneAnimation, type Skeleton } from '../formats/m2Pose';
+import { ANIM, ATTACH_HAND_RIGHT, attachmentPoints, externalSequences, m2Skeleton, sequenceAnimation, skelSkeleton, skinVertex, standAnimation, standPose, type AnimationClip, type AttachmentPoint, type BoneAnimation, type Skeleton } from '../formats/m2Pose';
 import { parseParticleEmitters, type ParticleEmitter } from '../formats/m2Particles';
 import {
 	parseWmoGroup, parseWmoRoot, WMO_GROUP_INTERIOR, WMO_LIQUID_CELL, type WmoGroup, visibleWmoGroups, WMO_MATERIAL_TWO_SIDED, WMO_MATERIAL_UNFOGGED, WMO_MATERIAL_UNLIT,
@@ -90,6 +90,8 @@ export interface ModelData {
 	footstep?: number;
 	/** Creatures: the files of their death sound, one played at random. */
 	deathSounds?: number[];
+	/** Animated models: the right hand's attachment point, its bone and its frame in bind space, for holding things. */
+	hand?: { bone: number; frame: Float32Array };
 	/** WMOs only: a serialised ray-cast acceleration structure (three-mesh-bvh, indirect), for line of sight. */
 	bvh?: SerializedBvh;
 	/**
@@ -525,9 +527,16 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 		emitters: emitters.length ? emitters : undefined,
 		footstep: options.footstep,
 		deathSounds: options.deathSounds,
+		hand: anim ? handOf(prepared.attachments) : undefined,
 		collision,
 	};
 }
+/** The right hand's attachment point, copied (the cached one would be emptied sending it to the main thread). */
+function handOf(points: Map<number, AttachmentPoint>): { bone: number; frame: Float32Array } | undefined {
+	const point = points.get(ATTACH_HAND_RIGHT);
+	return point && { bone: point.bone, frame: point.bind.slice() };
+}
+
 /** file: the root file's bytes, when the caller has already read them. */
 export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type: number) => LiquidKind, file?: Uint8Array): Promise<ModelData> {
 	const root = parseWmoRoot(file ?? await storage.readFile(fdid));

@@ -374,8 +374,15 @@ const CHARGE_COLOR = 0xffe08a;
 
 /** A trick lifts the board this high at its middle (yards at scale 1). */
 const TRICK_LIFT = 0.2;
-/** How quickly the board turns over to be held upside down, and back (per second). */
-const GRAB_EASE = 14;
+/** How quickly the rider turns over, head down with the board in hand, and back onto it (per second). */
+const GRAB_EASE = 10;
+/**
+ * The board held in the right hand, in the rider's own frame (-z the chest's way, +x their
+ * right, +y up): standing on end along the arm, its deck facing out to the right.
+ */
+const HOLD = new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0));
+/** Where the hand is, in the rider's frame at scale 1, for a model that has no hand point. */
+const HAND_AT = new THREE.Vector3(0.45, 1.1, 0);
 
 /** How a trick turns the board (about its middle) and the rider, or both together (about the rider's middle, so high), at a share of the way through it. */
 function trickTurn(trick: SkateTrick, at: number, middle: number): { board: THREE.Matrix4; body: THREE.Matrix4; whole?: THREE.Matrix4 } {
@@ -482,6 +489,8 @@ interface HeldEmitter {
 interface LoadedModel {
 	/** The emitters of held gear (a torch's flame), following their bones. */
 	held: HeldEmitter[];
+	/** The right hand's attachment point (its bone, and its frame in bind space), for holding the board; null without one. */
+	hand: { bone: number; frame: THREE.Matrix4 } | null;
 	bones: number;
 	boneData: Float32Array;
 	/** Tells this model's emitters from another's to the particle system. */
@@ -654,7 +663,8 @@ export class Character {
 			const rest = animator.boneMatrix(e.bone!, a.data, a.bones, new THREE.Matrix4(), stand.row);
 			return [{ loaded: { def: { ...e, scale: { ...e.scale, values: e.scale.values.map((v) => v * TORCH_SIZE) }, alpha: { ...e.alpha, values: e.alpha.values.map((v) => v * TORCH_ALPHA) } }, texture }, bone: e.bone!, frame: new THREE.Matrix4().fromArray(e.frame), rest: rest.invert() }];
 		});
-		return { group, mesh, animator, textures: ids, boneTexture, height: data.height, held, bones: a.bones, boneData: a.data, id: ++modelCount };
+		const hand = data.hand ? { bone: data.hand.bone, frame: new THREE.Matrix4().fromArray(data.hand.frame) } : null;
+		return { group, mesh, animator, textures: ids, boneTexture, height: data.height, held, hand, bones: a.bones, boneData: a.data, id: ++modelCount };
 	}
 
 	private disposeModel(model: LoadedModel): void {
@@ -851,24 +861,21 @@ export class Character {
 		const trick = t < 1 ? trickTurn(walker.trick!, THREE.MathUtils.smootherstep(t, 0, 1), BOARD_HEIGHT * scale + walker.height * 0.5) : null;
 		if (trick?.whole) base.multiply(trick.whole);
 		const middle = BOARD_HEIGHT * 0.5 * scale;
-		// Held upside down (E): turned over along its length, quickly.
-		this.grabFlip += ((walker.grab ? 1 : 0) - this.grabFlip) * (1 - Math.exp(-dt * GRAB_EASE));
-		this.board.matrix
-			.copy(base)
+		const underFeet = base
+			.clone()
 			.multiply(new THREE.Matrix4().makeTranslation(0, middle + (trick && !trick.whole ? TRICK_LIFT * scale * Math.sin(Math.PI * t) : 0), 0))
 			.multiply(trick?.board ?? new THREE.Matrix4())
-			.multiply(new THREE.Matrix4().makeRotationZ(Math.PI * this.grabFlip))
 			.multiply(new THREE.Matrix4().makeTranslation(0, -middle, 0))
 			.multiply(new THREE.Matrix4().makeScale(scale, scale, scale));
-		this.board.matrixWorldNeedsUpdate = true;
-		this.board.visible = true;
-		// A takedown's burst sets the tail alight: the doodad's flames, standing on it as the doodad stands on the ground.
-		// Nitro sets it roaring.
-		const fire = FIRE_SIZE * (walker.nitroTime > 0 ? NITRO_FIRE : 1);
-		this.fireFrames = (walker.burstTime > 0 || walker.nitroTime > 0) && this.fire.length
-			? this.fire.map((e) => this.board.matrix.clone().multiply(new THREE.Matrix4().makeTranslation(0, BOARD_HEIGHT, FIRE_BACK)).multiply(MODEL_BASIS).multiply(new THREE.Matrix4().makeScale(fire, fire, fire)).multiply(new THREE.Matrix4().fromArray(e.def.frame)))
-			: null;
-		const body = base
+		// Holding the board (E): the rider turns over head down round their middle, the board in hand;
+		// let go, they come back round onto it.
+		this.grabFlip += ((walker.grab ? 1 : 0) - this.grabFlip) * (1 - Math.exp(-dt * GRAB_EASE));
+		const flip = this.grabFlip < 1e-3 ? 0 : THREE.MathUtils.smootherstep(this.grabFlip, 0, 1);
+		const centre = BOARD_HEIGHT * scale + walker.height * 0.5;
+		const rider = flip
+			? base.clone().multiply(new THREE.Matrix4().makeTranslation(0, centre, 0)).multiply(new THREE.Matrix4().makeRotationZ(Math.PI * flip)).multiply(new THREE.Matrix4().makeTranslation(0, -centre, 0))
+			: base;
+		const body = rider
 			.clone()
 			.multiply(new THREE.Matrix4().makeTranslation(0, BOARD_HEIGHT * scale, 0))
 			.multiply(trick?.body ?? new THREE.Matrix4())
@@ -882,7 +889,45 @@ export class Character {
 			this.capsule.position.setFromMatrixPosition(body);
 			this.capsule.rotation.y = walker.facing + this.bodyTurn;
 		}
+		// The board goes from under the feet to the hand and back as the rider turns.
+		this.board.matrix.copy(flip ? blendMatrices(underFeet, this.inHand(body, model, walker.scale, scale, middle), flip) : underFeet);
+		this.board.matrixWorldNeedsUpdate = true;
+		this.board.visible = true;
+		// A takedown's burst sets the tail alight: the doodad's flames, standing on it as the doodad stands on the ground.
+		// Nitro sets it roaring.
+		const fire = FIRE_SIZE * (walker.nitroTime > 0 ? NITRO_FIRE : 1);
+		this.fireFrames = (walker.burstTime > 0 || walker.nitroTime > 0) && this.fire.length
+			? this.fire.map((e) => this.board.matrix.clone().multiply(new THREE.Matrix4().makeTranslation(0, BOARD_HEIGHT, FIRE_BACK)).multiply(MODEL_BASIS).multiply(new THREE.Matrix4().makeScale(fire, fire, fire)).multiply(new THREE.Matrix4().fromArray(e.def.frame)))
+			: null;
 	}
+
+	/**
+	 * The board in the rider's right hand, its middle in the grip, standing along the arm (see
+	 * HOLD): at the hand's attachment point as the animation has it, or where a hand would be.
+	 */
+	private inHand(body: THREE.Matrix4, model: LoadedModel | null, size: number, scale: number, middle: number): THREE.Matrix4 {
+		const hand = new THREE.Vector3();
+		if (model?.hand) {
+			const bone = model.animator.boneMatrix(model.hand.bone, model.boneData, model.bones, new THREE.Matrix4());
+			hand.setFromMatrixPosition(model.group.matrix.clone().multiply(bone).multiply(model.hand.frame));
+		} else {
+			hand.copy(HAND_AT).multiplyScalar(size).applyMatrix4(body);
+		}
+		return new THREE.Matrix4()
+			.makeTranslation(hand)
+			.multiply(new THREE.Matrix4().extractRotation(body))
+			.multiply(HOLD)
+			.multiply(new THREE.Matrix4().makeTranslation(0, -middle, 0))
+			.multiply(new THREE.Matrix4().makeScale(scale, scale, scale));
+	}
+}
+
+/** Part of the way from one placement to another (0 the first, 1 the second): its position, turn and size each eased between. */
+function blendMatrices(from: THREE.Matrix4, to: THREE.Matrix4, at: number): THREE.Matrix4 {
+	const [p0, q0, s0, p1, q1, s1] = [new THREE.Vector3(), new THREE.Quaternion(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Quaternion(), new THREE.Vector3()];
+	from.decompose(p0, q0, s0);
+	to.decompose(p1, q1, s1);
+	return new THREE.Matrix4().compose(p0.lerp(p1, at), q0.slerp(q1, at), s0.lerp(s1, at));
 }
 
 /**

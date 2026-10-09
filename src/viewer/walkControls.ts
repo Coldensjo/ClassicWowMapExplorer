@@ -99,9 +99,6 @@ const GRIP_CLIMB = 10;
 /** Surfing (from a fishing spot): how long (s), and the speed the water carries the board at, at least (yd/s). */
 const SURF_TIME = 10;
 const SURF_SPEED = 22;
-/** X let go sooner than this (s) gets on or off the board; held this long (s), it starts Time Attack. */
-const X_TAP = 0.5;
-export const TIME_ATTACK_HOLD = 5;
 /** A kick (Q) pushes this much speed onto the board over its length (yd/s, s), up to the cap after (yd/s). */
 const KICK_BOOST = 5;
 export const KICK_TIME = 0.4;
@@ -240,12 +237,6 @@ export class WalkControls {
 	readonly groundNormal = new THREE.Vector3(0, 1, 0);
 	/** Seconds left of a kick pushing the board along. */
 	kickTime = 0;
-	/** Seconds X has been held on land (0 when it isn't), and whether that hold has started Time Attack already. */
-	xHold = 0;
-	private xHeld = false;
-	private xFired = false;
-	/** Called when X has been held long enough to start Time Attack. */
-	onLongX: (() => void) | null = null;
 	/** Seconds left of a takedown's swing. */
 	swingTime = 0;
 	/** Seconds left of a takedown's burst of speed (the board's on fire meanwhile). */
@@ -341,28 +332,16 @@ export class WalkControls {
 			this.keys.add(e.code);
 			if (e.code === 'Space') e.preventDefault();
 			if ((e.code === 'NumpadDivide' || e.code === 'Backslash') && !e.repeat) this.walkMode = !this.walkMode;
-			// X sinks in water; on land a tap gets on or off the skateboard (as it's let go), and a long hold starts Time Attack.
-			if (e.code === 'KeyX' && !e.repeat && this.state !== 'swim') {
-				this.xHold = 0;
-				this.xHeld = true;
-				this.xFired = false;
-			}
+			// X sinks in water; on land it gets on or off the skateboard.
+			if (e.code === 'KeyX' && !e.repeat && this.state !== 'swim') this.toggleBoard();
 			// On the board Q kicks and E swings for a takedown, rather than strafing.
 			if (e.code === 'KeyQ' && !e.repeat) this.kick();
 			if (e.code === 'KeyE' && !e.repeat) this.swing();
 			if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat) this.fireNitro();
 			if (e.code === 'Space' && !e.repeat) this.startTrick();
 		});
-		window.addEventListener('keyup', (e) => {
-			this.keys.delete(e.code);
-			if (e.code !== 'KeyX' || !this.xHeld) return;
-			if (this.active && !this.xFired && this.xHold < X_TAP && this.state !== 'swim') this.toggleBoard();
-			this.xHeld = false;
-			this.xHold = 0;
-		});
+		window.addEventListener('keyup', (e) => this.keys.delete(e.code));
 		window.addEventListener('blur', () => {
-			this.xHeld = false;
-			this.xHold = 0;
 			this.keys.clear();
 			this.buttons = 0;
 			this.dragging = false;
@@ -701,13 +680,6 @@ export class WalkControls {
 		const world = this.world;
 		if (!world || dt <= 0) return;
 		this.readInput(dt);
-		if (this.xHeld && this.state !== 'swim') {
-			this.xHold += dt;
-			if (!this.xFired && this.xHold >= TIME_ATTACK_HOLD) {
-				this.xFired = true;
-				this.onLongX?.();
-			}
-		}
 		// The burst runs out in the air too, so it isn't saved for after a jump.
 		if (this.burstTime > 0) this.burstTime = this.skating ? Math.max(0, this.burstTime - dt) : 0;
 		if (this.surfTime > 0) this.surfTime = this.skating ? Math.max(0, this.surfTime - dt) : 0;

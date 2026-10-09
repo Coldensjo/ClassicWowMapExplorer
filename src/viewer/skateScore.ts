@@ -1,4 +1,4 @@
-import { TIME_ATTACK_HOLD, TRICK_TIME, type SkateTrick, type WalkControls } from './walkControls';
+import { TRICK_TIME, type SkateTrick, type WalkControls } from './walkControls';
 
 /** What each trick is worth. */
 const TRICK_POINTS: Record<SkateTrick, number> = {
@@ -30,8 +30,6 @@ const BEST_KEY = 'mapExplorer.skateBest';
 const COUNTDOWN = 3;
 const ATTACK_TIME = 60;
 const RECORD_KEY = 'mapExplorer.timeAttackRecord';
-/** Holding X longer than this (s) shows how long until Time Attack starts. */
-const HOLD_HINT = 0.5;
 
 /** A moment in Time Attack, for its sounds: each count of the countdown, the start, and time up. */
 export type AttackCue = 'count' | 'go' | 'end';
@@ -83,8 +81,6 @@ export class SkateScore {
 	private attackScore = 0;
 	private lastCount = 0;
 	private record = 0;
-	/** Seconds X has been held, for the hint. */
-	private hold = 0;
 
 	constructor() {
 		try {
@@ -106,7 +102,6 @@ export class SkateScore {
 
 	/** Time Attack's clock, in real time (not slowed with the world after a takedown); stops it if walking has. */
 	tickAttack(dt: number, walker: WalkControls): void {
-		this.hold = walker.xHold;
 		if (this.attack === 'off') return;
 		if (!walker.active) {
 			this.attack = 'off';
@@ -271,16 +266,13 @@ export class SkateScore {
 			: this.attack === 'countdown'
 				? `Time Attack  ·  Record ${this.record.toLocaleString()}`
 				: `${this.score.toLocaleString()}  ·  Best combo ${this.best.toLocaleString()}${this.record ? `  ·  ${record}` : ''}${double}`;
-		// Holding X: how long until Time Attack starts.
-		const holding = this.attack === 'off' && this.hold > HOLD_HINT && this.hold < TIME_ATTACK_HOLD;
-		const hint = holding && !this.combo.length ? `Hold X: Time Attack in ${Math.ceil(TIME_ATTACK_HOLD - this.hold)}…` : value;
-		const text = `${skating}|${total}|${moves}|${hint}|${this.result === 'Bail!' || this.result === 'Wipeout!'}|${holding}`;
+		const text = `${skating}|${total}|${moves}|${value}|${this.result === 'Bail!' || this.result === 'Wipeout!'}`;
 		if (text === this.shown) return;
 		this.shown = text;
-		this.root.hidden = !skating && !this.combo.length && this.resultTime <= 0 && this.attack === 'off' && !holding;
+		this.root.hidden = !skating && !this.combo.length && this.resultTime <= 0 && this.attack === 'off';
 		this.total.textContent = total;
 		this.moves.textContent = moves;
-		this.value.textContent = hint;
+		this.value.textContent = value;
 		this.value.classList.toggle('bail', !this.combo.length && (this.result === 'Bail!' || this.result === 'Wipeout!'));
 	}
 }

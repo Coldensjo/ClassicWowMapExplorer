@@ -860,11 +860,6 @@ export class Viewer {
 		this.skateScore.onPoints = (points) => this.walker.chargeNitro(points / NITRO_POINTS);
 		this.skateScore.onBanner = (title, line) => this.showTakedown(title, line, '');
 		this.skateScore.onCue = (cue) => this.skateSounds?.cue(cue);
-		// Holding X starts Time Attack, on the board.
-		this.walker.onLongX = () => {
-			this.walker.setSkating(true);
-			this.skateScore.startTimeAttack();
-		};
 	}
 
 	/** The walking character's state last frame (or '' not walking), for its splashes into and out of water. */
@@ -1479,6 +1474,16 @@ export class Viewer {
 			else this.startShot();
 		} else if (e.code === 'Escape' && this.shot) this.endShot();
 		else if (e.code === 'KeyO') this.overview();
+		// F2: Time Attack, on the board.
+		else if (e.code === 'F2') {
+			e.preventDefault();
+			if (!this.walker.active) this.onNotice('Walk on the ground to start Time Attack');
+			else if (this.walker.state === 'swim') this.onNotice('Get out of the water to start Time Attack');
+			else {
+				this.walker.setSkating(true);
+				this.skateScore.startTimeAttack();
+			}
+		}
 		else if (e.code === 'KeyR') this.controls.flyTo(this.startPosition(), 0, -0.3, 2.5);
 		// Walking, the number keys perform emotes instead (see the Emotes menu).
 		else if (e.code.startsWith('Digit') && !this.walker.active) this.goToContinent(Number(e.code.slice(5)) - 1);

@@ -1785,6 +1785,7 @@ export class Viewer {
 		}
 		// Before the objects, so the transports' new places are drawn this frame.
 		this.transports?.update(Date.now(), pos);
+		this.objects.extraEmitters = this.character?.emitterSources() ?? [];
 		perf.time('objects.update', () => this.objects.update(now, pos));
 		perf.time('uploads', () => this.uploads.drain());
 		this.clutter.update(now, pos, this.terrain.surfaceAt(pos.x, pos.z));

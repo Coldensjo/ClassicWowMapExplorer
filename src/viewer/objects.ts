@@ -360,6 +360,8 @@ export class ObjectManager {
 
 	private lastUpdate = 0;
 	private readonly emitterSources: EmitterSource[] = [];
+	/** Emitters of models drawn elsewhere (the walking character's torch), set each frame before update. */
+	extraEmitters: EmitterSource[] = [];
 
 	/** Call once per frame: starts model loads, culls by view distance and applies instance changes. */
 	update(now: number, camera: THREE.Vector3): void {
@@ -480,6 +482,7 @@ export class ObjectManager {
 				out.push({ key: `${id}|${key}`, matrix: m, emitters: entry.emitters });
 			}
 		}
+		out.push(...this.extraEmitters);
 		return out;
 	}
 

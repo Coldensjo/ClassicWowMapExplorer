@@ -22,6 +22,8 @@ export interface EmitterSource {
 	key: string;
 	matrix: THREE.Matrix4;
 	emitters: LoadedEmitter[];
+	/** The emitters' world frames this frame, for a model that moves its emitters about (instead of matrix with their own). */
+	frames?: THREE.Matrix4[];
 }
 
 interface Particle {
@@ -201,6 +203,7 @@ export class ParticleSystem {
 				this.states.set(source.key, state);
 			}
 			state.seen = frame;
+			if (source.frames) state.frames = source.frames;
 			source.emitters.forEach((e, i) => this.emit(e, state!, i, dt, frame));
 		}
 		for (const [key, state] of this.states) if (state.seen !== frame) this.states.delete(key);
@@ -222,7 +225,7 @@ export class ParticleSystem {
 		const frames = source.emitters.map((e) => place(e.def.frame));
 		return {
 			frames,
-			motion: source.emitters.map((e) => e.def.motion?.frames.map(place) ?? null),
+			motion: source.emitters.map((e) => (source.frames ? null : e.def.motion?.frames.map(place) ?? null)),
 			phase: Math.random(),
 			scales: frames.map((m) => new THREE.Vector3().setFromMatrixColumn(m, 0).length()),
 			// Start part-way, so emitters that come into range together don't pulse together.

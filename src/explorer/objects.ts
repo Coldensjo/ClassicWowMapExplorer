@@ -504,6 +504,7 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 	const place = (p: (typeof parts)[number], frame: Mat4) => (p.rest ? multiply(p.rest, frame) : frame.slice());
 	const emitters = parts.flatMap((p) => p.prepared.emitters.map((e) => ({
 		...e,
+		bone: p.bone >= 0 ? p.bone : undefined,
 		frame: place(p, e.frame),
 		motion: e.motion && { duration: e.motion.duration, frames: e.motion.frames.map((f) => place(p, f)) },
 	})));

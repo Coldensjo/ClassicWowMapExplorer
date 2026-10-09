@@ -19,6 +19,8 @@ export interface LifeKeys {
 
 /** One M2 particle emitter with its animated values reduced to steady ones (the Stand loop's average). */
 export interface ParticleEmitter {
+	/** The body bone that carries the emitter, for those of held gear on an animated body. */
+	bone?: number;
 	/** Emitter frame in model space: the bone's resting pose, moved to the emitter's position. */
 	frame: Mat4;
 	/**

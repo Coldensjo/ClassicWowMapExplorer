@@ -4,6 +4,7 @@ import type { CharacterModel } from '../explorer/world';
 import type { AnimationClip } from '../formats/m2Pose';
 import { ANIM } from '../formats/m2Pose';
 import type { AsyncStorageApi } from '../worker/protocol';
+import type { LoadedEmitter, EmitterSource } from './particles';
 import { EMOTE_CLIPS, isPose, type Emote } from './emotes';
 import { createModelMaterial, createSkinnedDepthMaterial, type SkinUniforms } from './modelMaterials';
 import { useShadows } from './shadows';
@@ -103,6 +104,28 @@ class Animator {
 	private emoting: Emoting | null = null;
 	/** Called when a foot comes down in the clip playing (its footstep events). */
 	onStep: (() => void) | null = null;
+
+	/** A bone's matrix in the pose now, blending the clips as the shader does; or in a frame (row) of the bone data, if given. */
+	boneMatrix(bone: number, data: Float32Array, bones: number, out: THREE.Matrix4, row?: number): THREE.Matrix4 {
+		const { uPoseA, uPoseB, uPoseMix } = this.uniforms;
+		if (row !== undefined) {
+			const m = boneRow(data, bones, bone, row);
+			return out.set(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], 0, 0, 0, 1);
+		}
+		const mixed = (pose: THREE.Vector3, into: number[]) => {
+			const a = boneRow(data, bones, bone, pose.x), b = boneRow(data, bones, bone, pose.y);
+			for (let k = 0; k < 12; k++) into[k] = a[k] * (1 - pose.z) + b[k] * pose.z;
+		};
+		const m: number[] = new Array(12);
+		mixed(uPoseA.value, m);
+		const mix = uPoseMix.value;
+		if (mix > 0) {
+			const other: number[] = new Array(12);
+			mixed(uPoseB.value, other);
+			for (let k = 0; k < 12; k++) m[k] = m[k] * (1 - mix) + other[k] * mix;
+		}
+		return out.set(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], 0, 0, 0, 1);
+	}
 
 	constructor(clips: AnimationClip[], private readonly uniforms: Required<Pick<SkinUniforms, 'uPoseA' | 'uPoseB' | 'uPoseMix'>>) {
 		for (const c of clips) if (c.id !== undefined) this.clips.set(c.id, c);
@@ -280,8 +303,31 @@ class Animator {
 	}
 }
 
+/** Models built so far, to number them. */
+let modelCount = 0;
+
+/** A bone's row-major 3x4 matrix in a frame (row) of the bone data. */
+function boneRow(data: Float32Array, bones: number, bone: number, row: number): Float32Array {
+	const at = (Math.round(row) * bones + bone) * 12;
+	return data.subarray(at, at + 12);
+}
+
+/** A flame or smoke emitter on held gear: its bone, its frame with the body at rest, and the inverse of that bone's pose then. */
+interface HeldEmitter {
+	loaded: LoadedEmitter;
+	bone: number;
+	frame: THREE.Matrix4;
+	rest: THREE.Matrix4;
+}
+
 /** The walking character's model, ready to draw. */
 interface LoadedModel {
+	/** The emitters of held gear (a torch's flame), following their bones. */
+	held: HeldEmitter[];
+	bones: number;
+	boneData: Float32Array;
+	/** Tells this model's emitters from another's to the particle system. */
+	id: number;
 	group: THREE.Group;
 	mesh: THREE.Mesh;
 	animator: Animator;
@@ -392,7 +438,8 @@ export class Character {
 			uPoseB: { value: new THREE.Vector3() },
 			uPoseMix: { value: 0 },
 		};
-		const ids = [...new Set(data.batches.map((b) => b.material.texture).filter((t) => t))];
+		const onBody = (data.emitters ?? []).filter((e) => e.bone !== undefined);
+		const ids = [...new Set([...data.batches.map((b) => b.material.texture), ...onBody.map((e) => e.texture)].filter((t) => t))];
 		const textures = await this.textures.acquire(ids);
 		const batches = [...data.batches].sort((x, y) => x.order - y.order);
 		const materials = batches.map((b, i) => {
@@ -411,7 +458,15 @@ export class Character {
 		const footstep = data.footstep ?? 0;
 		animator.onStep = () => this.onStep?.(footstep);
 		await Promise.all([this.prepare(group), this.prepare(new THREE.Mesh(geometry, mesh.customDepthMaterial), true)]);
-		return { group, mesh, animator, textures: ids, boneTexture, height: data.height };
+		// Each rests in the Stand pose, which its frame was placed in: it moves with its bone's change from that.
+		const stand = a.clips.find((c) => c.id === ANIM.Stand);
+		const held = onBody.flatMap((e) => {
+			const texture = textures.get(e.texture);
+			if (!texture || !stand) return [];
+			const rest = animator.boneMatrix(e.bone!, a.data, a.bones, new THREE.Matrix4(), stand.row);
+			return [{ loaded: { def: e, texture }, bone: e.bone!, frame: new THREE.Matrix4().fromArray(e.frame), rest: rest.invert() }];
+		});
+		return { group, mesh, animator, textures: ids, boneTexture, height: data.height, held, bones: a.bones, boneData: a.data, id: ++modelCount };
 	}
 
 	private disposeModel(model: LoadedModel): void {
@@ -435,6 +490,18 @@ export class Character {
 	/** The emote being performed, if any. */
 	get emoting(): Emote | null {
 		return this.model?.animator.emote ?? null;
+	}
+
+	/** The torch's flame and the like, in the world this frame; none while it isn't drawn. */
+	emitterSources(): EmitterSource[] {
+		const model = this.model;
+		if (!model?.held.length || !this.group.visible) return [];
+		const bone = new THREE.Matrix4();
+		const frames = model.held.map((h) => {
+			model.animator.boneMatrix(h.bone, model.boneData, model.bones, bone);
+			return model.group.matrix.clone().multiply(bone).multiply(h.rest).multiply(h.frame);
+		});
+		return [{ key: `character:${model.id}`, matrix: model.group.matrix, emitters: model.held.map((h) => h.loaded), frames }];
 	}
 
 	/** Follows the walker: its place, size, the way it faces, its animation; hidden when the camera's in its head. */

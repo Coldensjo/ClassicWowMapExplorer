@@ -234,10 +234,15 @@ export class WalkControls {
 			this.release();
 		});
 		document.addEventListener('pointerlockchange', () => {
+			const asked = this.requesting;
 			this.requesting = false;
 			this.skipMove = true;
-			if (!this.active) return;
 			const locked = document.pointerLockElement === element;
+			// Hidden for walking only once flying again: show it, rather than leave flying turned by it.
+			if (!this.active) {
+				if (asked && locked) document.exitPointerLock();
+				return;
+			}
 			// Let go before the hiding took (a quick click): show it again.
 			if (locked && !this.dragging) this.release();
 			// Asked again while the last showing was still under way, which the browser refuses: ask now it's done.

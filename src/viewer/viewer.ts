@@ -575,6 +575,7 @@ export class Viewer {
 			if (e.code === 'KeyT') this.stopTime();
 		});
 		window.addEventListener('blur', () => this.stopTime());
+		canvas.addEventListener('mousedown', () => (this.pressedWalking = this.walker.active));
 		canvas.addEventListener('click', (e) => this.onClick(e));
 		canvas.addEventListener('mousemove', (e) => this.onHover(e));
 		this.resize();
@@ -582,6 +583,8 @@ export class Viewer {
 
 	private readonly raycaster = new THREE.Raycaster();
 	private lastHover = 0;
+	/** The last press on the view began while walking, so its click doesn't capture the mouse for flying. */
+	private pressedWalking = false;
 
 	/** Spawn under the mouse, or under the centre crosshair while the mouse is captured. */
 	private pickAt(e: MouseEvent): SpawnInfo | null {
@@ -603,6 +606,7 @@ export class Viewer {
 			if (hit) this.onSelect(hit);
 			return;
 		}
+		if (this.pressedWalking) return;
 		const hit = this.pickAt(e);
 		if (hit) {
 			if (this.controls.locked) document.exitPointerLock();

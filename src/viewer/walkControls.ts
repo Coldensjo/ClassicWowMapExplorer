@@ -109,6 +109,15 @@ export function trickTime(trick: SkateTrick): number {
 
 /** Holding the board upside down (E in the air) counts once held this long (s). */
 const GRAB_LEAST = 0.2;
+/**
+ * Crashing into a wall: riding at one head-on (at least this share of the speed going into it)
+ * at this speed or more (yd/s), too slow to ride up it, and stopped short (keeping less than
+ * this share of the move) wipes out, bouncing back off it at this share of the speed.
+ */
+const CRASH_SPEED = 6;
+const CRASH_HEAD_ON = 0.7;
+const CRASH_KEPT = 0.3;
+const CRASH_BOUNCE = 0.25;
 /** Wiping out (landing with the board upside down): the rider lies this long (s), sliding to a stop like this (yd/s²). */
 const FALL_TIME = 1.6;
 const FALL_FRICTION = 10;
@@ -570,14 +579,28 @@ export class WalkControls {
 	 * Landed holding the board upside down: off it, sliding to a stop, lying a moment, and on foot
 	 * after (X gets back on). The board lies where it fell, wheels up, till then.
 	 */
-	private wipeout(): void {
-		const slide = this.velocity.clone().setY(0);
+	private wipeout(crashed = false): void {
+		const forward = this.forward();
+		// Into a wall, it bounces back off it, the board behind; else it slides on, the board ahead.
+		const slide = crashed ? forward.clone().multiplyScalar(-Math.abs(this.boardSpeed) * CRASH_BOUNCE) : this.velocity.clone().setY(0);
 		this.grabAsked = false;
 		this.setSkating(false);
 		this.velocity.copy(slide);
 		this.fallenTime = FALL_TIME;
-		this.fallSpot.copy(this.position).addScaledVector(this.forward(), 0.9 * this.scale);
+		this.fallSpot.copy(this.position).addScaledVector(forward, (crashed ? -0.7 : 0.9) * this.scale);
 		this.fallFacing = this.facing;
+	}
+
+	/** A wall straight ahead, met head-on (a building's, or a solid doodad's). */
+	private wallAhead(forward: THREE.Vector3, reach: number): boolean {
+		const world = this.world!;
+		const p = this.position;
+		const from = new THREE.Vector3(p.x, p.y + this.height * 0.4, p.z);
+		if (!world.nearBuilding(from, reach + 1)) return false;
+		const hit = world.cast(from, forward, reach);
+		if (!hit || Math.abs(hit.normal.y) > 0.5) return false;
+		const n = new THREE.Vector3(hit.normal.x, 0, hit.normal.z).normalize();
+		return Math.abs(n.dot(forward)) >= CRASH_HEAD_ON;
 	}
 
 	/** Lying where it fell: sliding to a stop over the ground, the keys doing nothing. */
@@ -940,6 +963,17 @@ export class WalkControls {
 		if (!climbing && floor && floor.normal.y < WALKABLE && floor.y > start.y + 0.05) {
 			p.copy(start);
 			floor = here;
+		}
+		// Ridden straight into a wall, or a bank too steep to ride up, fast: a crash, off the board.
+		const wanted = speed * cos * dt;
+		const made = (p.x - start.x) * forward.x + (p.z - start.z) * forward.z;
+		if (speed >= CRASH_SPEED && made < wanted * CRASH_KEPT) {
+			const blocked = p.distanceToSquared(start) < 1e-8;
+			if (blocked || this.wallAhead(forward, this.radius + wanted + 0.3)) {
+				this.boardSpeed = speed;
+				this.wipeout(true);
+				return;
+			}
 		}
 		// Surfing, the water's surface is the ground, over whatever's under it.
 		const sea = this.surfAt(p.x, floor ? floor.y : start.y, p.z);

@@ -633,7 +633,11 @@ export class Viewer {
 	 * view at once and the rest as each came back into view, freezing the view for seconds.
 	 */
 	private setTorch(on: boolean): void {
+		if (on === this.torchOn) return;
 		this.torchOn = on;
+		// The walking character holds it too (if its model has a hand): dressed again now if it's out walking, else when it next is.
+		this.dressed = null;
+		if (this.walker.active) void this.dressCharacter();
 	}
 
 	/**
@@ -703,7 +707,7 @@ export class Viewer {
 
 	/** Dresses the character as the look chosen, the first time it's needed. Resolves to the number of looks for its race and sex. */
 	private dressCharacter(): Promise<number> {
-		this.dressed ??= this.character?.dress(this.characterLook) ?? Promise.resolve(0);
+		this.dressed ??= this.character?.dress(this.characterLook, this.torchOn) ?? Promise.resolve(0);
 		return this.dressed;
 	}
 

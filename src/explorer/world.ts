@@ -308,10 +308,11 @@ export class WorldLoader {
 
 	/**
 	 * The walking character's model: a race and sex dressed as one of their NPC looks (look wraps
-	 * round) or a whole outfit, classic or HD, animated with the clips given. Null when there's no such look.
+	 * round) or a whole outfit, classic or HD, animated with the clips given, holding a torch in its right hand if torch is set and
+	 * the model has a hand to hold it in. Null when there's no such look.
 	 */
-	async loadCharacter(race: number, sex: number, hd: boolean, look: number, clips: number[], outfit: CharacterOutfit | null = null): Promise<CharacterModel | null> {
-		const character = await this.displays.character(race, sex, hd, look, clips, outfit);
+	async loadCharacter(race: number, sex: number, hd: boolean, look: number, clips: number[], outfit: CharacterOutfit | null = null, torch = false): Promise<CharacterModel | null> {
+		const character = await this.displays.character(race, sex, hd, look, clips, outfit, torch);
 		if (!character) return null;
 		const model = await loadM2(this.storage, character.fdid, character.options);
 		return { model, displayId: character.displayId, looks: character.looks };

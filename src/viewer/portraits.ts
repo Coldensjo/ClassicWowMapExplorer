@@ -45,7 +45,7 @@ export class Portraits {
 
 	/** Draws a look width by height pixels; resolves to the picture, or null when it has no model. */
 	async draw(look: CharacterLook, width: number, height: number): Promise<Blob | null> {
-		const loaded = await this.storage.loadCharacter(look.race, look.sex, look.hd, look.look, [ANIM.Stand], look.outfit);
+		const loaded = await this.storage.loadCharacter(look.race, look.sex, look.hd, look.look, [ANIM.Stand], look.outfit, false);
 		if (!loaded) return null;
 		const data = loaded.model;
 		const geometry = new THREE.BufferGeometry();

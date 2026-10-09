@@ -335,13 +335,13 @@ export class Character {
 		this.group.visible = false;
 	}
 
-	/** Dresses the character as a look; resolves to how many looks its race and sex have, or 0 if it couldn't. */
-	async dress(look: CharacterLook): Promise<number> {
-		const key = JSON.stringify(look);
+	/** Dresses the character as a look, holding a torch if it can; resolves to how many looks its race and sex have, or 0 if it couldn't. */
+	async dress(look: CharacterLook, torch: boolean): Promise<number> {
+		const key = JSON.stringify([look, torch]);
 		this.wanted = key;
 		let loaded: CharacterModel | null = null;
 		try {
-			loaded = await this.storage.loadCharacter(look.race, look.sex, look.hd, look.look, CLIPS, look.outfit);
+			loaded = await this.storage.loadCharacter(look.race, look.sex, look.hd, look.look, CLIPS, look.outfit, torch);
 		} catch (e) {
 			console.warn('Character model unavailable:', e);
 		}

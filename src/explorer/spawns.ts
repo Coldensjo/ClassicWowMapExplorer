@@ -657,14 +657,19 @@ export class DisplayResolver {
 	 * The walking character: one of a race and sex's NPC looks (wrapping round), on the classic or
 	 * HD model, with the sequences given. Null when there's no such look.
 	 */
-	async character(race: number, sex: number, hd: boolean, look: number, clips: number[], outfit: CharacterOutfit | null = null): Promise<{ fdid: number; options: M2Options; displayId: number; looks: number } | null> {
+	async character(race: number, sex: number, hd: boolean, look: number, clips: number[], outfit: CharacterOutfit | null = null, torch = false): Promise<{ fdid: number; options: M2Options; displayId: number; looks: number } | null> {
 		const list = (await this.looks()).get(`${race}:${sex}:${hd ? 'hd' : 'sd'}`) ?? [];
 		if (!list.length) return null;
 		// An outfit is one NPC's whole look, weapons and all; otherwise one of the race's looks.
 		const worn = outfit && CHARACTER_OUTFITS[outfit].race === race ? CHARACTER_OUTFITS[outfit] : null;
 		const displayId = worn ? worn.displays[sex] : list[wrap(look, list.length)];
 		const resolved = await this.creature(displayId, worn?.weapons ?? null, hd);
-		return resolved && { ...resolved, options: { ...resolved.options, clips }, displayId, looks: list.length };
+		if (!resolved) return null;
+		// The torch takes the right hand from any weapon; a model with no hand attachment point (an animal form) simply isn't given one.
+		const attachments = torch
+			? [...(resolved.options.attachments ?? []).filter((a) => a.point !== ATTACH_HAND_RIGHT), { point: ATTACH_HAND_RIGHT, fdid: TORCH_MODEL, texture: TORCH_TEXTURE }]
+			: resolved.options.attachments;
+		return { ...resolved, options: { ...resolved.options, clips, attachments }, displayId, looks: list.length };
 	}
 
 	async object(displayId: number): Promise<number | null> {
@@ -694,6 +699,10 @@ const SD_CHARACTER_MODELS: Record<number, [number, number]> = {
 	15: [121942, 121941], // skeleton
 	18: [118798, 118798], // forest troll
 };
+
+/** The torch a character holds (club_1h_torch_a_01, from the community listfile) and its texture. */
+const TORCH_MODEL = 145304;
+const TORCH_TEXTURE = 145303;
 
 /** ChrRaces names for the races with character models. */
 const RACE_NAMES: Record<number, string> = {

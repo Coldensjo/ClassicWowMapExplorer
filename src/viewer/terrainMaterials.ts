@@ -323,6 +323,17 @@ export const groundDistance = {
 	uScreenSize: { value: new THREE.Vector2(1, 1) },
 };
 
+/**
+ * The ground's height around the camera seen from straight above (SeaFloorPass): r the height,
+ * g 1 where there's ground. With it the sea's foam goes by how deep the water really is, the
+ * same from every side; the ground distance above is along the view, so near a steep bank it
+ * changes with the angle it's seen at. uSeaFloorMatrix: world position to its coordinates (xy, -1 to 1).
+ */
+export const seaFloor = {
+	uSeaFloor: { value: black as THREE.Texture },
+	uSeaFloorMatrix: { value: new THREE.Matrix4().makeScale(0, 0, 0).setPosition(2, 2, 0) },
+};
+
 /** A tile's river flow map and where the tile's corner is (world x and z), on a liquid mesh's userData.flow. */
 export interface FlowBinding {
 	texture: THREE.Texture;
@@ -385,7 +396,7 @@ function waterMaterial(kind: WaterKind, opacity: number, sea = false, flow: Flow
 	const book = kind === 'water' ? flipbooks.lake : flipbooks[kind];
 	const slime = kind === 'slime';
 	material.onBeforeCompile = (shader) => {
-		Object.assign(shader.uniforms, water, book.uniforms, groundDistance, flowUniforms, { uTime: liquidTime, uFromBelow: fromBelow });
+		Object.assign(shader.uniforms, water, book.uniforms, groundDistance, seaFloor, flowUniforms, { uTime: liquidTime, uFromBelow: fromBelow });
 		shader.vertexShader = shader.vertexShader
 			.replace('#include <common>', `#include <common>
 ${LIQUID_VERTEX_PARS}`)
@@ -400,6 +411,8 @@ ${LIQUID_VERTEX_MAIN}`);
 				uniform vec3 uFoam;
 				uniform sampler2D uGroundDistance;
 				uniform vec2 uScreenSize;
+				uniform sampler2D uSeaFloor;
+				uniform mat4 uSeaFloorMatrix;
 				uniform float uFromBelow;
 				${WAVES}${SHORE_FOAM}${FLIPBOOK}${FLOWING_FLIPBOOK}${sea ? SEA_MASK : ''}`)
 			.replace('#include <clipping_planes_fragment>', sea
@@ -448,7 +461,13 @@ ${LIQUID_VERTEX_MAIN}`);
 				// Foam where the sea meets the shore (lakes and rivers have none), reaching out further
 				// in places than others.
 				float foamReach = 11.0 * (0.55 + 0.45 * sin(vLiquidPos.x * 0.19 + sin(vLiquidPos.z * 0.23) * 2.0 + uTime * 0.07));
-				float foam = uFromBelow < 0.5 ? shoreFoam(vLiquidPos.xz, 1.0 - smoothstep(0.0, foamReach, depth), uTime) : 0.0;
+				// By the water's depth straight down where the sea floor map has it, so the foam stays
+				// put however it's looked at; towards the map's edge, back to the depth along the view.
+				vec2 floorAt = (uSeaFloorMatrix * vec4(vLiquidPos.x, 0.0, vLiquidPos.z, 1.0)).xy;
+				vec2 seaFloorHere = texture2D(uSeaFloor, floorAt * 0.5 + 0.5).rg;
+				float onMap = (1.0 - smoothstep(0.85, 0.95, max(abs(floorAt.x), abs(floorAt.y)))) * step(0.99, seaFloorHere.g);
+				float foamDepth = mix(depth,max(vLiquidPos.y - seaFloorHere.r, 0.0), onMap);
+				float foam = uFromBelow < 0.5 ? shoreFoam(vLiquidPos.xz, 1.0 - smoothstep(0.0, foamReach, foamDepth), uTime) : 0.0;
 				foam *= 0.75 + 0.5 * frame.a;
 				foam *= 1.0 - smoothstep(80.0, 300.0, length(vViewPosition));
 				// Churned up sand in it: warmer than the type's own foam colour.

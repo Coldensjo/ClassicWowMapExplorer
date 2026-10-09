@@ -33,7 +33,7 @@ import { headPosition, ObjectManager } from './objects';
 import { unlitView } from './modelMaterials';
 import { perf } from './perf';
 import { TerrainManager, type ContinentPlacement } from './terrain';
-import { GroundDistancePass } from './groundDistance';
+import { GroundDistancePass, SeaFloorPass } from './groundDistance';
 import { ViewOcclusion } from './occlusion';
 import { UploadQueue } from './gpuUploads';
 import { PostPass, type FogSettings } from './post';
@@ -488,6 +488,7 @@ export class Viewer {
 	private readonly liquidMeshes: THREE.Object3D[] = [];
 	/** How far the ground is under each pixel, for how deep the water there looks. */
 	private groundPass!: GroundDistancePass;
+	private seaFloorPass!: SeaFloorPass;
 	private readonly post: PostPass;
 	private readonly uploads: UploadQueue;
 	private readonly terrainShadow: TerrainShadowPass;
@@ -531,6 +532,7 @@ export class Viewer {
 		// Anything that puts the free camera somewhere (a flight, going to a place) ends walking first.
 		this.controls.onTakeOver = () => this.stopWalking();
 		this.groundPass = new GroundDistancePass(this.renderer);
+		this.seaFloorPass = new SeaFloorPass(this.renderer);
 		// Antialiased there rather than on the canvas.
 		this.post = new PostPass(this.renderer, storage);
 		this.uploads = new UploadQueue(this.renderer);
@@ -1041,6 +1043,7 @@ export class Viewer {
 			this.post.compileAsync(this.renderer, this.scene, this.camera, this.scene, false, false),
 			...commonShadowStandIns().map((o) => this.post.compileAsync(this.renderer, o, this.camera, this.scene, true, false)),
 			this.groundPass.warm(this.renderer),
+			this.seaFloorPass.warm(this.renderer),
 			this.terrainShadow.warm(this.renderer),
 			this.post.compileAsync(this.renderer, liquidBelowStandIns(), this.camera, this.scene, false, false),
 		]);
@@ -1765,6 +1768,7 @@ export class Viewer {
 		this.clutter.update(now, pos, this.terrain.surfaceAt(pos.x, pos.z));
 		// Under water the surface is seen from below, where its depth isn't used.
 		if (!this.underwater) perf.time('groundDistance', () => this.groundPass.render(this.renderer, this.terrain.group, this.camera));
+		if (!this.underwater) perf.time('seaFloor', () => this.seaFloorPass.update(this.renderer, this.terrain.group, pos, now));
 		// Mountains' shadows past the shadow maps' reach.
 		perf.time('terrainShadow', () => this.terrainShadow.update(this.renderer, this.terrain.group, pos, this.controls.altitude, this.sun.position, this.sun.shadow.camera.far, this.shadowsOn ? this.shadowStrength : 0, now));
 		this.renderer.shadowMap.needsUpdate = (this.shadowsOn || !this.shadowMapsDrawn) && (this.shadowFrame++ & 1) === 0;

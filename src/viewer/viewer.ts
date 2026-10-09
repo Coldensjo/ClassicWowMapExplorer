@@ -424,6 +424,7 @@ export class Viewer {
 	/** Warm light carried with the camera, like holding a torch (L toggles it). */
 	private readonly torch = new THREE.PointLight(TORCH_COLOR, 0, TORCH_RANGE, 2);
 	private torchOn = true;
+	private readonly torchWorld = new THREE.Vector3();
 	/** The sun and moon cast shadows (X); see setShadows. */
 	private shadowsOn = true;
 	/**
@@ -1775,6 +1776,13 @@ export class Viewer {
 			this.updateLighting();
 		}
 		this.sky.mesh.position.copy(pos);
+		// The light comes from the torch in the character's hand when it holds one in view, else from where the camera carries it.
+		if (this.walker.active && this.character?.torchAt(this.torchWorld)) {
+			this.camera.updateMatrixWorld();
+			this.torch.position.copy(this.camera.worldToLocal(this.torchWorld));
+		} else {
+			this.torch.position.copy(TORCH_POSITION);
+		}
 		// A few out-of-phase sines give the flame's flicker.
 		const s = now / 1000;
 		this.torch.intensity = !this.torchOn || this.unlit ? 0 : TORCH_INTENSITY * (1 + 0.06 * Math.sin(s * 11.3) + 0.04 * Math.sin(s * 23.7 + 1.3) + 0.03 * Math.sin(s * 5.1 + 0.4));

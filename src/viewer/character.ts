@@ -499,13 +499,28 @@ export class Character {
 	/** The torch's flame and the like, in the world this frame; none while it isn't drawn. */
 	emitterSources(): EmitterSource[] {
 		const model = this.model;
-		if (!model?.held.length || !this.group.visible) return [];
+		const frames = this.heldFrames();
+		if (!model || !frames) return [];
+		return [{ key: `character:${model.id}`, matrix: model.group.matrix, emitters: model.held.map((h) => h.loaded), frames }];
+	}
+
+	/** The held emitters' frames in the world now; null while there are none or the character isn't drawn. */
+	private heldFrames(): THREE.Matrix4[] | null {
+		const model = this.model;
+		if (!model?.held.length || !this.group.visible) return null;
 		const bone = new THREE.Matrix4();
-		const frames = model.held.map((h) => {
+		return model.held.map((h) => {
 			model.animator.boneMatrix(h.bone, model.boneData, model.bones, bone);
 			return model.group.matrix.clone().multiply(bone).multiply(h.rest).multiply(h.frame);
 		});
-		return [{ key: `character:${model.id}`, matrix: model.group.matrix, emitters: model.held.map((h) => h.loaded), frames }];
+	}
+
+	/** Where the torch's flame is in the world, or false when the character holds none in view. */
+	torchAt(out: THREE.Vector3): boolean {
+		const frame = this.heldFrames()?.[0];
+		if (!frame) return false;
+		out.setFromMatrixPosition(frame);
+		return true;
 	}
 
 	/** Follows the walker: its place, size, the way it faces, its animation; hidden when the camera's in its head. */

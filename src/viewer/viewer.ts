@@ -1684,9 +1684,9 @@ export class Viewer {
 	}
 
 	/**
-	 * Sizes the canvas to the window, or to the fixed resolution chosen: drawn at exactly that
-	 * many pixels (no larger than the GPU allows), scaled to fit the window and centred, with the
-	 * names and highlights laid over the same box.
+	 * Sizes the canvas to the window, or to the fixed size chosen: a box of exactly that many
+	 * CSS pixels (shrunk to fit a smaller window) centred in the window, with the names and
+	 * highlights laid over the same box. The world's detail is the same either way.
 	 */
 	private resize(): void {
 		const fixed = parseResolution(this.resolution);
@@ -1701,20 +1701,19 @@ export class Viewer {
 			this.camera.updateProjectionMatrix();
 			return;
 		}
-		const largest = this.renderer.capabilities.maxTextureSize;
-		const shrink = Math.min(1, largest / fixed[0], largest / fixed[1]);
-		const [w, h] = fixed.map((side) => Math.floor(side * shrink));
-		const fit = Math.min(window.innerWidth / w, window.innerHeight / h);
-		const [shownW, shownH] = [w * fit, h * fit];
+		// The viewer is that many CSS pixels (shrunk to fit if the window is smaller), drawn at
+		// the same pixel density as the window would be, so only its size changes.
+		const fit = Math.min(1, window.innerWidth / fixed[0], window.innerHeight / fixed[1]);
+		const [shownW, shownH] = [fixed[0] * fit, fixed[1] * fit];
 		for (const box of boxes) {
 			box.width = `${shownW}px`;
 			box.height = `${shownH}px`;
 			box.left = `${(window.innerWidth - shownW) / 2}px`;
 			box.top = `${(window.innerHeight - shownH) / 2}px`;
 		}
-		this.renderer.setPixelRatio(1);
-		this.renderer.setSize(w, h, false);
-		this.camera.aspect = w / h;
+		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+		this.renderer.setSize(shownW, shownH, false);
+		this.camera.aspect = shownW / shownH;
 		this.camera.updateProjectionMatrix();
 	}
 

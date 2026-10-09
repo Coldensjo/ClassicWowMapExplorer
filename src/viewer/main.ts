@@ -518,7 +518,7 @@ function setUpView(viewer: Viewer): void {
 			flySpeed: () => `Flying speed ${speedLabel(s.flySpeed)}`,
 			smartSpeed: () => (s.smartSpeed ? 'Smart fly speed: faster the higher you are' : `Fixed fly speed: ${fixedSpeedLabel(s.fixedSpeed)}`),
 			fixedSpeed: () => `Flying speed ${fixedSpeedLabel(s.fixedSpeed)}`,
-			resolution: () => (parseResolution(s.resolution) ? `Drawn at ${s.resolution.replace('x', ' × ')}` : 'Drawn at the window’s size'),
+			resolution: () => (parseResolution(s.resolution) ? `Viewer size ${s.resolution.replace('x', ' × ')}` : 'Viewer fills the window'),
 			weather: () => ({ auto: 'Weather: each zone\'s own', dry: 'Weather: no rain or snow', off: 'Weather: always clear', rain: 'Weather: rain', snow: 'Weather: snow', sandstorm: 'Weather: sandstorm' }[s.weather]),
 			flight: () => (viewer.onFlight ? 'Taking flight: Esc or moving gets you off' : 'Landed'),
 			voyage: () => (viewer.onTransport ? 'All aboard: Esc or moving gets you off' : 'Got off'),

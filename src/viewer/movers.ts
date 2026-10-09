@@ -65,6 +65,12 @@ export class Mover {
 		}
 	}
 
+	/** Puts it somewhere else (knocked there), to carry on from: to where it was walking, or waiting where it is. */
+	moveTo(at: THREE.Vector3): void {
+		this.position.copy(at);
+		this.from.copy(at);
+	}
+
 	/** Advances by dt seconds; returns whether the matrix changed. */
 	update(dt: number, ground: GroundAt): boolean {
 		if (!this.walking) {

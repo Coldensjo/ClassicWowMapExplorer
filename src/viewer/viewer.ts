@@ -14,6 +14,11 @@ import type { Emote } from './emotes';
 import type { CharacterRace } from '../explorer/spawns';
 import { FlyControls } from './flyControls';
 import { Footsteps } from './footsteps';
+import { SkateMeter } from './skateMeter';
+import { nameTakedown } from './takedownNames';
+import { pickupOf, type Pickup } from './skatePickups';
+import { SkateScore } from './skateScore';
+import { SkateSounds } from './skateSounds';
 import { Flights, type FlightMaster } from './flights';
 import { RegionData } from './regionData';
 import { RegionOverlay } from './regionOverlay';
@@ -80,6 +85,50 @@ const EYE_HEIGHT = 2;
 const STONE_GROUND = 3;
 /** A walking character smaller than this (its scale: gnomes) splashes in water with the small sounds. */
 const SMALL_SPLASH = 0.7;
+/** The view's field of view (degrees); on the board it widens by up to the next from the speed after that to the one after (yd/s), more with nitro, eased (per second). */
+const BASE_FOV = 60;
+const SPEED_FOV = 10;
+const SPEED_FOV_FROM = 12;
+const SPEED_FOV_FULL = 40;
+const NITRO_FOV = 8;
+const SPEED_FOV_EASE = 4;
+/** Points of moves (tricks, air, wall rides, takedowns) that fill the nitro bar. */
+const NITRO_POINTS = 1500;
+/** Those hit fly off at least this fast (yd/s), and faster with the board's speed (share of it). */
+const TAKEDOWN_FLING = 8;
+const TAKEDOWN_FLING_PER_SPEED = 0.8;
+/** Takedowns this close together (ms) chain. */
+const TAKEDOWN_CHAIN = 6000;
+/** Impact Time: the world runs at this speed for a while after a takedown (s, plus more for each one, up to the most), easing in and out. */
+const IMPACT_SCALE = 0.25;
+const IMPACT_TIME = 0.5;
+const IMPACT_PER_TAKEDOWN = 0.15;
+const IMPACT_MAX = 1.4;
+const IMPACT_EASE = 10;
+/**
+ * The skating game (?skate) starts here, in Thousand Needles: on Kalimdor (map 1), at a tile
+ * position as the URL hash gives one (#1/35.372/41.787/...), facing that way (degrees, as the hash's yaw).
+ */
+const SKATE_START = { map: 1, tileX: 35.372, tileY: 41.787, yaw: 138 };
+/**
+ * Riding into a game object (see skatePickups): how near the board has to come to one (yards
+ * past its size; further for fishing spots, out in the water), and how long before the same one
+ * works again (ms).
+ */
+const PICKUP_REACH = 1;
+const SURF_REACH = 4;
+const PICKUP_COOLDOWN = 8000;
+/** A herb's burst of speed, as a takedown of this many gives; a chest's double points (s); and what each is worth. */
+const HERB_BOOST = 2;
+const CHEST_DOUBLE_TIME = 10;
+const PICKUP_POINTS: Record<Pickup, number> = { boost: 100, grip: 150, jump: 0, double: 200, surf: 200 };
+/** A mega jump's charge: how long it takes (real s), and the world's speed meanwhile. */
+const MEGA_CHARGE_TIME = 0.45;
+const MEGA_CHARGE_SCALE = 0.15;
+/** The board is checked against the objects round it this often (ms). */
+const MEGA_CHECK_INTERVAL = 50;
+/** What a takedown of so many at once is called. */
+const TAKEDOWN_TITLES = ['', 'Takedown!', 'Double Takedown!', 'Triple Takedown!', 'Quad Takedown!', 'Penta Takedown!'];
 /** A hole in the ground is a way down for the walking character only with a building this near under it (yards). */
 const HOLE_DEPTH = 40;
 /** Yards of slack around area triggers: the camera is a little ball, not a point. */
@@ -487,6 +536,25 @@ export class Viewer {
 	private underwater: { kind: LiquidKind; type: number; surface: number } | null = null;
 	private liquidLooks: LiquidLooks | null = null;
 	private underwaterAudio: UnderwaterAudio | null = null;
+	private skateSounds: SkateSounds | null = null;
+	private readonly skateScore = new SkateScore();
+	private readonly skateMeter = new SkateMeter();
+	/** The view widens with speed on the board, and more with nitro (degrees, eased). */
+	private speedFov = 0;
+	/** Seconds of Impact Time left, the speed the world runs at now, and its clock (ms) at that speed. */
+	private impactTime = 0;
+	private timeScale = 1;
+	private worldClock = 0;
+	/** A mega jump charging: real seconds left, and what it's off (null when not). */
+	private megaCharge = 0;
+	private megaFrom: string | null = null;
+	/** When each game object was last ridden into (ms), so riding through one doesn't keep setting it off. */
+	private readonly megaUsed = new Map<string, number>();
+	/** When the board was last checked against the objects round it (ms). */
+	private lastMegaCheck = 0;
+	/** Takedowns in a row, and when the last one was (ms). */
+	private takedownChain = 0;
+	private lastTakedown = -Infinity;
 	/** The place's background loop (birds, wind, city bustle), and which ambience that is. */
 	private backgroundAudio: BackgroundAudio | null = null;
 	private background: BackgroundSounds | null = null;
@@ -531,7 +599,7 @@ export class Viewer {
 		// for each one; while developing, the errors are worth it.
 		this.renderer.debug.checkShaderErrors = import.meta.env.DEV;
 		perf.watch(this.renderer);
-		this.camera = new THREE.PerspectiveCamera(60, 1, 0.5, 400000);
+		this.camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.5, 400000);
 		this.controls = new FlyControls(this.camera, canvas);
 		this.walker = new WalkControls(this.camera, canvas);
 		// Anything that puts the free camera somewhere (a flight, going to a place) ends walking first.
@@ -787,6 +855,9 @@ export class Viewer {
 			};
 		}
 		this.objects.onStep = (at, kind) => step(at, kind, undefined);
+		this.walker.onTrick = (name) => this.skateScore.trick(name);
+		this.walker.onSwingHit = () => this.takedown();
+		this.skateScore.onPoints = (points) => this.walker.chargeNitro(points / NITRO_POINTS);
 	}
 
 	/** The walking character's state last frame (or '' not walking), for its splashes into and out of water. */
@@ -1025,6 +1096,7 @@ export class Viewer {
 			(data) => {
 				this.music = new MusicPlayer(this.storage, data);
 				this.underwaterAudio = new UnderwaterAudio(this.music);
+				this.skateSounds = new SkateSounds(this.music);
 				this.backgroundAudio = new BackgroundAudio(this.music);
 				this.weather.setMusic(this.music);
 				const music = this.music;
@@ -1042,7 +1114,7 @@ export class Viewer {
 		if (hashInstance) await this.placementFor(Number(hashInstance[1]));
 		const view = this.viewFromHash();
 		if (view) this.controls.set(view.position, view.yaw, view.pitch);
-		else this.goToStart();
+		else if (!(this.skateGame && (await this.goToSkateStart()))) this.goToStart();
 		window.addEventListener('pagehide', () => this.writeHash(performance.now(), true));
 		window.addEventListener('hashchange', async () => {
 			if (location.hash === this.lastHash) return;
@@ -1334,6 +1406,36 @@ export class Viewer {
 		return this.meetingStones.find((s) => s.guid === guid) ?? null;
 	}
 
+	/** Set before load for the skating game (?skate): the world loads round its start, and startSkating begins it. */
+	skateGame = false;
+
+	/** Puts the camera at the skating game's start, just over the ground; false when its continent isn't in this install. */
+	private async goToSkateStart(): Promise<boolean> {
+		const placement = await this.placementFor(SKATE_START.map);
+		if (!placement) return false;
+		const x = (SKATE_START.tileX + placement.offsetX) * TILE_SIZE;
+		const z = (SKATE_START.tileY + placement.offsetY) * TILE_SIZE;
+		this.controls.set(new THREE.Vector3(x, this.skateStartHeight(x, z), z), THREE.MathUtils.degToRad(SKATE_START.yaw), -0.2);
+		return true;
+	}
+
+	/** Eye height over the ground at a point, as far as it's loaded (sea level where it isn't yet). */
+	private skateStartHeight(x: number, z: number): number {
+		const ground = this.terrain.heightAt(x, z);
+		return (Number.isFinite(ground) ? ground : 0) + EYE_HEIGHT;
+	}
+
+	/** The skating game begins: on foot where the camera is, already on the board; why it can't, or null. */
+	startSkating(): string | null {
+		// Over the ground as it's loaded now (more of it than when the camera was put there), to drop onto it.
+		const cam = this.camera.position;
+		if (!location.hash) cam.y = Math.max(cam.y, this.skateStartHeight(cam.x, cam.z) + 1);
+		const problem = this.setWalking(true);
+		if (problem) return problem;
+		this.walker.setSkating(true);
+		return null;
+	}
+
 	/** Above Northshire Abbey, looking north. */
 	goToStart(): void {
 		this.controls.set(this.startPosition(), 0, -0.3);
@@ -1410,6 +1512,122 @@ export class Viewer {
 			this.settings = change;
 			this.onChange(Object.keys(change)[0] as keyof ViewSettings);
 		}
+	}
+
+	/**
+	 * The swing comes round: every creature in reach goes flying. As in Burnout, the more at once
+	 * the bigger it is: its title, longer Impact Time, more speed onto the board, a heavier crash;
+	 * and takedowns close together chain.
+	 */
+	private takedown(): void {
+		const w = this.walker;
+		const speed = Math.abs(w.boardSpeed);
+		const reach = w.takedownReach;
+		const victims = this.objects.takedown(w.position, reach, TAKEDOWN_FLING + speed * TAKEDOWN_FLING_PER_SPEED);
+		const count = victims.length;
+		this.character?.shockwave(reach, count > 0);
+		if (!count) return;
+		const now = performance.now();
+		this.takedownChain = now - this.lastTakedown < TAKEDOWN_CHAIN ? this.takedownChain + 1 : 1;
+		this.lastTakedown = now;
+		this.impactTime = Math.min(IMPACT_MAX, IMPACT_TIME + IMPACT_PER_TAKEDOWN * count);
+		w.boost(count);
+		const named = nameTakedown(victims.map((v) => v.info), this.side);
+		this.skateSounds?.deaths(victims.map((v) => v.deathSounds));
+		this.skateScore.takedown(count, named.names.join(' + '), named.points);
+		this.skateSounds?.crash(count);
+		this.skateSounds?.heatUp();
+		const title = TAKEDOWN_TITLES[count] ?? `Mega Takedown ×${count}!`;
+		this.showTakedown(title, named.names.join(' · '), this.takedownChain > 1 ? `Chain ×${this.takedownChain}` : '');
+	}
+
+	/**
+	 * Riding into game objects on the board (see skatePickups), or swimming into a fishing spot.
+	 * A mega jump charges first: time all but stops for a moment (real time, not slowed with
+	 * it), then the board is flung high into the air.
+	 */
+	private updateMegaJump(dt: number, now: number): void {
+		const w = this.walker;
+		const swimming = w.active && w.state === 'swim';
+		if (!w.active || (!w.skating && !swimming)) {
+			this.megaFrom = null;
+			if (this.character) this.character.charge = null;
+			return;
+		}
+		if (this.megaFrom !== null) {
+			this.megaCharge -= dt;
+			if (this.character) this.character.charge = 1 - Math.max(0, this.megaCharge) / MEGA_CHARGE_TIME;
+			if (this.megaCharge > 0) return;
+			w.megaJump();
+			this.skateScore.megaJump(this.megaFrom);
+			this.skateSounds?.megaJump();
+			this.character?.launch();
+			this.megaFrom = null;
+			if (this.character) this.character.charge = null;
+			return;
+		}
+		if (now - this.lastMegaCheck < MEGA_CHECK_INTERVAL) return;
+		this.lastMegaCheck = now;
+		const near = PICKUP_REACH * w.scale + w.radius;
+		const hit = this.objects.touching(w.position, (info) => {
+			const pickup = pickupOf(info);
+			// Swimming, only a fishing spot gets you back on the board.
+			if (!pickup || (swimming && pickup !== 'surf')) return null;
+			return pickup === 'surf' ? near + SURF_REACH : near;
+		});
+		if (!hit || now - (this.megaUsed.get(hit.key) ?? -Infinity) < PICKUP_COOLDOWN) return;
+		this.megaUsed.set(hit.key, now);
+		const pickup = pickupOf(hit.info)!;
+		const name = hit.info.name;
+		if (pickup === 'jump') {
+			this.megaCharge = MEGA_CHARGE_TIME;
+			this.megaFrom = name;
+			if (this.character) this.character.charge = 0;
+			this.skateSounds?.charge(MEGA_CHARGE_TIME);
+			return;
+		}
+		if (pickup === 'boost') {
+			w.boost(HERB_BOOST);
+			this.skateScore.pickup(`${name} Boost`, PICKUP_POINTS.boost);
+		} else if (pickup === 'grip') {
+			w.grip();
+			this.skateScore.pickup(`${name} Wall Grip`, PICKUP_POINTS.grip);
+			this.onNotice('Wall grip! Ride up anything for 10 seconds, holding W to climb');
+		} else if (pickup === 'double') {
+			this.skateScore.doublePoints(CHEST_DOUBLE_TIME);
+			this.skateScore.pickup(`${name}: 2× Points`, PICKUP_POINTS.double);
+			this.onNotice(`2× points for ${CHEST_DOUBLE_TIME} seconds!`);
+		} else {
+			w.surf();
+			this.skateScore.pickup('Surf’s Up', PICKUP_POINTS.surf);
+			this.onNotice('Surf’s up! Ride the water before it runs out');
+		}
+		this.skateSounds?.pickup(pickup === 'surf');
+	}
+
+	/** Widens the view with the board's speed, and more with nitro, for a rush; back to normal off it. */
+	private updateSpeedFov(dt: number): void {
+		const w = this.walker;
+		const speed = w.state === 'ground' ? Math.abs(w.boardSpeed) : w.velocity.length();
+		const target = w.active && w.skating ? THREE.MathUtils.clamp((speed - SPEED_FOV_FROM) / (SPEED_FOV_FULL - SPEED_FOV_FROM), 0, 1) * SPEED_FOV + (w.nitroTime > 0 ? NITRO_FOV : 0) : 0;
+		const next = this.speedFov + (target - this.speedFov) * (1 - Math.exp(-dt * SPEED_FOV_EASE));
+		if (Math.abs(next - this.speedFov) < 1e-3 && Math.abs(target - next) < 1e-3) return;
+		this.speedFov = Math.abs(next) < 1e-3 ? 0 : next;
+		this.camera.fov = BASE_FOV + this.speedFov;
+		this.camera.updateProjectionMatrix();
+	}
+
+	/** Punches a takedown's title in over the view, starting its animation over if one is showing. */
+	private showTakedown(title: string, name: string, chain: string): void {
+		const banner = document.getElementById('takedown-banner');
+		if (!banner) return;
+		document.getElementById('takedown-title')!.textContent = title;
+		document.getElementById('takedown-name')!.textContent = name;
+		document.getElementById('takedown-chain')!.textContent = chain;
+		banner.classList.remove('show');
+		// Reading the layout lets the animation start again.
+		void banner.offsetWidth;
+		banner.classList.add('show');
 	}
 
 	/** Reads the regions (areas, graveyards, inns, weather), flight paths and transports, and lays them over the continents. */
@@ -1742,20 +1960,31 @@ export class Viewer {
 
 	private tick(dt: number, now: number): void {
 		perf.frameStart(now, this.renderer.info.programs?.length ?? 0);
+		// Impact Time after a takedown: the walker, the creatures and everything animated slow down, then ease back.
+		this.impactTime = Math.max(0, this.impactTime - dt);
+		this.updateMegaJump(dt, now);
+		const slow = Math.min(this.impactTime > 0 ? IMPACT_SCALE : 1, this.megaFrom !== null ? MEGA_CHARGE_SCALE : 1);
+		this.timeScale += (slow - this.timeScale) * (1 - Math.exp(-dt * IMPACT_EASE));
+		const worldDt = dt * this.timeScale;
+		this.worldClock = this.worldClock ? this.worldClock + worldDt * 1000 : now;
 		// The camera holds still while a screenshot is prepared.
 		if (!this.shot) {
 			if (this.walker.active) {
-				this.walker.update(dt);
+				this.walker.update(worldDt);
 				const cam = this.camera.position;
 				this.controls.mirror(this.walker.yaw, this.walker.pitch, Math.max(0, cam.y - Math.max(this.terrain.surfaceAt(cam.x, cam.z), 0)), this.walker.speed);
 			} else {
 				this.controls.update(dt, (x, z) => this.terrain.heightAt(x, z), (x, z) => this.terrain.surfaceAt(x, z));
 			}
 		}
-		this.character?.update(dt, this.walker);
+		this.character?.update(worldDt, this.walker);
+		this.skateSounds?.update(worldDt, this.walker);
+		this.skateScore.update(worldDt, this.walker);
+		this.skateMeter.update(this.walker);
+		this.updateSpeedFov(dt);
 
-		liquidTime.value = now / 1000;
-		animateFlipbooks(now / 1000);
+		liquidTime.value = this.worldClock / 1000;
+		animateFlipbooks(this.worldClock / 1000);
 		const pos = this.camera.position;
 
 		if (now - this.lastTriggerCheck > 100) {
@@ -1794,7 +2023,7 @@ export class Viewer {
 		// Before the objects, so the transports' new places are drawn this frame.
 		this.transports?.update(Date.now(), pos);
 		this.objects.extraEmitters = this.character?.emitterSources() ?? [];
-		perf.time('objects.update', () => this.objects.update(now, pos));
+		perf.time('objects.update', () => this.objects.update(this.worldClock, pos));
 		perf.time('uploads', () => this.uploads.drain());
 		this.clutter.update(now, pos, this.terrain.surfaceAt(pos.x, pos.z));
 		// Under water the surface is seen from below, where its depth isn't used.

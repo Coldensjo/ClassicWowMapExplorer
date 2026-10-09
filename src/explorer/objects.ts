@@ -88,6 +88,8 @@ export interface ModelData {
 	emitters?: ParticleEmitter[];
 	/** Creatures: which footsteps they make (FootstepTerrainLookup's creature column; 0 none). */
 	footstep?: number;
+	/** Creatures: the files of their death sound, one played at random. */
+	deathSounds?: number[];
 	/** WMOs only: a serialised ray-cast acceleration structure (three-mesh-bvh, indirect), for line of sight. */
 	bvh?: SerializedBvh;
 	/**
@@ -228,6 +230,8 @@ export interface M2Options {
 	attachments?: GearAttachment[];
 	/** Which footsteps it makes (see ModelData.footstep). */
 	footstep?: number;
+	/** Its death sound's files (see ModelData.deathSounds). */
+	deathSounds?: number[];
 	/** Keep the model's collision mesh (ModelData.collision): placed doodads and game objects. */
 	solid?: boolean;
 }
@@ -520,6 +524,7 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 			: undefined,
 		emitters: emitters.length ? emitters : undefined,
 		footstep: options.footstep,
+		deathSounds: options.deathSounds,
 		collision,
 	};
 }

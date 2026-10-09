@@ -1,7 +1,7 @@
 import type { CascStorage } from '../casc/storage';
 import { TILE_SIZE } from '../formats/adt';
 import type { Db2 } from '../formats/db2';
-import { loadTable } from './clientDb';
+import { DB2_FILES, loadTable } from './clientDb';
 import { compose, fromQuaternion, identity, rotationZ, scaling, translation, type Mat4 } from './mat4';
 import type { GearAttachment, M2Options, Placement } from './objects';
 import { ATTACH_HAND_LEFT, ATTACH_HAND_RIGHT, ATTACH_HELM, ATTACH_SHIELD, ATTACH_SHOULDER_LEFT, ATTACH_SHOULDER_RIGHT } from '../formats/m2Pose';
@@ -267,23 +267,39 @@ export class DisplayResolver {
 	 * off hand is a shield] as item display IDs, from the spawn data.
 	 */
 	async creature(displayId: number, weapons: Weapons | null = null, hd = false): Promise<{ fdid: number; options: M2Options } | null> {
-		const [look, footstep] = await Promise.all([this.creatureLook(displayId, weapons, hd), this.footstep(displayId)]);
-		if (look) look.options.footstep = footstep;
+		const [look, sounds] = await Promise.all([this.creatureLook(displayId, weapons, hd), this.creatureSounds(displayId)]);
+		if (look) {
+			look.options.footstep = sounds.footstep;
+			if (sounds.death.length) look.options.deathSounds = sounds.death;
+		}
 		return look;
 	}
 
 	private soundData: Promise<Db2> | null = null;
+	/** Each sound kit's files that are in the install (SoundKitEntry: 0 kit, 1 file). */
+	private soundKits: Promise<Map<number, number[]>> | null = null;
 
 	/**
-	 * Which footsteps a look makes (FootstepTerrainLookup's creature column): CreatureSoundData's,
-	 * from the display's own sound data or else its model's. 0 when it has none.
+	 * A look's sounds, from CreatureSoundData (the display's own sound data or else its model's):
+	 * which footsteps it makes (FootstepTerrainLookup's creature column; 0 none), and the files of
+	 * its death sound kit.
 	 */
-	private async footstep(displayId: number): Promise<number> {
+	private async creatureSounds(displayId: number): Promise<{ footstep: number; death: number[] }> {
 		this.soundData ??= loadTable(this.storage, DISPLAY_FILES.CreatureSoundData);
-		const [{ creatureDisplay, creatureModel }, sounds] = await Promise.all([this.load(), this.soundData]);
+		this.soundKits ??= loadTable(this.storage, DB2_FILES.SoundKitEntry).then((entries) => {
+			const kits = new Map<number, number[]>();
+			for (const id of entries.ids()) {
+				const file = entries.getInt(id, 1) ?? 0;
+				if (!file || this.storage.status(file) !== 'ok') continue;
+				const kit = entries.getInt(id, 0) ?? 0;
+				kits.set(kit, [...(kits.get(kit) ?? []), file]);
+			}
+			return kits;
+		});
+		const [{ creatureDisplay, creatureModel }, sounds, kits] = await Promise.all([this.load(), this.soundData, this.soundKits]);
 		const modelId = creatureDisplay.getInt(displayId, 1) ?? 0;
 		const soundId = creatureDisplay.getInt(displayId, DISPLAY_SOUND) || creatureModel.getInt(modelId, MODEL_SOUND) || 0;
-		return sounds.getInt(soundId, SOUND_FOOTSTEP) ?? 0;
+		return { footstep: sounds.getInt(soundId, SOUND_FOOTSTEP) ?? 0, death: kits.get(sounds.getInt(soundId, SOUND_DEATH) ?? 0) ?? [] };
 	}
 
 	private async creatureLook(displayId: number, weapons: Weapons | null, hd: boolean): Promise<{ fdid: number; options: M2Options } | null> {
@@ -702,6 +718,8 @@ const SD_CHARACTER_MODELS: Record<number, [number, number]> = {
 
 /** The torch a character holds (club_1h_torch_a_01, from the community listfile) and its texture. */
 const TORCH_MODEL = 145304;
+/** A small fire doodad (undeadfiresmall, from the community listfile), whose flames burn on the skateboard's tail. */
+export const BOARD_FIRE_MODEL = 198195;
 const TORCH_TEXTURE = 145303;
 
 /** ChrRaces names for the races with character models. */
@@ -759,6 +777,8 @@ export const DISPLAY_FILES = {
 const DISPLAY_SOUND = 2;
 const MODEL_SOUND = 13;
 const SOUND_FOOTSTEP = 9;
+/** CreatureSoundData's death sound kit. */
+const SOUND_DEATH = 6;
 
 /** NPCModelItemSlotDisplayInfo slots. */
 const SLOT_HEAD = 0;

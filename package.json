@@ -6,6 +6,8 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "tsc --noEmit && vite build",
+		"dev:skate": "vite --mode skate",
+		"build:skate": "tsc --noEmit && vite build --mode skate",
 		"typecheck": "tsc --noEmit",
 		"test": "bun test",
 		"probe": "bun tools/probe.ts",

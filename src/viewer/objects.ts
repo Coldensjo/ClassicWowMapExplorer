@@ -112,6 +112,47 @@ interface PlacedObject {
 	mover?: Mover;
 }
 
+/** A knocked-down creature's thickness lying down, as a share of its height. */
+const LYING_THICKNESS = 0.12;
+/** Knocked-down creatures fall like this (yd/s²), slide to a stop like this (yd/s²), and bounce this many times at most. */
+const KNOCK_GRAVITY = 19.29;
+const KNOCK_FRICTION = 10;
+const KNOCK_BOUNCES = 2;
+/** They lie this long (s), then take this long to get up. */
+const LIE_TIME: [number, number] = [6, 11];
+const GET_UP_TIME = 0.8;
+/** Easing onto their back or front once down, s. */
+const SETTLE_TIME = 0.25;
+
+/**
+ * A creature knocked down by a takedown: flung through the air spinning end over end round its
+ * middle, bouncing, lying flat, then getting up where it landed. Its placement's matrix is moved
+ * in place meanwhile (and its walking held).
+ */
+interface Knocked {
+	object: PlacedObject;
+	part: { entry: ModelEntry; key: string };
+	/** Its placement without the position: turned and scaled as it stood. */
+	base: THREE.Matrix4;
+	/** Height and half height, yards. */
+	height: number;
+	/** Its middle, and how fast that's going. */
+	middle: THREE.Vector3;
+	velocity: THREE.Vector3;
+	/** The axis it tumbles about (level, across the way it flies), how far it's turned and how fast it turns. */
+	axis: THREE.Vector3;
+	angle: number;
+	spin: number;
+	/** Where it stood, for ground to land on where the terrain is unknown. */
+	floor: number;
+	bounces: number;
+	phase: 'fly' | 'lie' | 'up';
+	/** Seconds into its phase, how long it lies, and the angle lying and getting up start from. */
+	time: number;
+	lie: number;
+	from: number;
+}
+
 /** A model placed by hand rather than by a tile (a boat or zeppelin), moved with placeLoose each frame. */
 interface LooseObject {
 	matrix: THREE.Matrix4;
@@ -387,6 +428,7 @@ export class ObjectManager {
 				entry.unusedSince = 0;
 			}
 		}
+		this.updateKnocked(dt);
 		for (const entry of this.moved) {
 			for (const mesh of [entry.mesh, ...entry.liquids.map((l) => l.mesh)]) {
 				if (!mesh) continue;
@@ -399,6 +441,162 @@ export class ObjectManager {
 		perf.time('particles', () => this.particles.update(dt, this.nearbyEmitters()));
 		// Not a time: the live particle count, averaged the same way.
 		perf.record('particles.alive', this.particles.count);
+	}
+
+	/** Creatures knocked down, by key. */
+	private readonly knocked = new Map<string, Knocked>();
+
+	/**
+	 * Knocks down every creature drawn within reach of a point (up or down a little too), flung
+	 * away from it at least as fast as speed, spinning. Returns who went down (info null for one
+	 * with no spawn record) and the files of each one's death sound.
+	 */
+	takedown(at: THREE.Vector3, reach: number, speed: number): { info: SpawnInfo | null; deathSounds: number[] }[] {
+		const victims: { info: SpawnInfo | null; deathSounds: number[] }[] = [];
+		const head = new THREE.Vector3();
+		for (const entry of this.models.values()) {
+			if (entry.kind !== 'creature' || entry.state !== 'ready' || !entry.data) continue;
+			for (const key of entry.visible) {
+				if (this.knocked.has(key)) continue;
+				const object = this.objects.get(key);
+				const m = entry.instances.get(key);
+				if (!object || !m) continue;
+				const feet = new THREE.Vector3().setFromMatrixPosition(m);
+				const away = new THREE.Vector3(feet.x - at.x, 0, feet.z - at.z);
+				if (away.lengthSq() > reach * reach || Math.abs(feet.y - at.y) > 3) continue;
+				if (away.lengthSq() < 1e-4) away.set(Math.random() - 0.5, 0, Math.random() - 0.5);
+				away.normalize();
+				const height = Math.max(0.5, headPosition(m, entry.data.height, head).distanceTo(feet));
+				const fling = speed * (0.8 + Math.random() * 0.5);
+				this.knocked.set(key, {
+					object,
+					part: { entry, key },
+					base: m.clone().setPosition(0, 0, 0),
+					height,
+					middle: feet.clone().setY(feet.y + height / 2),
+					velocity: away.clone().multiplyScalar(fling).setY(6 + Math.random() * 5 + fling * 0.25),
+					// About up × away: the head goes over backwards, away from the hit.
+					axis: new THREE.Vector3(0, 1, 0).cross(away).normalize(),
+					angle: 0,
+					spin: 7 + Math.random() * 7,
+					floor: feet.y,
+					bounces: 0,
+					phase: 'fly',
+					time: 0,
+					lie: LIE_TIME[0] + Math.random() * (LIE_TIME[1] - LIE_TIME[0]),
+					from: 0,
+				});
+				victims.push({ info: object.placement.spawn ?? null, deathSounds: entry.data.deathSounds ?? [] });
+			}
+		}
+		return victims;
+	}
+
+	/**
+	 * The nearest drawn game object that a point is within reach of, as reachFor gives it for the
+	 * object (null to pass it by), counting the object's own size (up to a few yards), from a
+	 * little under its feet (a swimmer's, under a fishing spot on the surface) to a few yards over
+	 * them; by key, with its info. Null when there's none.
+	 */
+	touching(at: THREE.Vector3, reachFor: (info: SpawnInfo) => number | null): { key: string; info: SpawnInfo } | null {
+		let best: { key: string; info: SpawnInfo } | null = null;
+		let bestGap = Infinity;
+		for (const entry of this.models.values()) {
+			if (entry.kind !== 'object' || entry.state !== 'ready' || !entry.data) continue;
+			for (const key of entry.visible) {
+				const info = this.objects.get(key)?.placement.spawn;
+				const m = entry.instances.get(key);
+				const reach = info && m ? reachFor(info) : null;
+				if (reach === null || !info || !m) continue;
+				const e = m.elements;
+				const dy = at.y - e[13];
+				if (dy < -2.5 || dy > 3) continue;
+				const size = Math.min(3, entry.data.radius * Math.hypot(e[0], e[1], e[2]) * 0.5);
+				const gap = Math.hypot(at.x - e[12], at.z - e[14]) - size;
+				if (gap < reach && gap < bestGap) {
+					bestGap = gap;
+					best = { key, info };
+				}
+			}
+		}
+		return best;
+	}
+
+	/** Moves the knocked-down creatures along: flying, bouncing, lying and getting up. */
+	private updateKnocked(dt: number): void {
+		if (dt <= 0) return;
+		const rotation = new THREE.Matrix4();
+		for (const [key, k] of this.knocked) {
+			if (this.objects.get(key) !== k.object) {
+				this.knocked.delete(key);
+				continue;
+			}
+			const half = k.height / 2;
+			// How high its middle is off the ground turned to an angle: half its height upright, its thickness lying.
+			const rest = (angle: number) => half * Math.abs(Math.cos(angle)) + k.height * LYING_THICKNESS * Math.abs(Math.sin(angle));
+			const p = k.middle;
+			const v = k.velocity;
+			const terrain = this.groundAt(p.x, p.z);
+			const ground = Number.isFinite(terrain) && Math.abs(terrain - k.floor) < 30 ? terrain : k.floor;
+			k.time += dt;
+			if (k.phase === 'fly') {
+				v.y -= KNOCK_GRAVITY * dt;
+				p.addScaledVector(v, dt);
+				k.angle += k.spin * dt;
+				if (p.y <= ground + rest(k.angle) && v.y < 0) {
+					p.y = ground + rest(k.angle);
+					if (k.bounces < KNOCK_BOUNCES && v.y < -4) {
+						k.bounces++;
+						v.y *= -0.35;
+						v.x *= 0.6;
+						v.z *= 0.6;
+						k.spin *= 0.5;
+					} else {
+						k.phase = 'lie';
+						k.time = 0;
+						k.from = k.angle;
+						v.y = 0;
+					}
+				}
+			} else if (k.phase === 'lie') {
+				// Onto its back or front, whichever is nearer, sliding to a stop.
+				const flat = Math.round((k.from - Math.PI / 2) / Math.PI) * Math.PI + Math.PI / 2;
+				k.angle = THREE.MathUtils.lerp(k.from, flat, THREE.MathUtils.smoothstep(k.time / SETTLE_TIME, 0, 1));
+				const speed = Math.hypot(v.x, v.z);
+				const slowed = Math.max(0, speed - KNOCK_FRICTION * dt);
+				if (speed > 0) v.multiplyScalar(slowed / speed);
+				p.addScaledVector(v, dt);
+				p.y = ground + rest(k.angle);
+				if (k.time > k.lie) {
+					k.phase = 'up';
+					k.time = 0;
+					k.from = k.angle;
+				}
+			} else {
+				// Back up to standing: the nearest upright turn.
+				const upright = Math.round(k.from / (Math.PI * 2)) * Math.PI * 2;
+				const t = Math.min(1, k.time / GET_UP_TIME);
+				k.angle = THREE.MathUtils.lerp(k.from, upright, THREE.MathUtils.smootherstep(t, 0, 1));
+				p.y = ground + rest(k.angle);
+				if (t >= 1) {
+					// Standing where it landed; a walker carries on from there.
+					const feet = new THREE.Vector3(p.x, ground, p.z);
+					k.object.matrix.copy(k.base).setPosition(feet);
+					k.object.mover?.moveTo(feet);
+					this.moveInstance(k.part);
+					this.knocked.delete(key);
+					continue;
+				}
+			}
+			// Turned round its middle: down from the middle to the feet, the tumble, then out to where the middle is.
+			rotation.makeRotationAxis(k.axis, k.angle);
+			k.object.matrix
+				.makeTranslation(p.x, p.y, p.z)
+				.multiply(rotation)
+				.multiply(new THREE.Matrix4().makeTranslation(0, -half, 0))
+				.multiply(k.base);
+			this.moveInstance(k.part);
+		}
 	}
 
 	/** Ground height for walking creatures; the viewer supplies the terrain's. */
@@ -421,7 +619,7 @@ export class ObjectManager {
 			for (const key of entry.visible) {
 				const mover = this.objects.get(key)?.mover;
 				const slot = entry.slots.get(key);
-				if (!mover || slot === undefined) continue;
+				if (!mover || slot === undefined || this.knocked.has(key)) continue;
 				const m = entry.instances.get(key)!;
 				const e = m.elements;
 				if ((e[12] - this.camera.x) ** 2 + (e[13] - this.camera.y) ** 2 + (e[14] - this.camera.z) ** 2 > MOVE_RANGE ** 2) continue;

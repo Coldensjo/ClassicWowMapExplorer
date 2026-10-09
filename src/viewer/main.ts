@@ -200,6 +200,43 @@ $('pick-direct').addEventListener('click', async () => {
 
 $('explore').addEventListener('click', () => void explore());
 
+/**
+ * The skating game (built with --mode skate, or ?skate): the start page says so, the world opens
+ * on the Shimmering Flats with the character already on the board, and the controls show for a
+ * moment instead of the full help. The explorer is all still there round it.
+ */
+const SKATE_GAME = import.meta.env.VITE_SKATE === '1' || new URLSearchParams(location.search).has('skate');
+/** How long the skating controls show at the start (ms), unless dismissed. */
+const SKATE_INTRO_TIME = 12000;
+
+if (SKATE_GAME) {
+	document.title = 'Thousand Needles Skate';
+	document.querySelector('#start h1')!.textContent = 'Thousand Needles Skate';
+	document.querySelector('#start .card > p.muted')!.textContent = 'Skate the Shimmering Flats on a board, drawn from the game files on your computer.';
+	$('explore').textContent = 'Skate';
+}
+
+/** On the board and rolling, with the controls shown until they're dismissed, the first move, or a while. */
+function startSkateGame(viewer: Viewer): void {
+	const problem = viewer.startSkating();
+	if (problem) {
+		notify(problem);
+		return;
+	}
+	const intro = $('skate-intro');
+	intro.hidden = false;
+	const close = () => {
+		intro.hidden = true;
+		window.removeEventListener('keydown', onKey);
+	};
+	const onKey = (e: KeyboardEvent) => {
+		if (!isTyping(e)) close();
+	};
+	window.addEventListener('keydown', onKey);
+	$('skate-intro-close').addEventListener('click', close);
+	setTimeout(close, SKATE_INTRO_TIME);
+}
+
 /** Opens the chosen game version and starts the viewer. */
 async function explore(): Promise<void> {
 	const button = $<HTMLButtonElement>('explore');
@@ -217,6 +254,7 @@ async function explore(): Promise<void> {
 		// those the world will need; set only afterwards, every one was built again while flying.
 		const { stats: _, ...saved } = readSaved<SavedView>(VIEW_KEY);
 		viewer.settings = saved;
+		viewer.skateGame = SKATE_GAME;
 		await viewer.load((text) => showProgress(text));
 		const { minimapArrow } = await ui;
 		showProgress('Starting');
@@ -234,6 +272,7 @@ async function explore(): Promise<void> {
 		setUpEmotes(viewer);
 		setUpSound(viewer);
 		setUpHelp();
+		if (SKATE_GAME) startSkateGame(viewer);
 	} catch (e) {
 		perf.log('error', `could not start: ${(e as Error).message}`);
 		setStatus(`Could not start: ${(e as Error).message}`, true);
@@ -1262,7 +1301,8 @@ function setUpHelp(): void {
 	} catch {
 		// Storage blocked: not shown by itself, as it couldn't be remembered as seen.
 	}
-	if (!seen) show(true);
+	// The skating game shows its own controls instead.
+	if (!seen && !SKATE_GAME) show(true);
 }
 
 // --- Hiding the interface ---

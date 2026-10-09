@@ -448,6 +448,215 @@ button.plain {
 	transition: none;
 }
 
+/* Skating's points: the score along the top, the combo running under it, as Tony Hawk's games show them. */
+#skate-score {
+	position: fixed;
+	top: calc(var(--bar) + 12px);
+	left: 0;
+	right: 0;
+	text-align: center;
+	pointer-events: none;
+	font-family: Impact, 'Arial Black', system-ui, sans-serif;
+	font-style: italic;
+	color: #fff;
+	text-shadow: 0.06em 0 0 #000, -0.06em 0 0 #000, 0 0.06em 0 #000, 0 -0.06em 0 #000;
+	z-index: 1;
+}
+
+#skate-score[hidden] {
+	display: none;
+}
+
+#skate-total {
+	font-size: 18px;
+	letter-spacing: 0.03em;
+}
+
+#skate-moves {
+	margin-top: 4px;
+	font-size: 16px;
+	color: #ffe7a0;
+	max-width: 80vw;
+	margin-left: auto;
+	margin-right: auto;
+}
+
+#skate-combo {
+	font-size: 26px;
+	color: #ffd23a;
+}
+
+#skate-combo.bail {
+	color: #ff4a3a;
+}
+
+.ui-hidden #skate-score {
+	display: none;
+}
+
+/* The skating game's controls, over the middle at the start. */
+#skate-intro {
+	position: fixed;
+	left: 50%;
+	top: 50%;
+	transform: translate(-50%, -50%);
+	width: min(440px, calc(100vw - 32px));
+	padding: 14px 18px 16px;
+	font-size: 14px;
+	line-height: 1.7;
+	z-index: 3;
+}
+
+#skate-intro[hidden] {
+	display: none;
+}
+
+#skate-intro h3 {
+	margin: 0 0 6px;
+}
+
+#skate-intro button {
+	margin-top: 10px;
+}
+
+/* The board's speed and nitro bar, in the bottom left. */
+#skate-meter {
+	position: fixed;
+	left: 16px;
+	bottom: 16px;
+	width: 220px;
+	pointer-events: none;
+	font-family: Impact, 'Arial Black', system-ui, sans-serif;
+	font-style: italic;
+	color: #fff;
+	text-shadow: 0.06em 0 0 #000, -0.06em 0 0 #000, 0 0.06em 0 #000, 0 -0.06em 0 #000;
+	z-index: 1;
+}
+
+#skate-meter[hidden] {
+	display: none;
+}
+
+#skate-speed {
+	font-size: 44px;
+	line-height: 1;
+}
+
+#skate-meter .unit {
+	font-size: 18px;
+}
+
+#skate-speed-detail {
+	font-size: 13px;
+	color: #ffe7a0;
+	margin-bottom: 6px;
+}
+
+#nitro-bar {
+	position: relative;
+	height: 18px;
+	background: rgba(0, 0, 0, 0.55);
+	border: 2px solid #000;
+	border-radius: 3px;
+	overflow: hidden;
+}
+
+#nitro-fill {
+	height: 100%;
+	width: 0;
+	background: linear-gradient(90deg, #1f6fff, #35c8ff);
+	transition: width 0.15s;
+}
+
+#nitro-label {
+	position: absolute;
+	inset: 0;
+	font-size: 12px;
+	line-height: 14px;
+	text-align: center;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+#nitro-bar.ready {
+	animation: nitro-ready 0.8s ease-in-out infinite alternate;
+}
+
+#nitro-bar.ready #nitro-fill {
+	background: linear-gradient(90deg, #ff8a00, #ffd23a);
+}
+
+#nitro-bar.active #nitro-fill {
+	background: linear-gradient(90deg, #ff3a00, #ffb000);
+	transition: none;
+}
+
+@keyframes nitro-ready {
+	from { box-shadow: 0 0 4px rgba(255, 170, 0, 0.4); }
+	to { box-shadow: 0 0 14px rgba(255, 170, 0, 1); }
+}
+
+.ui-hidden #skate-meter {
+	display: none;
+}
+
+/* A takedown's title, as Burnout shouts it: big, slanted and hot, punched in and fading out. */
+#takedown-banner {
+	position: fixed;
+	top: 24%;
+	left: 0;
+	right: 0;
+	text-align: center;
+	pointer-events: none;
+	opacity: 0;
+	font-family: Impact, 'Arial Black', system-ui, sans-serif;
+	font-style: italic;
+	text-transform: uppercase;
+	z-index: 1;
+}
+
+#takedown-banner.show {
+	animation: takedown 2.2s ease-out forwards;
+}
+
+#takedown-title {
+	font-size: clamp(32px, 7vw, 84px);
+	letter-spacing: 0.03em;
+	color: #ffd23a;
+	transform: skewX(-12deg);
+	text-shadow:
+		0.05em 0 0 #000, -0.05em 0 0 #000, 0 0.05em 0 #000, 0 -0.05em 0 #000,
+		0.04em 0.04em 0 #000, -0.04em 0.04em 0 #000, 0.04em -0.04em 0 #000, -0.04em -0.04em 0 #000,
+		0 0 0.35em rgba(255, 90, 0, 0.9);
+}
+
+#takedown-name {
+	font-size: clamp(20px, 3.6vw, 42px);
+	color: #ff9a3a;
+	transform: skewX(-12deg);
+	text-shadow: 0.06em 0 0 #000, -0.06em 0 0 #000, 0 0.06em 0 #000, 0 -0.06em 0 #000, 0 0 0.3em rgba(255, 60, 0, 0.8);
+}
+
+#takedown-chain {
+	font-size: clamp(16px, 2.6vw, 30px);
+	color: #fff;
+	transform: skewX(-12deg);
+	text-shadow: 0.06em 0 0 #000, -0.06em 0 0 #000, 0 0.06em 0 #000, 0 -0.06em 0 #000, 0 0 0.3em rgba(255, 60, 0, 0.9);
+}
+
+@keyframes takedown {
+	0% { opacity: 0; transform: scale(2.2) rotate(-4deg); }
+	8% { opacity: 1; transform: scale(0.92) rotate(1deg); }
+	14% { transform: scale(1.05) rotate(0); }
+	20% { transform: scale(1); }
+	75% { opacity: 1; transform: scale(1.04); }
+	100% { opacity: 0; transform: scale(1.1); }
+}
+
+.ui-hidden #takedown-banner {
+	display: none;
+}
+
 kbd {
 	display: inline-block;
 	font: 11px/1.5 ui-monospace, monospace;

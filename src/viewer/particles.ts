@@ -39,6 +39,8 @@ interface Particle {
 	spin: number;
 	cell: number;
 	def: ParticleEmitter;
+	/** For an emitter that moves its particles with it: how it moved this frame. */
+	anchor?: { delta: THREE.Matrix4 };
 }
 
 /** Per placed emitter: world frames, and the fractional particle carried to the next frame. */
@@ -50,6 +52,8 @@ interface EmitterState {
 	phase: number;
 	scales: number[];
 	carry: number[];
+	/** How each emitter moved this frame, when its particles move with it. */
+	anchors: { delta: THREE.Matrix4 }[] | null;
 	seen: number;
 }
 
@@ -203,7 +207,7 @@ export class ParticleSystem {
 				this.states.set(source.key, state);
 			}
 			state.seen = frame;
-			if (source.frames) state.frames = source.frames;
+			if (source.frames) this.follow(state, source.frames);
 			source.emitters.forEach((e, i) => this.emit(e, state!, i, dt, frame));
 		}
 		for (const [key, state] of this.states) if (state.seen !== frame) this.states.delete(key);
@@ -220,6 +224,27 @@ export class ParticleSystem {
 		}
 	}
 
+	/**
+	 * Moves an emitter to its new frames, carrying its live particles along (a torch's flame stays
+	 * on the torch as its bearer runs, instead of trailing behind in the world).
+	 */
+	private follow(state: EmitterState, frames: THREE.Matrix4[]): void {
+		const anchors = state.anchors!;
+		frames.forEach((now, i) => anchors[i].delta.copy(now).multiply(new THREE.Matrix4().copy(state.frames[i]).invert()));
+		state.frames = frames;
+		const e = new THREE.Vector3();
+		for (const g of this.groups.values()) {
+			for (const p of g.particles) {
+				const m = p.anchor?.delta;
+				if (!m || !anchors.includes(p.anchor!)) continue;
+				e.set(p.x, p.y, p.z).applyMatrix4(m);
+				p.x = e.x; p.y = e.y; p.z = e.z;
+				e.set(p.vx, p.vy, p.vz).transformDirection(m).multiplyScalar(Math.hypot(p.vx, p.vy, p.vz));
+				p.vx = e.x; p.vy = e.y; p.vz = e.z;
+			}
+		}
+	}
+
 	private createState(source: EmitterSource): EmitterState {
 		const place = (frame: ArrayLike<number>) => source.matrix.clone().multiply(new THREE.Matrix4().fromArray(frame));
 		const frames = source.emitters.map((e) => place(e.def.frame));
@@ -230,6 +255,7 @@ export class ParticleSystem {
 			scales: frames.map((m) => new THREE.Vector3().setFromMatrixColumn(m, 0).length()),
 			// Start part-way, so emitters that come into range together don't pulse together.
 			carry: source.emitters.map(() => Math.random()),
+			anchors: source.frames ? source.emitters.map(() => ({ delta: new THREE.Matrix4() })) : null,
 			seen: 0,
 		};
 	}
@@ -310,6 +336,7 @@ export class ParticleSystem {
 				spin: def.spin + rand(def.spinVary),
 				cell: def.randomCell ? Math.floor(Math.random() * cells) : 0,
 				def,
+				anchor: state.anchors?.[i],
 			});
 		}
 	}

@@ -45,7 +45,7 @@ export class SkateSounds {
 	private roar: Loop | null = null;
 	private spray: Loop | null = null;
 	/** What the walker was doing last frame, to hear what changed. */
-	private was = { on: false, state: '', wall: false, kicking: false, nitro: false, trick: '' };
+	private was = { on: false, state: '', wall: false, kicking: false, nitro: false, trick: '', grab: false, fallen: false };
 
 	constructor(private readonly music: MusicPlayer) {}
 
@@ -53,10 +53,17 @@ export class SkateSounds {
 	update(dt: number, walker: WalkControls): void {
 		const context = audioContext();
 		const on = walker.active && walker.skating && this.music.enabled;
-		const now = { on, state: walker.state, wall: walker.wall !== null, kicking: walker.kickTime > 0, nitro: walker.nitroTime > 0, trick: walker.trick ?? '' };
+		const now = { on, state: walker.state, wall: walker.wall !== null, kicking: walker.kickTime > 0, nitro: walker.nitroTime > 0, trick: walker.trick ?? '', grab: walker.grab, fallen: walker.fallenTime > 0 };
 		const was = this.was;
 		this.was = now;
 		if (!context || context.state !== 'running') return;
+		// Falling off the board: the body hitting the ground, and the board clattering away.
+		if (now.fallen && !was.fallen && this.music.enabled) {
+			const hit = HIT_VOLUME * volume('effects');
+			this.land(context, hit);
+			this.clack(context, hit * 0.8);
+			this.burst(context, 'lowpass', 900, 0.8, 0.002, 0.25, hit * 0.6);
+		}
 		if (on && !this.roll) this.startLoops(context);
 		if (!this.roll) return;
 		const level = on ? volume('effects') : 0;
@@ -92,6 +99,7 @@ export class SkateSounds {
 		}
 		if (now.kicking && !was.kicking) this.burst(context, 'bandpass', 450, 1.5, 0.02, 0.14, hit * 0.4);
 		if (now.trick && now.trick !== was.trick) this.whoosh(context, hit * 0.35);
+		if (now.grab && !was.grab) this.whoosh(context, hit * 0.4);
 		if (now.nitro && !was.nitro) {
 			// Lit: a deep boom and a rush of air.
 			this.thump(context, 70, 25, 0.6, hit);

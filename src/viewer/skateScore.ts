@@ -1,4 +1,4 @@
-import { TRICK_TIME, type SkateTrick, type WalkControls } from './walkControls';
+import { trickTime, type SkateTrick, type WalkControls } from './walkControls';
 
 /** What each trick is worth. */
 const TRICK_POINTS: Record<SkateTrick, number> = {
@@ -8,7 +8,11 @@ const TRICK_POINTS: Record<SkateTrick, number> = {
 	'Body Varial': 200,
 	'Impossible': 250,
 	'360 Flip': 300,
+	'Backflip': 500,
 };
+/** Holding the board upside down: points for doing it, and for each second held. */
+const GRAB_POINTS = 100;
+const GRAB_PER_SECOND = 300;
 /** Air: points a second in the air, counted once longer than the least (s). */
 const AIR_POINTS = 100;
 const AIR_LEAST = 0.6;
@@ -53,7 +57,7 @@ export class SkateScore {
 	/** Seconds on the ground since the last move, while a combo runs. */
 	private idle = 0;
 	/** What the walker was doing last frame, to see what's changed. */
-	private was = { skating: false, state: '', airTime: 0, wall: false, trick: '' as string, trickStart: 0 };
+	private was = { skating: false, state: '', airTime: 0, wall: false, trick: '' as string, trickStart: 0, fallen: false };
 	/** The wall ride under way: the height it got on at, and the highest it's been. */
 	private wallFrom = 0;
 	private wallTop = 0;
@@ -149,7 +153,7 @@ export class SkateScore {
 	update(dt: number, walker: WalkControls): void {
 		const skating = walker.active && walker.skating;
 		const was = this.was;
-		const now = { skating, state: walker.state, airTime: walker.airTime, wall: walker.wall !== null, trick: walker.trick ?? '', trickStart: walker.trickStart };
+		const now = { skating, state: walker.state, airTime: walker.airTime, wall: walker.wall !== null, trick: walker.trick ?? '', trickStart: walker.trickStart, fallen: walker.fallenTime > 0 };
 		this.was = now;
 		this.resultTime = Math.max(0, this.resultTime - dt);
 		this.doubleTime = Math.max(0, this.doubleTime - dt);
@@ -160,6 +164,8 @@ export class SkateScore {
 			if (was.state === 'air' && now.state === 'ground') this.land(was);
 			if (was.state === 'ground' && now.state === 'swim') this.bail('Wipeout!');
 		}
+		// Fallen off the board: the combo's lost (before getting off would bank it).
+		if (now.fallen && !was.fallen) this.bail('Wipeout!');
 		if (this.combo.length) {
 			if (!skating) this.bank();
 			else if (walker.state === 'ground' && walker.wall === null) {
@@ -175,6 +181,11 @@ export class SkateScore {
 	/** A trick started in the air. */
 	trick(name: SkateTrick): void {
 		this.add(name, TRICK_POINTS[name]);
+	}
+
+	/** The board held upside down in the air, so long (s), and let go before landing. */
+	grab(seconds: number): void {
+		this.add('Upside-Down', Math.round(GRAB_POINTS + GRAB_PER_SECOND * seconds));
 	}
 
 	/** Flung up off something (an ore vein, a meeting stone). */
@@ -202,7 +213,7 @@ export class SkateScore {
 
 	/** Down on the ground: a trick still coming round is a bail; else the air time counts. */
 	private land(was: { airTime: number; trick: string; trickStart: number }): void {
-		if (was.trick && was.airTime - was.trickStart < TRICK_TIME) {
+		if (was.trick && was.airTime - was.trickStart < trickTime(was.trick as SkateTrick)) {
 			this.bail('Bail!');
 			return;
 		}

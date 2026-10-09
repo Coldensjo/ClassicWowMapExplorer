@@ -9,7 +9,7 @@ import { EMOTE_CLIPS, isPose, type Emote } from './emotes';
 import { createModelMaterial, createSkinnedDepthMaterial, type SkinUniforms } from './modelMaterials';
 import { useShadows } from './shadows';
 import { TextureCache } from './textureCache';
-import { angleDelta, GRAVITY, RUN_SPEED, TRICK_TIME, type SkateTrick, SWIM_BACK_SPEED, SWIM_SPEED, WALK_SPEED, type WalkControls } from './walkControls';
+import { angleDelta, GRAVITY, RUN_SPEED, trickTime, type SkateTrick, SWIM_BACK_SPEED, SWIM_SPEED, WALK_SPEED, type WalkControls } from './walkControls';
 
 /** How quickly the body turns toward the way it's moving (strafing), radians per second. */
 const BODY_TURN_RATE = 10;
@@ -27,7 +27,9 @@ const SWIM_TILT_RATE = 4;
 /** Landing after this long in the air (s), standing still, plays JumpEnd. */
 const LAND_AFTER = 0.3;
 /** Every sequence the character plays, sampled into its bone texture: moving about, then the emotes. */
-const CLIPS: number[] = [...Object.values(ANIM), ...EMOTE_CLIPS];
+/** The AnimationData sequence played falling off the board: dying, which ends lying on the ground. */
+const DEATH = 1;
+const CLIPS: number[] = [...Object.values(ANIM), ...EMOTE_CLIPS, DEATH];
 /** What to play when a model lacks a sequence: the next that it has, else Stand. */
 const FALLBACK: Partial<Record<number, number[]>> = {
 	[ANIM.Walk]: [ANIM.Run],
@@ -219,6 +221,8 @@ class Animator {
 			if (emote) return emote;
 		}
 
+		// Fallen off the board: down on the ground.
+		if (w.fallenTime > 0) return { id: DEATH, rate: 1.4, once: true };
 		// On the board it stands and rolls, stepping down to kick it along; only an ollie jumps.
 		if (w.kicking) return { id: ANIM.Walk, rate: 1.4 };
 		if (w.skating && w.state !== 'swim' && !(w.state === 'air' && w.jumped)) return { id: ANIM.Stand, rate: 1 };
@@ -370,13 +374,22 @@ const CHARGE_COLOR = 0xffe08a;
 
 /** A trick lifts the board this high at its middle (yards at scale 1). */
 const TRICK_LIFT = 0.2;
+/** How quickly the board turns over to be held upside down, and back (per second). */
+const GRAB_EASE = 14;
 
-/** How a trick turns the board (about its middle) and the rider, at a share of the way through it. */
-function trickTurn(trick: SkateTrick, at: number): { board: THREE.Matrix4; body: THREE.Matrix4 } {
+/** How a trick turns the board (about its middle) and the rider, or both together (about the rider's middle, so high), at a share of the way through it. */
+function trickTurn(trick: SkateTrick, at: number, middle: number): { board: THREE.Matrix4; body: THREE.Matrix4; whole?: THREE.Matrix4 } {
 	const turn = Math.PI * 2 * at;
 	const board = new THREE.Matrix4();
 	const body = new THREE.Matrix4();
 	switch (trick) {
+		case 'Backflip':
+			// Rider and board together, nose up and over backwards, round the rider's middle.
+			return {
+				board,
+				body,
+				whole: new THREE.Matrix4().makeTranslation(0, middle, 0).multiply(new THREE.Matrix4().makeRotationX(turn)).multiply(new THREE.Matrix4().makeTranslation(0, -middle, 0)),
+			};
 		case 'Kickflip':
 			board.makeRotationZ(turn);
 			break;
@@ -502,6 +515,8 @@ export class Character {
 	private lean = 0;
 	private readonly boardUp = new THREE.Vector3(0, 1, 0);
 	private lastFacing = 0;
+	/** How far over the board's turned to be held upside down (0 right way up, 1 upside down), eased. */
+	private grabFlip = 0;
 	/** The fire doodad's flames, once loaded, and where they burn on the board's tail this frame (null when not burning). */
 	private fire: LoadedEmitter[] = [];
 	private fireFrames: THREE.Matrix4[] | null = null;
@@ -680,6 +695,22 @@ export class Character {
 		}
 	}
 
+	/** Off the board, it's put away; but fallen off, it lies wheels up where it fell. */
+	private showFallenBoard(walker: WalkControls): void {
+		this.board.visible = walker.active && walker.fallenTime > 0;
+		if (!this.board.visible) return;
+		const scale = walker.scale * BOARD_SIZE;
+		const middle = BOARD_HEIGHT * 0.5 * scale;
+		this.board.matrix
+			.makeTranslation(walker.fallSpot)
+			.multiply(new THREE.Matrix4().makeRotationY(walker.fallFacing))
+			.multiply(new THREE.Matrix4().makeTranslation(0, middle, 0))
+			.multiply(new THREE.Matrix4().makeRotationZ(Math.PI))
+			.multiply(new THREE.Matrix4().makeTranslation(0, -middle, 0))
+			.multiply(new THREE.Matrix4().makeScale(scale, scale, scale));
+		this.board.matrixWorldNeedsUpdate = true;
+	}
+
 	/** The torch's flame and the like, and the board's fire, in the world this frame; none while they aren't drawn. */
 	emitterSources(): EmitterSource[] {
 		const out: EmitterSource[] = [];
@@ -772,9 +803,10 @@ export class Character {
 			this.ride(dt, walker, yawRate, model);
 			return;
 		}
-		this.board.visible = false;
+		this.showFallenBoard(walker);
 		this.fireFrames = null;
 		this.lean = 0;
+		this.grabFlip = 0;
 		if (model) {
 			model.animator.update(dt, walker);
 			const tilt = swimTilt(walker, model.animator);
@@ -815,13 +847,17 @@ export class Character {
 			.multiply(new THREE.Matrix4().makeRotationY(walker.facing))
 			.multiply(new THREE.Matrix4().makeRotationZ(this.lean));
 		// A trick turns the board round its middle, lifted clear of the feet, until it lands or is done.
-		const t = walker.state === 'air' && walker.trick ? (walker.airTime - walker.trickStart) / TRICK_TIME : 1;
-		const trick = t < 1 ? trickTurn(walker.trick!, THREE.MathUtils.smootherstep(t, 0, 1)) : null;
+		const t = walker.state === 'air' && walker.trick ? (walker.airTime - walker.trickStart) / trickTime(walker.trick) : 1;
+		const trick = t < 1 ? trickTurn(walker.trick!, THREE.MathUtils.smootherstep(t, 0, 1), BOARD_HEIGHT * scale + walker.height * 0.5) : null;
+		if (trick?.whole) base.multiply(trick.whole);
 		const middle = BOARD_HEIGHT * 0.5 * scale;
+		// Held upside down (E): turned over along its length, quickly.
+		this.grabFlip += ((walker.grab ? 1 : 0) - this.grabFlip) * (1 - Math.exp(-dt * GRAB_EASE));
 		this.board.matrix
 			.copy(base)
-			.multiply(new THREE.Matrix4().makeTranslation(0, middle + (trick ? TRICK_LIFT * scale * Math.sin(Math.PI * t) : 0), 0))
+			.multiply(new THREE.Matrix4().makeTranslation(0, middle + (trick && !trick.whole ? TRICK_LIFT * scale * Math.sin(Math.PI * t) : 0), 0))
 			.multiply(trick?.board ?? new THREE.Matrix4())
+			.multiply(new THREE.Matrix4().makeRotationZ(Math.PI * this.grabFlip))
 			.multiply(new THREE.Matrix4().makeTranslation(0, -middle, 0))
 			.multiply(new THREE.Matrix4().makeScale(scale, scale, scale));
 		this.board.matrixWorldNeedsUpdate = true;

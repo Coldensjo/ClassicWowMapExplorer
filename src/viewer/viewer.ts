@@ -865,6 +865,7 @@ export class Viewer {
 		}
 		this.objects.onStep = (at, kind) => step(at, kind, undefined);
 		this.walker.onTrick = (name) => this.skateScore.trick(name);
+		this.walker.onGrab = (seconds) => this.skateScore.grab(seconds);
 		this.skateScore.onPoints = (points) => this.walker.chargeNitro(points / NITRO_POINTS);
 		this.skateScore.onBanner = (title, line) => this.showTakedown(title, line, '');
 		this.skateScore.onCue = (cue) => this.skateSounds?.cue(cue);

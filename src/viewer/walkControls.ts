@@ -46,11 +46,10 @@ const SWIM_RISE = 4;
 /** Out of the water, a shore up to this far above the surface can be climbed onto. */
 const SHORE_CLIMB = 0.6;
 
-/** On the skateboard: pushing tops out at this speed, the slope and drag cap it at the next (yd/s). */
+/** On the skateboard: pushing in the air tops out at this speed, the slope and drag cap it at the next (yd/s). */
 const PUSH_SPEED = 12;
 const SKATE_MAX = 30;
-/** Speeding up with a push, and slowing with the brake (yd/s²). */
-const PUSH_ACCEL = 5;
+/** Slowing with the brake (yd/s²). */
 const BRAKE = 12;
 /** Rolling resistance (yd/s²) and air drag (per yard): coasting on the flat slows to a stop over a few seconds. */
 const ROLL_FRICTION = 0.6;
@@ -97,9 +96,22 @@ export const KICK_TIME = 0.4;
 const KICK_MAX = 20;
 /** The tricks a second Space in the air after an ollie does, one at random. */
 export const TRICKS = ['Kickflip', 'Heelflip', '360 Shove-it', '360 Flip', 'Impossible', 'Body Varial'] as const;
-export type SkateTrick = (typeof TRICKS)[number];
-/** A trick takes this long (s): landing sooner is a bail. */
-export const TRICK_TIME = 0.5;
+/** Those, and the special ones on their own keys: Q backflips. */
+export type SkateTrick = (typeof TRICKS)[number] | 'Backflip';
+/** A trick takes this long (s), a backflip the next: landing sooner is a bail. */
+const TRICK_TIME = 0.5;
+const BACKFLIP_TIME = 0.8;
+
+/** How long a trick takes (s). */
+export function trickTime(trick: SkateTrick): number {
+	return trick === 'Backflip' ? BACKFLIP_TIME : TRICK_TIME;
+}
+
+/** Holding the board upside down (E in the air) counts once held this long (s). */
+const GRAB_LEAST = 0.2;
+/** Wiping out (landing with the board upside down): the rider lies this long (s), sliding to a stop like this (yd/s²). */
+const FALL_TIME = 1.6;
+const FALL_FRICTION = 10;
 /** Ground falling away faster than a thrown body would, by more than this (yards), throws the board into the air. */
 const LAUNCH_GAP = 0.06;
 /** At this speed the board rides up ground too steep to walk, rising at most this much per yard across. */
@@ -245,6 +257,17 @@ export class WalkControls {
 	trickStart = 0;
 	/** Called when a trick starts, with its name. */
 	onTrick: ((name: SkateTrick) => void) | null = null;
+	/** Holding the board upside down in the air (E held), and for how long (s). */
+	grab = false;
+	grabTime = 0;
+	/** E is held, so the board is grabbed as soon as it's in the air. */
+	private grabAsked = false;
+	/** Called when the board's let go of right way up, with how long it was held upside down (s). */
+	onGrab: ((seconds: number) => void) | null = null;
+	/** Seconds left lying where the rider fell off the board, and where the board lies meanwhile and which way. */
+	fallenTime = 0;
+	readonly fallSpot = new THREE.Vector3();
+	fallFacing = 0;
 	/** Riding up or down a wall: the way out of it (level); null when not. */
 	wall: THREE.Vector3 | null = null;
 	/** How fast the ground rose (+) or fell under the board last frame (yd/s), carried into the air off a ramp. */
@@ -322,13 +345,18 @@ export class WalkControls {
 			if ((e.code === 'NumpadDivide' || e.code === 'Backslash') && !e.repeat) this.walkMode = !this.walkMode;
 			// X sinks in water; on land it gets on or off the skateboard.
 			if (e.code === 'KeyX' && !e.repeat && this.state !== 'swim') this.toggleBoard();
-			// On the board Q kicks, rather than strafing.
-			if (e.code === 'KeyQ' && !e.repeat) this.kick();
+			// On the board Q backflips and E holds the board upside down, in the air, rather than strafing.
+			if (e.code === 'KeyQ' && !e.repeat) this.backflip();
+			if (e.code === 'KeyE' && !e.repeat) this.grabAsked = true;
 			if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat) this.fireNitro();
 			if (e.code === 'Space' && !e.repeat) this.startTrick();
 		});
-		window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+		window.addEventListener('keyup', (e) => {
+			this.keys.delete(e.code);
+			if (e.code === 'KeyE') this.letGo();
+		});
 		window.addEventListener('blur', () => {
+			this.letGo();
 			this.keys.clear();
 			this.buttons = 0;
 			this.dragging = false;
@@ -476,6 +504,7 @@ export class WalkControls {
 		this.onWater = false;
 		this.trick = null;
 		this.wall = null;
+		this.grab = false;
 	}
 
 	/**
@@ -511,14 +540,66 @@ export class WalkControls {
 		return this.world!.liquid(new THREE.Vector3(x, y - 0.05, z))?.surface ?? null;
 	}
 
-	/** Kicking the board along: a kick under way, or Q held to go on kicking, on the ground. */
+	/** Kicking the board along: a kick under way, or W held to go on kicking, on the ground, short of kicking speed. */
 	get kicking(): boolean {
-		return this.skating && this.state === 'ground' && (this.kickTime > 0 || this.keys.has('KeyQ'));
+		return this.skating && this.state === 'ground' && (this.kickTime > 0 || this.intent.x > 0) && this.boardSpeed < KICK_MAX;
 	}
 
-	/** On the board on the ground, a foot comes down and pushes it along (once the last kick is done). */
-	private kick(): void {
-		if (this.skating && this.state === 'ground' && this.kickTime <= 0) this.kickTime = KICK_TIME;
+	/** A trick still coming round (landing now is a bail). */
+	private get tricking(): boolean {
+		return !!this.trick && this.airTime - this.trickStart < trickTime(this.trick);
+	}
+
+	/** On the board in the air, Q flips rider and board over backwards (not while another trick or a grab is going). */
+	private backflip(): void {
+		if (!this.skating || this.state !== 'air' || this.wall || this.grab || this.tricking || this.airTime < 0.05) return;
+		this.trick = 'Backflip';
+		this.trickStart = this.airTime;
+		this.onTrick?.(this.trick);
+	}
+
+	/** E let go: the board's turned right way up, the time it was held upside down scored. */
+	private letGo(): void {
+		this.grabAsked = false;
+		if (!this.grab) return;
+		this.grab = false;
+		if (this.grabTime >= GRAB_LEAST) this.onGrab?.(this.grabTime);
+	}
+
+	/**
+	 * Landed holding the board upside down: off it, sliding to a stop, lying a moment, and on foot
+	 * after (X gets back on). The board lies where it fell, wheels up, till then.
+	 */
+	private wipeout(): void {
+		const slide = this.velocity.clone().setY(0);
+		this.grabAsked = false;
+		this.setSkating(false);
+		this.velocity.copy(slide);
+		this.fallenTime = FALL_TIME;
+		this.fallSpot.copy(this.position).addScaledVector(this.forward(), 0.9 * this.scale);
+		this.fallFacing = this.facing;
+	}
+
+	/** Lying where it fell: sliding to a stop over the ground, the keys doing nothing. */
+	private tumble(dt: number): void {
+		const p = this.position;
+		const v = this.velocity;
+		const across = Math.hypot(v.x, v.z);
+		if (across > 0) {
+			const slowed = Math.max(0, across - FALL_FRICTION * dt) / across;
+			v.x *= slowed;
+			v.z *= slowed;
+		}
+		const start = p.clone();
+		this.moveAcross(new THREE.Vector3(v.x * dt, 0, v.z * dt));
+		if (this.intoTerrain(start, start.y + STEP_UP)) p.copy(start);
+		const floor = this.floorAt(p.x, p.z, start.y + STEP_UP, start.y - SNAP_DOWN);
+		if (!floor) {
+			v.y = 0;
+			this.leaveGround(false);
+			return;
+		}
+		p.y = floor.y;
 	}
 
 	/** Flings the board high into the air, carrying on the way it was going, a little faster; tricks can be done up there. */
@@ -553,7 +634,7 @@ export class WalkControls {
 
 	/** In the air after an ollie, Space again does a trick, one of TRICKS at random. */
 	private startTrick(): void {
-		if (!this.skating || this.state !== 'air' || !this.jumped || this.trick || this.airTime < 0.05) return;
+		if (!this.skating || this.state !== 'air' || !this.jumped || this.trick || this.grab || this.airTime < 0.05) return;
 		this.trick = TRICKS[Math.floor(Math.random() * TRICKS.length)];
 		this.trickStart = this.airTime;
 		this.onTrick?.(this.trick);
@@ -609,6 +690,12 @@ export class WalkControls {
 
 	/** The way the keys (and mouse buttons) ask to move, relative to the facing; also turns with A/D. */
 	private readInput(dt: number): void {
+		// Lying where it fell off the board, the keys do nothing.
+		if (this.fallenTime > 0) {
+			this.intent.set(0, 0);
+			this.turning = 0;
+			return;
+		}
 		const k = this.keys;
 		const both = (this.buttons & 3) === 3;
 		let forward = 0;
@@ -669,6 +756,17 @@ export class WalkControls {
 			this.nitroTime = this.skating ? Math.max(0, this.nitroTime - dt) : 0;
 			this.nitro = this.nitroTime / NITRO_TIME;
 		}
+		if (this.fallenTime > 0) this.fallenTime = Math.max(0, this.fallenTime - dt);
+		// E held: the board's grabbed upside down once in the air (not on a wall, nor mid-trick).
+		if (this.grabAsked && !this.grab && this.skating && this.state === 'air' && !this.wall && !this.tricking) {
+			this.grab = true;
+			this.grabTime = 0;
+		}
+		if (this.grab) {
+			if (!this.skating || this.state === 'swim') this.grab = false;
+			else this.grabTime += dt;
+		}
+		const wasAir = this.state === 'air';
 		const before = this.position.clone();
 		switch (this.state) {
 			case 'settling':
@@ -684,6 +782,8 @@ export class WalkControls {
 				this.swim(dt);
 				break;
 		}
+		// Down with the board still held upside down: off it.
+		if (wasAir && this.state === 'ground' && this.grab) this.wipeout();
 		this.speed = dt > 0 ? Math.hypot(this.position.x - before.x, this.position.z - before.z) / dt : 0;
 		this.updateCamera(dt);
 	}
@@ -796,9 +896,8 @@ export class WalkControls {
 		const push = this.intent.x;
 		// Up ground too steep to walk, gripping, it climbs at a steady pace at least.
 		if (this.gripClimbing && normal.y < WALKABLE && sin > 0) speed = Math.max(speed, GRIP_CLIMB);
-		if (push > 0 && speed < PUSH_SPEED) speed = Math.min(PUSH_SPEED, speed + PUSH_ACCEL * dt);
-		// Holding Q kicks again as each kick ends.
-		if (this.kickTime <= 0 && this.keys.has('KeyQ')) this.kickTime = KICK_TIME;
+		// Holding W kicks, again as each kick ends, up to kicking speed.
+		if (this.kickTime <= 0 && push > 0 && speed < KICK_MAX) this.kickTime = KICK_TIME;
 		if (this.kickTime > 0) {
 			this.kickTime -= dt;
 			if (speed < KICK_MAX) speed = Math.min(KICK_MAX, speed + (KICK_BOOST / KICK_TIME) * dt);
@@ -978,6 +1077,10 @@ export class WalkControls {
 
 	/** On the ground: runs, steps up and down, slides off steep slopes, jumps, walks off edges and into water. */
 	private walk(dt: number): void {
+		if (this.fallenTime > 0) {
+			this.tumble(dt);
+			return;
+		}
 		if (this.skating) {
 			this.skate(dt);
 			return;

@@ -1,4 +1,4 @@
-import { TRICK_TIME, type SkateTrick, type WalkControls } from './walkControls';
+import { TIME_ATTACK_HOLD, TRICK_TIME, type SkateTrick, type WalkControls } from './walkControls';
 
 /** What each trick is worth. */
 const TRICK_POINTS: Record<SkateTrick, number> = {
@@ -26,6 +26,15 @@ const COMBO_WINDOW = 2;
 /** How long a landed or bailed combo's line stays up (s). */
 const RESULT_TIME = 2.5;
 const BEST_KEY = 'mapExplorer.skateBest';
+/** Time Attack: the countdown before it (s), how long it runs (s), and where its record is kept. */
+const COUNTDOWN = 3;
+const ATTACK_TIME = 60;
+const RECORD_KEY = 'mapExplorer.timeAttackRecord';
+/** Holding X longer than this (s) shows how long until Time Attack starts. */
+const HOLD_HINT = 0.5;
+
+/** A moment in Time Attack, for its sounds: each count of the countdown, the start, and time up. */
+export type AttackCue = 'count' | 'go' | 'end';
 
 interface Move {
 	name: string;
@@ -61,13 +70,84 @@ export class SkateScore {
 	private shown = '';
 	/** Called with each move's points as it's scored (to fill the nitro bar). */
 	onPoints: ((points: number) => void) | null = null;
+	/** Time Attack: shows a title over the view (the count, Go!, Time's up!), and plays its sounds. */
+	onBanner: ((title: string, line: string) => void) | null = null;
+	onCue: ((cue: AttackCue) => void) | null = null;
+
+	/**
+	 * Time Attack: off, counting down, or running; seconds left of that; the points banked since
+	 * it started; the count shown last; and the best ever, remembered between visits.
+	 */
+	private attack: 'off' | 'countdown' | 'running' = 'off';
+	private attackTime = 0;
+	private attackScore = 0;
+	private lastCount = 0;
+	private record = 0;
+	/** Seconds X has been held, for the hint. */
+	private hold = 0;
 
 	constructor() {
 		try {
 			this.best = Number(localStorage.getItem(BEST_KEY)) || 0;
+			this.record = Number(localStorage.getItem(RECORD_KEY)) || 0;
 		} catch {
 			// Storage blocked: the best starts over.
 		}
+	}
+
+	/** Time Attack: counts down, then a minute's points (banked combos) count; any combo now is let go. */
+	startTimeAttack(): void {
+		this.attack = 'countdown';
+		this.attackTime = COUNTDOWN;
+		this.lastCount = 0;
+		this.combo = [];
+		this.resultTime = 0;
+	}
+
+	/** Time Attack's clock, in real time (not slowed with the world after a takedown); stops it if walking has. */
+	tickAttack(dt: number, walker: WalkControls): void {
+		this.hold = walker.xHold;
+		if (this.attack === 'off') return;
+		if (!walker.active) {
+			this.attack = 'off';
+			return;
+		}
+		this.attackTime -= dt;
+		if (this.attack === 'countdown') {
+			const count = Math.ceil(this.attackTime);
+			if (count > 0 && count !== this.lastCount) {
+				this.lastCount = count;
+				this.onBanner?.(String(count), 'Time Attack');
+				this.onCue?.('count');
+			}
+			if (this.attackTime > 0) return;
+			this.attack = 'running';
+			this.attackTime = ATTACK_TIME;
+			this.attackScore = 0;
+			this.combo = [];
+			this.onBanner?.('Go!', 'Score all you can in a minute');
+			this.onCue?.('go');
+		} else if (this.attackTime <= 0) {
+			this.finishTimeAttack();
+		}
+	}
+
+	/** Time's up: the combo running counts, and the total goes up against the record. */
+	private finishTimeAttack(): void {
+		if (this.combo.length) this.bank();
+		this.attack = 'off';
+		const points = this.attackScore;
+		const beat = points > this.record;
+		if (beat) {
+			this.record = points;
+			try {
+				localStorage.setItem(RECORD_KEY, String(points));
+			} catch {
+				// Not remembered; it still stands for this visit.
+			}
+		}
+		this.onBanner?.('Time’s Up!', `${points.toLocaleString()} points${beat ? ' · New record!' : ` · Record ${this.record.toLocaleString()}`}`);
+		this.onCue?.('end');
 	}
 
 	/** Call every frame: scores air and wall rides as they end, banks or bails the combo, and shows it all. */
@@ -135,6 +215,8 @@ export class SkateScore {
 	}
 
 	private add(name: string, points: number): void {
+		// Nothing counts while Time Attack counts down.
+		if (this.attack === 'countdown') return;
 		// The same move again is worth less each time in a combo.
 		const repeats = this.combo.filter((m) => m.name === name).length;
 		const scored = Math.max(1, Math.round(points * REPEAT_SHARE ** repeats * (this.doubleTime > 0 ? 2 : 1)));
@@ -152,6 +234,7 @@ export class SkateScore {
 	private bank(): void {
 		const points = this.comboBase * this.combo.length;
 		this.score += points;
+		if (this.attack === 'running') this.attackScore += points;
 		if (points > this.best) {
 			this.best = points;
 			try {
@@ -180,14 +263,24 @@ export class SkateScore {
 		const moves = this.combo.map((m) => m.name).join(' + ');
 		const value = this.combo.length ? `${this.comboBase.toLocaleString()} × ${this.combo.length}` : this.resultTime > 0 ? this.result : '';
 		const double = this.doubleTime > 0 ? `  ·  2× points ${Math.ceil(this.doubleTime)}s` : '';
-		const total = `${this.score.toLocaleString()}  ·  Best combo ${this.best.toLocaleString()}${double}`;
-		const text = `${skating}|${total}|${moves}|${value}|${this.result === 'Bail!' || this.result === 'Wipeout!'}`;
+		const record = `Time Attack record ${this.record.toLocaleString()}`;
+		const clock = `${Math.floor(Math.ceil(this.attackTime) / 60)}:${String(Math.ceil(this.attackTime) % 60).padStart(2, '0')}`;
+		// In Time Attack, its clock and points; else the score, the best combo and the record.
+		const total = this.attack === 'running'
+			? `Time Attack ${clock}  ·  ${this.attackScore.toLocaleString()}  ·  Record ${this.record.toLocaleString()}`
+			: this.attack === 'countdown'
+				? `Time Attack  ·  Record ${this.record.toLocaleString()}`
+				: `${this.score.toLocaleString()}  ·  Best combo ${this.best.toLocaleString()}${this.record ? `  ·  ${record}` : ''}${double}`;
+		// Holding X: how long until Time Attack starts.
+		const holding = this.attack === 'off' && this.hold > HOLD_HINT && this.hold < TIME_ATTACK_HOLD;
+		const hint = holding && !this.combo.length ? `Hold X: Time Attack in ${Math.ceil(TIME_ATTACK_HOLD - this.hold)}…` : value;
+		const text = `${skating}|${total}|${moves}|${hint}|${this.result === 'Bail!' || this.result === 'Wipeout!'}|${holding}`;
 		if (text === this.shown) return;
 		this.shown = text;
-		this.root.hidden = !skating && !this.combo.length && this.resultTime <= 0;
+		this.root.hidden = !skating && !this.combo.length && this.resultTime <= 0 && this.attack === 'off' && !holding;
 		this.total.textContent = total;
 		this.moves.textContent = moves;
-		this.value.textContent = value;
+		this.value.textContent = hint;
 		this.value.classList.toggle('bail', !this.combo.length && (this.result === 'Bail!' || this.result === 'Wipeout!'));
 	}
 }

@@ -177,6 +177,31 @@ export class SkateSounds {
 		else this.whoosh(context, level * 1.5);
 	}
 
+	/** Time Attack: a short beep for each count, a high long one to start, and a horn at time up. */
+	cue(cue: 'count' | 'go' | 'end'): void {
+		const context = audioContext();
+		if (!context || context.state !== 'running' || !this.music.enabled) return;
+		const level = HIT_VOLUME * volume('effects') * 0.3;
+		const t = context.currentTime;
+		const tones: [number, number, OscillatorType][] = cue === 'count' ? [[660, 0.15, 'square']] : cue === 'go' ? [[1320, 0.45, 'square']] : [[440, 0.9, 'sawtooth'], [554, 0.9, 'sawtooth']];
+		for (const [frequency, length, type] of tones) {
+			const tone = context.createOscillator();
+			tone.type = type;
+			tone.frequency.value = frequency;
+			const filter = context.createBiquadFilter();
+			filter.type = 'lowpass';
+			filter.frequency.value = 2400;
+			const gain = context.createGain();
+			gain.gain.setValueAtTime(0.0001, t);
+			gain.gain.exponentialRampToValueAtTime(level, t + 0.01);
+			gain.gain.setValueAtTime(level, t + length * 0.8);
+			gain.gain.exponentialRampToValueAtTime(0.0001, t + length);
+			tone.connect(filter).connect(gain).connect(context.destination);
+			tone.start(t);
+			tone.stop(t + length + 0.05);
+		}
+	}
+
 	/** The mega jump going off: a deep boom, the pop, and a rush of air. */
 	megaJump(): void {
 		const context = audioContext();

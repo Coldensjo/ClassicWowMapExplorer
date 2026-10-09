@@ -858,6 +858,13 @@ export class Viewer {
 		this.walker.onTrick = (name) => this.skateScore.trick(name);
 		this.walker.onSwingHit = () => this.takedown();
 		this.skateScore.onPoints = (points) => this.walker.chargeNitro(points / NITRO_POINTS);
+		this.skateScore.onBanner = (title, line) => this.showTakedown(title, line, '');
+		this.skateScore.onCue = (cue) => this.skateSounds?.cue(cue);
+		// Holding X starts Time Attack, on the board.
+		this.walker.onLongX = () => {
+			this.walker.setSkating(true);
+			this.skateScore.startTimeAttack();
+		};
 	}
 
 	/** The walking character's state last frame (or '' not walking), for its splashes into and out of water. */
@@ -1979,6 +1986,7 @@ export class Viewer {
 		}
 		this.character?.update(worldDt, this.walker);
 		this.skateSounds?.update(worldDt, this.walker);
+		this.skateScore.tickAttack(dt, this.walker);
 		this.skateScore.update(worldDt, this.walker);
 		this.skateMeter.update(this.walker);
 		this.updateSpeedFov(dt);

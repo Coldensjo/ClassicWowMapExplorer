@@ -232,6 +232,8 @@ export interface ViewSettings {
 	weather: WeatherSetting;
 	/** The size drawn: 'window' for the window's own, or a width and height in pixels ('1920x1080'), shown as large as fits. */
 	resolution: string;
+	/** The minimap and its zone name over the view. */
+	minimap: boolean;
 }
 
 /** The smallest width or height a fixed resolution may have, in pixels. */
@@ -849,6 +851,7 @@ export class Viewer {
 			fixedSpeed: this.controls.fixedSpeed,
 			weather: this.weather.setting,
 			resolution: this.resolution,
+			minimap: !(document.getElementById('minimap-wrap')?.hidden ?? false),
 		};
 	}
 
@@ -891,6 +894,10 @@ export class Viewer {
 		if (typeof next.fixedSpeed === 'number' && next.fixedSpeed > 0) {
 			const notches = Math.round(Math.log2(next.fixedSpeed) / FLY_SPEED_STEP) * FLY_SPEED_STEP;
 			this.controls.fixedSpeed = 2 ** THREE.MathUtils.clamp(notches, FIXED_SPEED_MIN, FIXED_SPEED_MAX);
+		}
+		if (next.minimap !== undefined) {
+			const wrap = document.getElementById('minimap-wrap');
+			if (wrap) wrap.hidden = !next.minimap;
 		}
 		if (typeof next.resolution === 'string') {
 			this.resolution = parseResolution(next.resolution) ? next.resolution : 'window';

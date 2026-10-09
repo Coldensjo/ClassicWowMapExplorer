@@ -586,6 +586,10 @@ kbd {
 	height: 180px;
 }
 
+#minimap-wrap[hidden] {
+	display: none;
+}
+
 #minimap {
 	display: block;
 	width: 100%;

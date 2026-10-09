@@ -58,14 +58,6 @@ const AIR_DRAG = 0.004;
 /** Turning on the board, radians per second when slow; it carves wider the faster it goes. */
 const SKATE_TURN_RATE = Math.PI * 0.9;
 const SKATE_TURN_FALLOFF = 14;
-/** A takedown's swing reaches this far for a human (yards), and further the faster the board goes (yards per yd/s). */
-const TAKEDOWN_REACH = 3.5;
-const TAKEDOWN_REACH_PER_SPEED = 0.1;
-/** Swinging from the air reaches this many times as far. */
-const TAKEDOWN_AIR_REACH = 1.3;
-/** A takedown's swing (E) spins the rider round in this long (s), hitting this far into it (share). */
-export const SWING_TIME = 0.6;
-const SWING_HIT = 0.4;
 /** A takedown's burst: speeds the board up like this (yd/s², past what pushing reaches) for this long, plus this for each one taken down, up to the most (s). */
 const BURST_ACCEL = 5;
 const BURST_TIME = 1.2;
@@ -237,8 +229,6 @@ export class WalkControls {
 	readonly groundNormal = new THREE.Vector3(0, 1, 0);
 	/** Seconds left of a kick pushing the board along. */
 	kickTime = 0;
-	/** Seconds left of a takedown's swing. */
-	swingTime = 0;
 	/** Seconds left of a takedown's burst of speed (the board's on fire meanwhile). */
 	burstTime = 0;
 	/** Seconds left of wall grip: the board rides up anything. */
@@ -250,8 +240,6 @@ export class WalkControls {
 	/** The nitro bar, 0 to 1 (filled by points; full, Shift fires it), and seconds left of nitro burning. */
 	nitro = 0;
 	nitroTime = 0;
-	/** Called as the swing comes round to hit. */
-	onSwingHit: (() => void) | null = null;
 	/** The trick being done in the air, and how long into the air it began (s). */
 	trick: SkateTrick | null = null;
 	trickStart = 0;
@@ -334,9 +322,8 @@ export class WalkControls {
 			if ((e.code === 'NumpadDivide' || e.code === 'Backslash') && !e.repeat) this.walkMode = !this.walkMode;
 			// X sinks in water; on land it gets on or off the skateboard.
 			if (e.code === 'KeyX' && !e.repeat && this.state !== 'swim') this.toggleBoard();
-			// On the board Q kicks and E swings for a takedown, rather than strafing.
+			// On the board Q kicks, rather than strafing.
 			if (e.code === 'KeyQ' && !e.repeat) this.kick();
-			if (e.code === 'KeyE' && !e.repeat) this.swing();
 			if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat) this.fireNitro();
 			if (e.code === 'Space' && !e.repeat) this.startTrick();
 		});
@@ -482,7 +469,6 @@ export class WalkControls {
 		this.boardSpeed = this.skating ? -Math.sin(f) * this.velocity.x - Math.cos(f) * this.velocity.z : 0;
 		this.climb = 0;
 		this.kickTime = 0;
-		this.swingTime = 0;
 		this.burstTime = 0;
 		this.nitroTime = 0;
 		this.surfTime = 0;
@@ -535,11 +521,6 @@ export class WalkControls {
 		if (this.skating && this.state === 'ground' && this.kickTime <= 0) this.kickTime = KICK_TIME;
 	}
 
-	/** On the board, a spinning swing for a takedown (once the last one is done). */
-	private swing(): void {
-		if (this.skating && this.swingTime <= 0) this.swingTime = SWING_TIME;
-	}
-
 	/** Flings the board high into the air, carrying on the way it was going, a little faster; tricks can be done up there. */
 	megaJump(): void {
 		if (!this.skating) return;
@@ -560,9 +541,9 @@ export class WalkControls {
 		if (this.skating && this.nitro >= 1 && this.nitroTime <= 0) this.nitroTime = NITRO_TIME;
 	}
 
-	/** How far a takedown's swing reaches now (yards): further for a bigger body, going faster, and from the air. */
-	get takedownReach(): number {
-		return (TAKEDOWN_REACH * this.scale + Math.abs(this.boardSpeed) * TAKEDOWN_REACH_PER_SPEED) * (this.state === 'air' ? TAKEDOWN_AIR_REACH : 1);
+	/** How fast the board's going: along the ground rolling, or the body's speed in the air or on a wall. */
+	get boardPace(): number {
+		return this.state === 'ground' ? Math.abs(this.boardSpeed) : this.velocity.length();
 	}
 
 	/** A takedown's reward: a burst of speed, longer for more taken down at once (and carrying on from one still going). */
@@ -687,12 +668,6 @@ export class WalkControls {
 		if (this.nitroTime > 0) {
 			this.nitroTime = this.skating ? Math.max(0, this.nitroTime - dt) : 0;
 			this.nitro = this.nitroTime / NITRO_TIME;
-		}
-		if (this.swingTime > 0) {
-			const hit = SWING_TIME * (1 - SWING_HIT);
-			const was = this.swingTime;
-			this.swingTime = Math.max(0, this.swingTime - dt);
-			if (was > hit && this.swingTime <= hit && this.skating) this.onSwingHit?.();
 		}
 		const before = this.position.clone();
 		switch (this.state) {

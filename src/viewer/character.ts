@@ -9,7 +9,7 @@ import { EMOTE_CLIPS, isPose, type Emote } from './emotes';
 import { createModelMaterial, createSkinnedDepthMaterial, type SkinUniforms } from './modelMaterials';
 import { useShadows } from './shadows';
 import { TextureCache } from './textureCache';
-import { angleDelta, GRAVITY, RUN_SPEED, SWING_TIME, TRICK_TIME, type SkateTrick, SWIM_BACK_SPEED, SWIM_SPEED, WALK_SPEED, type WalkControls } from './walkControls';
+import { angleDelta, GRAVITY, RUN_SPEED, TRICK_TIME, type SkateTrick, SWIM_BACK_SPEED, SWIM_SPEED, WALK_SPEED, type WalkControls } from './walkControls';
 
 /** How quickly the body turns toward the way it's moving (strafing), radians per second. */
 const BODY_TURN_RATE = 10;
@@ -26,10 +26,8 @@ const MAX_SWIM_TILT = THREE.MathUtils.degToRad(75);
 const SWIM_TILT_RATE = 4;
 /** Landing after this long in the air (s), standing still, plays JumpEnd. */
 const LAND_AFTER = 0.3;
-/** The AnimationData sequence a takedown's swing plays: a punch. */
-const ATTACK_UNARMED = 16;
 /** Every sequence the character plays, sampled into its bone texture: moving about, then the emotes. */
-const CLIPS: number[] = [...Object.values(ANIM), ...EMOTE_CLIPS, ATTACK_UNARMED];
+const CLIPS: number[] = [...Object.values(ANIM), ...EMOTE_CLIPS];
 /** What to play when a model lacks a sequence: the next that it has, else Stand. */
 const FALLBACK: Partial<Record<number, number[]>> = {
 	[ANIM.Walk]: [ANIM.Run],
@@ -104,8 +102,6 @@ class Animator {
 	/** Seconds JumpEnd still has to play. */
 	private landing = 0;
 	private emoting: Emoting | null = null;
-	/** Swinging for a takedown last frame, to start the punch over for a new one. */
-	private swinging = false;
 	/** Called when a foot comes down in the clip playing (its footstep events). */
 	onStep: (() => void) | null = null;
 
@@ -209,7 +205,7 @@ class Animator {
 	/** What to play for the walker now, and how fast. */
 	private choose(dt: number, w: WalkControls): Choice {
 		const { x: forward, y: right } = w.intent;
-		const moving = forward !== 0 || right !== 0 || w.kicking || w.swingTime > 0;
+		const moving = forward !== 0 || right !== 0 || w.kicking;
 		const landed = this.wasState === 'air' && w.state !== 'air';
 		if (w.state === 'air') this.airTime = w.airTime;
 		if (landed && this.airTime > LAND_AFTER && !moving && w.state === 'ground') this.landing = this.find(ANIM.JumpEnd).duration;
@@ -223,13 +219,6 @@ class Animator {
 			if (emote) return emote;
 		}
 
-		// A takedown's punch, fitted to the swing round.
-		if (w.skating && w.swingTime > 0) {
-			const restart = !this.swinging;
-			this.swinging = true;
-			return { id: ATTACK_UNARMED, rate: this.find(ATTACK_UNARMED).duration / SWING_TIME, once: true, restart };
-		}
-		this.swinging = false;
 		// On the board it stands and rolls, stepping down to kick it along; only an ollie jumps.
 		if (w.kicking) return { id: ANIM.Walk, rate: 1.4 };
 		if (w.skating && w.state !== 'swim' && !(w.state === 'air' && w.jumped)) return { id: ANIM.Stand, rate: 1 };
@@ -334,21 +323,16 @@ const FIRE_SIZE = 0.6;
 /** Nitro's fire is this much bigger. */
 const NITRO_FIRE = 1.8;
 
-/** The swing's arc: how far round behind the hand it trails (radians), how wide a band of the reach it is (share), and its colour. */
-const ARC_LENGTH = THREE.MathUtils.degToRad(150);
-const ARC_WIDTH = 0.35;
-const ARC_COLOR = 0xfff0c0;
-/** The shockwave when the swing hits: how long it takes to spread to the reach (s), and its colour, hotter for a takedown. */
+/** The shockwave when the board hits someone (and a mega jump goes off): how long it takes to spread (s), and its colour, hotter for a takedown. */
 const SHOCKWAVE_TIME = 0.35;
 const SHOCKWAVE_COLOR = 0xbfe4ff;
 const SHOCKWAVE_HIT_COLOR = 0xff8a2a;
 
 /**
- * A flat band round a circle of radius 1 in the horizontal plane, from the front (-z) back
- * through angle radians the way the swing turns, its colour's alpha fading from the front to the
- * back and toward both edges, for drawing additively as a glowing streak.
+ * A flat ring in the horizontal plane, from inner out to radius 1, its colour's alpha fading
+ * toward both edges, for drawing additively as a glowing band.
  */
-function bandGeometry(angle: number, inner: number, segments: number, trail: boolean): THREE.BufferGeometry {
+function ringGeometry(inner: number, segments: number): THREE.BufferGeometry {
 	const positions: number[] = [];
 	const colors: number[] = [];
 	const indices: number[] = [];
@@ -356,13 +340,10 @@ function bandGeometry(angle: number, inner: number, segments: number, trail: boo
 	const radii = [inner, (inner + 1) / 2, 1];
 	const edge = [0, 1, 0];
 	for (let i = 0; i <= segments; i++) {
-		const t = i / segments;
-		// Turning with the swing (about up), the front is ahead and the trail behind it.
-		const a = -t * angle;
-		const along = trail ? (1 - t) ** 1.5 : 1;
+		const a = (i / segments) * Math.PI * 2;
 		for (let j = 0; j < 3; j++) {
 			positions.push(-Math.sin(a) * radii[j], 0, -Math.cos(a) * radii[j]);
-			colors.push(1, 1, 1, along * edge[j]);
+			colors.push(1, 1, 1, edge[j]);
 		}
 	}
 	for (let i = 0; i < segments; i++) {
@@ -378,7 +359,7 @@ function bandGeometry(angle: number, inner: number, segments: number, trail: boo
 	return geometry;
 }
 
-/** A glowing, unlit, see-through-adding material for the swing's effects. */
+/** A glowing, unlit, see-through-adding material for the shockwave and the charge ring. */
 function glowMaterial(color: number): THREE.MeshBasicMaterial {
 	return new THREE.MeshBasicMaterial({ color, vertexColors: true, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
 }
@@ -524,15 +505,13 @@ export class Character {
 	/** The fire doodad's flames, once loaded, and where they burn on the board's tail this frame (null when not burning). */
 	private fire: LoadedEmitter[] = [];
 	private fireFrames: THREE.Matrix4[] | null = null;
-	/** The swing's glowing arc, following the hand round. */
-	private readonly arc = new THREE.Mesh(bandGeometry(ARC_LENGTH, 1 - ARC_WIDTH, 48, true), glowMaterial(ARC_COLOR));
-	/** The shockwave spreading over the ground where the swing hit, and how long it's been going (s; past SHOCKWAVE_TIME, done). */
-	private readonly wave = new THREE.Mesh(bandGeometry(Math.PI * 2, 0.8, 96, false), glowMaterial(SHOCKWAVE_COLOR));
+	/** The shockwave spreading over the ground where the board hit someone, and how long it's been going (s; past SHOCKWAVE_TIME, done). */
+	private readonly wave = new THREE.Mesh(ringGeometry(0.8, 96), glowMaterial(SHOCKWAVE_COLOR));
 	private waveTime = Infinity;
 	private waveReach = 1;
 	private readonly waveAt = new THREE.Vector3();
 	/** The mega jump's charge ring, closing in round the feet; how far through the charge it is (0-1; null when not charging). */
-	private readonly chargeRing = new THREE.Mesh(bandGeometry(Math.PI * 2, 0.75, 96, false), glowMaterial(CHARGE_COLOR));
+	private readonly chargeRing = new THREE.Mesh(ringGeometry(0.75, 96), glowMaterial(CHARGE_COLOR));
 	charge: number | null = null;
 	private model: LoadedModel | null = null;
 	private readonly textures: TextureCache;
@@ -561,16 +540,16 @@ export class Character {
 		}
 		this.capsule.visible = false;
 		void this.loadFire();
-		for (const effect of [this.arc, this.wave, this.chargeRing]) {
+		for (const effect of [this.wave, this.chargeRing]) {
 			effect.matrixAutoUpdate = false;
 			effect.frustumCulled = false;
 			effect.visible = false;
 			// Drawn after the world, over the water too.
 			effect.renderOrder = 10;
 		}
-		this.group.add(this.capsule, this.arc, this.wave, this.chargeRing);
-		// Build their shaders now, not mid-swing (the effects themselves are hidden till then).
-		void this.prepare(new THREE.Group().add(...[this.arc, this.wave, this.chargeRing].map((m) => new THREE.Mesh(m.geometry, m.material))));
+		this.group.add(this.capsule, this.wave, this.chargeRing);
+		// Build their shaders now, not on the first hit (the effects themselves are hidden till then).
+		void this.prepare(new THREE.Group().add(...[this.wave, this.chargeRing].map((m) => new THREE.Mesh(m.geometry, m.material))));
 		this.group.add(this.board);
 		this.group.visible = false;
 	}
@@ -730,7 +709,7 @@ export class Character {
 		return true;
 	}
 
-	/** The swing has hit, reaching so far: a shockwave spreads over the ground from the feet, hot if it took anyone down. */
+	/** A hit: a shockwave spreads over the ground from the feet so far, hot if it took anyone down. */
 	shockwave(reach: number, hit: boolean, color = hit ? SHOCKWAVE_HIT_COLOR : SHOCKWAVE_COLOR): void {
 		this.waveTime = 0;
 		this.waveReach = reach;
@@ -793,7 +772,6 @@ export class Character {
 			this.ride(dt, walker, yawRate, model);
 			return;
 		}
-		this.arc.visible = false;
 		this.board.visible = false;
 		this.fireFrames = null;
 		this.lean = 0;
@@ -854,28 +832,11 @@ export class Character {
 		this.fireFrames = (walker.burstTime > 0 || walker.nitroTime > 0) && this.fire.length
 			? this.fire.map((e) => this.board.matrix.clone().multiply(new THREE.Matrix4().makeTranslation(0, BOARD_HEIGHT, FIRE_BACK)).multiply(MODEL_BASIS).multiply(new THREE.Matrix4().makeScale(fire, fire, fire)).multiply(new THREE.Matrix4().fromArray(e.def.frame)))
 			: null;
-		// A takedown's swing spins the rider a full turn on the board.
-		const swing = walker.swingTime > 0 ? 1 - walker.swingTime / SWING_TIME : 0;
-		const spin = swing ? THREE.MathUtils.smootherstep(swing, 0, 1) * Math.PI * 2 : 0;
 		const body = base
 			.clone()
 			.multiply(new THREE.Matrix4().makeTranslation(0, BOARD_HEIGHT * scale, 0))
 			.multiply(trick?.body ?? new THREE.Matrix4())
-			.multiply(new THREE.Matrix4().makeRotationY(spin))
 			.multiply(new THREE.Matrix4().makeRotationY(this.bodyTurn));
-		// Its arc sweeps round at the takedown's reach, about the waist, the way the chest turns; in fast and out as the swing ends.
-		this.arc.visible = swing > 0;
-		if (swing > 0) {
-			const reach = walker.takedownReach;
-			const waist = BOARD_HEIGHT * scale + walker.height * 0.45;
-			(this.arc.material as THREE.MeshBasicMaterial).opacity = 0.85 * THREE.MathUtils.smoothstep(swing, 0, 0.12) * (1 - THREE.MathUtils.smoothstep(swing, 0.65, 1));
-			this.arc.matrix
-				.copy(base)
-				.multiply(new THREE.Matrix4().makeTranslation(0, waist, 0))
-				.multiply(new THREE.Matrix4().makeRotationY(spin + this.bodyTurn))
-				.multiply(new THREE.Matrix4().makeScale(reach, 1, reach));
-			this.arc.matrixWorldNeedsUpdate = true;
-		}
 		if (model) {
 			model.animator.update(dt, walker);
 			this.tilt = 0;

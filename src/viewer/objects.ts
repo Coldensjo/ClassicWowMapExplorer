@@ -112,6 +112,8 @@ interface PlacedObject {
 	mover?: Mover;
 }
 
+/** A creature's body is about this wide each way from its middle, as a share of its height (between 0.3 and 4 yards). */
+const BODY_WIDTH = 0.22;
 /** A knocked-down creature's thickness lying down, as a share of its height. */
 const LYING_THICKNESS = 0.12;
 /** Knocked-down creatures fall like this (yd/s²), slide to a stop like this (yd/s²), and bounce this many times at most. */
@@ -447,11 +449,13 @@ export class ObjectManager {
 	private readonly knocked = new Map<string, Knocked>();
 
 	/**
-	 * Knocks down every creature drawn within reach of a point (up or down a little too), flung
-	 * away from it at least as fast as speed, spinning. Returns who went down (info null for one
-	 * with no spawn record) and the files of each one's death sound.
+	 * Knocks down every creature whose body the rider's meets: a rider standing at feet, of a
+	 * radius and height, against each creature's own (its model's height, and a body as wide as a
+	 * share of it). They fly off away from it and the way it's going (heading, level), at least
+	 * as fast as speed, spinning. Returns who went down (info null for one with no spawn record)
+	 * and the files of each one's death sound.
 	 */
-	takedown(at: THREE.Vector3, reach: number, speed: number): { info: SpawnInfo | null; deathSounds: number[] }[] {
+	takedown(feet: THREE.Vector3, radius: number, height: number, heading: THREE.Vector3, speed: number): { info: SpawnInfo | null; deathSounds: number[] }[] {
 		const victims: { info: SpawnInfo | null; deathSounds: number[] }[] = [];
 		const head = new THREE.Vector3();
 		for (const entry of this.models.values()) {
@@ -461,25 +465,30 @@ export class ObjectManager {
 				const object = this.objects.get(key);
 				const m = entry.instances.get(key);
 				if (!object || !m) continue;
-				const feet = new THREE.Vector3().setFromMatrixPosition(m);
-				const away = new THREE.Vector3(feet.x - at.x, 0, feet.z - at.z);
-				if (away.lengthSq() > reach * reach || Math.abs(feet.y - at.y) > 3) continue;
+				const base = new THREE.Vector3().setFromMatrixPosition(m);
+				const tall = Math.max(0.5, headPosition(m, entry.data.height, head).distanceTo(base));
+				// Their bodies overlap: side to side, and up and down.
+				const away = new THREE.Vector3(base.x - feet.x, 0, base.z - feet.z);
+				const reach = radius + THREE.MathUtils.clamp(tall * BODY_WIDTH, 0.3, 4);
+				if (away.lengthSq() > reach * reach || base.y > feet.y + height || base.y + tall < feet.y) continue;
+				if (away.lengthSq() < 1e-4) away.copy(heading);
+				// Off away from the rider, and on the way it's going.
+				away.normalize().add(heading).setY(0);
 				if (away.lengthSq() < 1e-4) away.set(Math.random() - 0.5, 0, Math.random() - 0.5);
 				away.normalize();
-				const height = Math.max(0.5, headPosition(m, entry.data.height, head).distanceTo(feet));
 				const fling = speed * (0.8 + Math.random() * 0.5);
 				this.knocked.set(key, {
 					object,
 					part: { entry, key },
 					base: m.clone().setPosition(0, 0, 0),
-					height,
-					middle: feet.clone().setY(feet.y + height / 2),
+					height: tall,
+					middle: base.clone().setY(base.y + tall / 2),
 					velocity: away.clone().multiplyScalar(fling).setY(6 + Math.random() * 5 + fling * 0.25),
 					// About up × away: the head goes over backwards, away from the hit.
 					axis: new THREE.Vector3(0, 1, 0).cross(away).normalize(),
 					angle: 0,
 					spin: 7 + Math.random() * 7,
-					floor: feet.y,
+					floor: base.y,
 					bounces: 0,
 					phase: 'fly',
 					time: 0,

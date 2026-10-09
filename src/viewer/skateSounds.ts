@@ -45,7 +45,7 @@ export class SkateSounds {
 	private roar: Loop | null = null;
 	private spray: Loop | null = null;
 	/** What the walker was doing last frame, to hear what changed. */
-	private was = { on: false, state: '', wall: false, kicking: false, swinging: false, nitro: false, trick: '' };
+	private was = { on: false, state: '', wall: false, kicking: false, nitro: false, trick: '' };
 
 	constructor(private readonly music: MusicPlayer) {}
 
@@ -53,7 +53,7 @@ export class SkateSounds {
 	update(dt: number, walker: WalkControls): void {
 		const context = audioContext();
 		const on = walker.active && walker.skating && this.music.enabled;
-		const now = { on, state: walker.state, wall: walker.wall !== null, kicking: walker.kickTime > 0, swinging: walker.swingTime > 0, nitro: walker.nitroTime > 0, trick: walker.trick ?? '' };
+		const now = { on, state: walker.state, wall: walker.wall !== null, kicking: walker.kickTime > 0, nitro: walker.nitroTime > 0, trick: walker.trick ?? '' };
 		const was = this.was;
 		this.was = now;
 		if (!context || context.state !== 'running') return;
@@ -92,7 +92,6 @@ export class SkateSounds {
 		}
 		if (now.kicking && !was.kicking) this.burst(context, 'bandpass', 450, 1.5, 0.02, 0.14, hit * 0.4);
 		if (now.trick && now.trick !== was.trick) this.whoosh(context, hit * 0.35);
-		if (now.swinging && !was.swinging) this.whoosh(context, hit * 0.5);
 		if (now.nitro && !was.nitro) {
 			// Lit: a deep boom and a rush of air.
 			this.thump(context, 70, 25, 0.6, hit);

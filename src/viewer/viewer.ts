@@ -97,6 +97,15 @@ const NITRO_POINTS = 1500;
 /** Those hit fly off at least this fast (yd/s), and faster with the board's speed (share of it). */
 const TAKEDOWN_FLING = 8;
 const TAKEDOWN_FLING_PER_SPEED = 0.8;
+/**
+ * Riding into creatures: the board has to be going at least this fast (yd/s); it's checked
+ * against them this often (ms); those hit within this long of the first (ms) are one takedown;
+ * and each hit sends a shockwave out this far (yards at scale 1).
+ */
+const TAKEDOWN_MIN_SPEED = 3;
+const TAKEDOWN_CHECK_INTERVAL = 30;
+const TAKEDOWN_WINDOW = 250;
+const TAKEDOWN_WAVE = 2.5;
 /** Takedowns this close together (ms) chain. */
 const TAKEDOWN_CHAIN = 6000;
 /** Impact Time: the world runs at this speed for a while after a takedown (s, plus more for each one, up to the most), easing in and out. */
@@ -856,7 +865,6 @@ export class Viewer {
 		}
 		this.objects.onStep = (at, kind) => step(at, kind, undefined);
 		this.walker.onTrick = (name) => this.skateScore.trick(name);
-		this.walker.onSwingHit = () => this.takedown();
 		this.skateScore.onPoints = (points) => this.walker.chargeNitro(points / NITRO_POINTS);
 		this.skateScore.onBanner = (title, line) => this.showTakedown(title, line, '');
 		this.skateScore.onCue = (cue) => this.skateSounds?.cue(cue);
@@ -1526,28 +1534,46 @@ export class Viewer {
 		}
 	}
 
+	/** Creatures the board has hit, not yet counted as a takedown, and when the first of them was hit (ms). */
+	private hits: (SpawnInfo | null)[] = [];
+	private firstHit = 0;
+	/** When the board was last checked against the creatures round it (ms). */
+	private lastHitCheck = 0;
+
 	/**
-	 * The swing comes round: every creature in reach goes flying. As in Burnout, the more at once
-	 * the bigger it is: its title, longer Impact Time, more speed onto the board, a heavier crash;
-	 * and takedowns close together chain.
+	 * Riding into creatures knocks them flying, each crying out as it goes down. Those hit close
+	 * together are one takedown, and as in Burnout the more in it the bigger it is: its title,
+	 * longer Impact Time, more speed onto the board, a heavier crash; and takedowns close together chain.
 	 */
-	private takedown(): void {
+	private updateTakedowns(now: number): void {
 		const w = this.walker;
-		const speed = Math.abs(w.boardSpeed);
-		const reach = w.takedownReach;
-		const victims = this.objects.takedown(w.position, reach, TAKEDOWN_FLING + speed * TAKEDOWN_FLING_PER_SPEED);
+		if (this.hits.length && now - this.firstHit > TAKEDOWN_WINDOW) this.countTakedown(now);
+		if (!w.active || !w.skating || now - this.lastHitCheck < TAKEDOWN_CHECK_INTERVAL) return;
+		this.lastHitCheck = now;
+		const speed = w.boardPace;
+		if (speed < TAKEDOWN_MIN_SPEED) return;
+		const heading = new THREE.Vector3(w.velocity.x, 0, w.velocity.z);
+		if (heading.lengthSq() > 1e-6) heading.normalize();
+		const victims = this.objects.takedown(w.position, w.radius, w.height, heading, TAKEDOWN_FLING + speed * TAKEDOWN_FLING_PER_SPEED);
+		if (!victims.length) return;
+		if (!this.hits.length) this.firstHit = now;
+		this.hits.push(...victims.map((v) => v.info));
+		this.character?.shockwave(TAKEDOWN_WAVE * w.scale, true);
+		this.skateSounds?.deaths(victims.map((v) => v.deathSounds));
+		this.skateSounds?.crash(victims.length);
+	}
+
+	/** Those hit together count as one takedown: named, scored, slowed down for, and paid out in speed. */
+	private countTakedown(now: number): void {
+		const victims = this.hits;
 		const count = victims.length;
-		this.character?.shockwave(reach, count > 0);
-		if (!count) return;
-		const now = performance.now();
+		this.hits = [];
 		this.takedownChain = now - this.lastTakedown < TAKEDOWN_CHAIN ? this.takedownChain + 1 : 1;
 		this.lastTakedown = now;
 		this.impactTime = Math.min(IMPACT_MAX, IMPACT_TIME + IMPACT_PER_TAKEDOWN * count);
-		w.boost(count);
-		const named = nameTakedown(victims.map((v) => v.info), this.side);
-		this.skateSounds?.deaths(victims.map((v) => v.deathSounds));
+		this.walker.boost(count);
+		const named = nameTakedown(victims, this.side);
 		this.skateScore.takedown(count, named.names.join(' + '), named.points);
-		this.skateSounds?.crash(count);
 		this.skateSounds?.heatUp();
 		const title = TAKEDOWN_TITLES[count] ?? `Mega Takedown ×${count}!`;
 		this.showTakedown(title, named.names.join(' · '), this.takedownChain > 1 ? `Chain ×${this.takedownChain}` : '');
@@ -1975,6 +2001,7 @@ export class Viewer {
 		// Impact Time after a takedown: the walker, the creatures and everything animated slow down, then ease back.
 		this.impactTime = Math.max(0, this.impactTime - dt);
 		this.updateMegaJump(dt, now);
+		this.updateTakedowns(now);
 		const slow = Math.min(this.impactTime > 0 ? IMPACT_SCALE : 1, this.megaFrom !== null ? MEGA_CHARGE_SCALE : 1);
 		this.timeScale += (slow - this.timeScale) * (1 - Math.exp(-dt * IMPACT_EASE));
 		const worldDt = dt * this.timeScale;

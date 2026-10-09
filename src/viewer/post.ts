@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { perf } from './perf';
 import type { SunLight } from 'three/addons/lights/SunLight.js';
 import type { AsyncStorageApi } from '../worker/protocol';
+import type { SceneDepth } from './nameplates';
 
 /** The colour grading tables: 32 slices of 32x32 (red across, green down, blue by slice) side by side. */
 const LUT_SIZE = 32;
@@ -331,6 +332,11 @@ export class PostPass {
 		this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
 		this.quad.frustumCulled = false;
 		this.quadScene.add(this.quad);
+	}
+
+	/** The depth of the last frame drawn and what decodes it, for what's drawn over it to test against. */
+	get sceneDepth(): SceneDepth {
+		return this.uniforms;
 	}
 
 	/** Whether the game's colour grading is applied. */

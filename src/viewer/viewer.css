@@ -1087,10 +1087,9 @@ kbd {
 }
 
 /*
- * NPC names above their heads, as the game draws them: its own font (Friz Quadrata, read from
- * the install), flat colour with only a faint shadow, the title as large as the name, in the
- * colours of UnitSelectionColor: pure red, yellow and green. Sized for their distance by
- * nameplates.ts and positioned by transform each frame; never catch the mouse.
+ * What's laid over the 3D view at places in the world (map labels, flight paths, highlighted
+ * spawns); positioned by transform each frame; never catches the mouse. (NPC names are drawn
+ * in the view itself, by nameplates.ts.)
  */
 #nameplates {
 	position: fixed;
@@ -1107,31 +1106,6 @@ kbd {
 /* The menus' panels drop over the right column too. */
 #menu {
 	z-index: 2;
-}
-
-.plate {
-	position: absolute;
-	left: 0;
-	top: 0;
-	text-align: center;
-	white-space: nowrap;
-	font: 400 15px/1.05 'Friz Quadrata', 'Trebuchet MS', system-ui, sans-serif;
-	color: #ffff00;
-	text-shadow: 0.04em 0.04em 0.08em rgba(0, 0, 0, 0.55);
-	will-change: transform;
-}
-
-.plate[data-reaction='hostile'] {
-	color: #ff0000;
-}
-
-.plate[data-reaction='friendly'] {
-	color: #00ff00;
-}
-
-/* The <Title> line takes the name's colour and size; hidden when there's none. */
-.plate-sub:empty {
-	display: none;
 }
 
 /*

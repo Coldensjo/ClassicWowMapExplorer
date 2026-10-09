@@ -509,7 +509,6 @@ export class Viewer {
 		private readonly onSelect: (info: SpawnInfo) => void = () => {},
 		plateContainer: HTMLElement | null = null,
 	) {
-		this.nameplates = plateContainer ? new Nameplates(plateContainer) : null;
 		this.highlights = plateContainer ? new Highlights(plateContainer, storage.loadLockKinds()) : null;
 		this.regionOverlay = plateContainer ? new RegionOverlay(plateContainer, (x, z) => this.terrain?.surfaceAt(x, z) ?? -Infinity) : null;
 		this.restedAreas = plateContainer ? new RestedAreas(plateContainer) : null;
@@ -535,6 +534,7 @@ export class Viewer {
 		this.seaFloorPass = new SeaFloorPass(this.renderer);
 		// Antialiased there rather than on the canvas.
 		this.post = new PostPass(this.renderer, storage);
+		this.nameplates = plateContainer ? new Nameplates(this.post.sceneDepth) : null;
 		this.uploads = new UploadQueue(this.renderer);
 		this.terrainShadow = new TerrainShadowPass(this.renderer);
 
@@ -1664,7 +1664,7 @@ export class Viewer {
 			headPosition(p.matrix, p.height, p.position);
 			p.distance = p.position.distanceTo(this.camera.position);
 		}
-		this.nameplates.update(this.plates, this.camera, this.canvas.clientWidth, this.canvas.clientHeight, this.side);
+		this.nameplates.update(this.plates, this.camera, this.renderer, this.side);
 	}
 
 	/** Whether the ground rises above the straight line between two points (sampled every 1.5 yd). */

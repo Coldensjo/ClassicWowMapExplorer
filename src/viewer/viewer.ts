@@ -1102,11 +1102,15 @@ export class Viewer {
 		history.replaceState(null, '', hash);
 	}
 
-	/** Sea-level plane reaching well past the horizon, so no edge shows even from the overview. */
+	/**
+	 * Sea-level plane reaching well past the horizon, so no edge shows even from the overview. In
+	 * cells of 3000 yards: across one giant pair of triangles, clipped at the screen's edges, the
+	 * positions worked out for each pixel drift by yards as the view turns, and the foam with them.
+	 */
 	private addOcean(): void {
 		const center = this.terrain.bounds().getCenter(new THREE.Vector2());
 		const ocean = new THREE.Mesh(
-			new THREE.PlaneGeometry(600000, 600000),
+			new THREE.PlaneGeometry(600000, 600000, 200, 200),
 			liquidMaterials.ocean,
 		);
 		ocean.rotation.x = -Math.PI / 2;

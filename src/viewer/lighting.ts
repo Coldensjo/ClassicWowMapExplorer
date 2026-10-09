@@ -216,3 +216,67 @@ export class Sky {
 		u.uSun.value.multiplyScalar(1 - amount);
 	}
 }
+
+/** Seconds for the light to get most of the way (1 - 1/e) to a new zone's. */
+const FADE_TIME = 1.2;
+/** Half-minutes of game time; a bigger change than this between updates (time held or set by hand) isn't faded. */
+const FADE_TIME_JUMP = 1;
+/** Yards; a bigger move than this between updates (a teleport, a jump to a place) isn't faded. */
+const FADE_MOVE_JUMP = 3000;
+/** How close every colour has to be to its target for the fade to count as done. */
+const FADE_DONE = 0.002;
+
+/**
+ * Eases the light from one sample to the next, so crossing the edge of a light zone (or flying
+ * along it, in and out) fades the sky over a second or so instead of flipping it back and forth.
+ */
+export class LightFade {
+	private current: LightState | null = null;
+	private lastT = 0;
+	private readonly lastPos = new THREE.Vector3();
+
+	/** True while the light is still on its way to the last target. */
+	fading = false;
+
+	/** Moves the light towards target over dt seconds and returns it; t is the time of day, pos where it's sampled from. */
+	step(target: LightState | null, dt: number, t: number, pos: THREE.Vector3): LightState | null {
+		const timeJump = Math.abs(((t - this.lastT + DAY * 1.5) % DAY) - DAY / 2) > FADE_TIME_JUMP;
+		const moveJump = pos.distanceTo(this.lastPos) > FADE_MOVE_JUMP;
+		this.lastT = t;
+		this.lastPos.copy(pos);
+		if (!target || !this.current || timeJump || moveJump) {
+			this.current = target && cloneState(target);
+			this.fading = false;
+			return this.current;
+		}
+
+		const cur = this.current;
+		const f = 1 - Math.exp(-dt / FADE_TIME);
+		let far = 0;
+		for (const name of LIGHT_COLORS) {
+			const c = cur.colors[name];
+			const to = target.colors[name];
+			c.lerp(to, f);
+			far = Math.max(far, Math.abs(c.r - to.r), Math.abs(c.g - to.g), Math.abs(c.b - to.b));
+		}
+		// No fog distance set on one side: nothing to fade from or to.
+		cur.fogEnd = cur.fogEnd > 0 && target.fogEnd > 0 ? cur.fogEnd + (target.fogEnd - cur.fogEnd) * f : target.fogEnd;
+		cur.fogScaler += (target.fogScaler - cur.fogScaler) * f;
+		cur.fogDensity += (target.fogDensity - cur.fogDensity) * f;
+		const grading = new Map<number, number>();
+		for (const [id, w] of cur.grading) addGrading(grading, id, w * (1 - f));
+		for (const [id, w] of target.grading) addGrading(grading, id, w * f);
+		for (const [id, w] of grading) if (w < 0.001 && !target.grading.has(id)) grading.delete(id);
+		cur.grading = grading;
+
+		this.fading = far > FADE_DONE;
+		if (!this.fading) this.current = cloneState(target);
+		return this.current;
+	}
+}
+
+function cloneState(s: LightState): LightState {
+	const colors = {} as Record<LightColor, THREE.Color>;
+	for (const name of LIGHT_COLORS) colors[name] = s.colors[name].clone();
+	return { ...s, colors, grading: new Map(s.grading) };
+}

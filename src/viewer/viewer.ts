@@ -25,7 +25,7 @@ import { Highlights, type HighlightSettings } from './highlights';
 import { setWalkableShown } from './walkable';
 import { mouseSpeed, setMouseSpeed } from './look';
 import { MapLabels } from './mapLabels';
-import { DAY, Lighting, Sky, sunDirection } from './lighting';
+import { DAY, LightFade, Lighting, Sky, sunDirection } from './lighting';
 import { MusicPlayer, type MusicTarget } from './music';
 import { Nameplates, type Plate, type Side } from './nameplates';
 import { CLUTTER_RANGE_DEFAULT, ClutterManager } from './clutter';
@@ -416,6 +416,9 @@ export class Viewer {
 	private timeRunning = 0;
 	private lastTimeChange = 0;
 	private lastLightUpdate = 0;
+	/** Eases the light between zones; see updateLighting. */
+	private readonly lightFade = new LightFade();
+	private lastLightStep = 0;
 	/** Warm light carried with the camera, like holding a torch (L toggles it). */
 	private readonly torch = new THREE.PointLight(TORCH_COLOR, 0, TORCH_RANGE, 2);
 	private torchOn = true;
@@ -1756,7 +1759,8 @@ export class Viewer {
 				this.lastTimeChange = now;
 				this.onChange('time');
 			}
-		} else if (now - this.lastLightUpdate > 100) {
+		} else if (this.lightFade.fading || now - this.lastLightUpdate > 100) {
+			// Every frame while the light fades to a new zone's, so the fade is smooth.
 			this.lastLightUpdate = now;
 			this.updateLighting();
 		}
@@ -1992,7 +1996,11 @@ export class Viewer {
 		// The open sea between the laid-out maps belongs to no map: the Eastern Kingdoms' outdoor
 		// light there (far from any of its zones, so only its global light).
 		const place = where ?? OPEN_SEA_LIGHT;
-		const state = this.lighting ? this.lighting.sample(place.mapId, place.x, place.y, t) : null;
+		const sampled = this.lighting ? this.lighting.sample(place.mapId, place.x, place.y, t) : null;
+		// Light zones can change quickly at their edges; fade to the new light rather than jump.
+		const now = performance.now();
+		const state = this.lightFade.step(sampled, Math.min(1, (now - this.lastLightStep) / 1000), t, this.camera.position);
+		this.lastLightStep = now;
 		const alt = this.controls.altitude;
 		this.sun.shadow.camera.far = Math.min(SHADOW_RANGE + alt * SHADOW_RANGE_PER_ALTITUDE, SHADOW_RANGE_MAX);
 		let fogNear = 1200;

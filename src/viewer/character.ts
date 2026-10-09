@@ -293,8 +293,8 @@ interface LoadedModel {
 
 /**
  * The walking character as drawn: a race's model dressed as one of its NPC looks (through the
- * same pipeline as the NPCs), animated from what the walker does. A capsule stands in while it
- * loads, or if it can't be. Strafing turns the body toward the way it goes, as the game does: a
+ * same pipeline as the NPCs), animated from what the walker does. Nothing is drawn while it
+ * loads; a capsule stands in only if it can't be. Strafing turns the body toward the way it goes, as the game does: a
  * quarter turn sideways, an eighth on the diagonals, and backing away on a diagonal turns it the
  * other way.
  */
@@ -330,6 +330,7 @@ export class Character {
 			useShadows(mesh, 'near');
 			this.capsule.add(mesh);
 		}
+		this.capsule.visible = false;
 		this.group.add(this.capsule);
 		this.group.visible = false;
 	}
@@ -366,6 +367,7 @@ export class Character {
 		}
 		this.model = model;
 		if (model) this.group.add(model.group);
+		// Only set to null when the model couldn't be loaded.
 		this.capsule.visible = !model;
 	}
 

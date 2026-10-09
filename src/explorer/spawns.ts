@@ -667,7 +667,7 @@ export class DisplayResolver {
 		if (!resolved) return null;
 		// The torch takes the right hand from any weapon; a model with no hand attachment point (an animal form) simply isn't given one.
 		const attachments = torch
-			? [...(resolved.options.attachments ?? []).filter((a) => a.point !== ATTACH_HAND_RIGHT), { point: ATTACH_HAND_RIGHT, fdid: TORCH_MODEL, texture: TORCH_TEXTURE }]
+			? [...(resolved.options.attachments ?? []).filter((a) => a.point !== ATTACH_HAND_RIGHT), { point: ATTACH_HAND_RIGHT, fdid: TORCH_MODEL, texture: TORCH_TEXTURE, noGlow: true }]
 			: resolved.options.attachments;
 		return { ...resolved, options: { ...resolved.options, clips, attachments }, displayId, looks: list.length };
 	}

@@ -237,6 +237,8 @@ export interface GearAttachment {
 	point: number;
 	fdid: number;
 	texture: number;
+	/** Leave out the item's glowing (additive) surfaces, such as a torch's halo. */
+	noGlow?: boolean;
 }
 
 /** A model file read, parsed and (optionally) posed once; the raw file isn't kept. */
@@ -426,7 +428,7 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 			const item = await prepareM2(storage, gear.fdid, false);
 			// Item textures are runtime type 2 ("object skin"); their own hard-coded ones still apply.
 			// On an animated body the item rides its attachment bone from the bind-space frame.
-			parts.push({ prepared: item, batches: dressM2(item, { textures: { 2: gear.texture } }), transform: animated ? point.bind : point.posed, rest: point.posed, bone: point.bone });
+			parts.push({ prepared: item, batches: dressM2(item, { textures: { 2: gear.texture } }).filter((b) => !gear.noGlow || b.material.blend !== Blend.Add), transform: animated ? point.bind : point.posed, rest: point.posed, bone: point.bone });
 		} catch (e) {
 			// Once per item: many NPCs can share a broken one.
 			if (!brokenGear.has(gear.fdid)) console.warn(`Gear model ${gear.fdid}:`, e);

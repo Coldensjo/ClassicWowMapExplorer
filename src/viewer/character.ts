@@ -303,6 +303,10 @@ class Animator {
 	}
 }
 
+/** A held torch's flame and smoke are drawn this much of their size and opacity: the game's are a big, bright glow. */
+const TORCH_SIZE = 0.5;
+const TORCH_ALPHA = 0.5;
+
 /** Models built so far, to number them. */
 let modelCount = 0;
 
@@ -464,7 +468,7 @@ export class Character {
 			const texture = textures.get(e.texture);
 			if (!texture || !stand) return [];
 			const rest = animator.boneMatrix(e.bone!, a.data, a.bones, new THREE.Matrix4(), stand.row);
-			return [{ loaded: { def: e, texture }, bone: e.bone!, frame: new THREE.Matrix4().fromArray(e.frame), rest: rest.invert() }];
+			return [{ loaded: { def: { ...e, scale: { ...e.scale, values: e.scale.values.map((v) => v * TORCH_SIZE) }, alpha: { ...e.alpha, values: e.alpha.values.map((v) => v * TORCH_ALPHA) } }, texture }, bone: e.bone!, frame: new THREE.Matrix4().fromArray(e.frame), rest: rest.invert() }];
 		});
 		return { group, mesh, animator, textures: ids, boneTexture, height: data.height, held, bones: a.bones, boneData: a.data, id: ++modelCount };
 	}

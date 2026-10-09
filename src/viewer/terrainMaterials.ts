@@ -369,7 +369,7 @@ const waterUniforms = new WeakMap<THREE.Material, WaterUniforms>();
  * under each pixel comes from the ground distance pass.
  */
 function waterMaterial(kind: WaterKind, opacity: number, sea = false, flow: FlowBinding | null = null): THREE.MeshPhongMaterial {
-	const material = new THREE.MeshPhongMaterial({ specular: 0x9ab4c8, shininess: 80, transparent: true, opacity, depthWrite: false });
+	const material = new THREE.MeshPhongMaterial({ specular: 0x8a949a, shininess: 160, transparent: true, opacity, depthWrite: false });
 	const water: WaterUniforms = {
 		uShallow: { value: new THREE.Color() },
 		uMid: { value: new THREE.Color() },
@@ -421,11 +421,12 @@ ${LIQUID_VERTEX_MAIN}`);
 					float ground = texture2D(uGroundDistance, gl_FragCoord.xy / uScreenSize).r;
 					if (ground > 0.0) depth = max(ground - length(vViewPosition), 0.0) * max(facing, 0.05);
 				}
-				// The type's colours are what light comes back out of it as, so dark: murky at the
-				// shore, through its middle colour to its deep one, most of the light soaked up.
-				// Murky, the blue drawn out of it. The middle colour is a bright tint that would glow
-				// along every shore; left out.
-				vec3 water = mix(mix(uShallow, uDeep, 0.5) * 0.2, uDeep * 0.22, smoothstep(0.0, 6.0, depth)) * vec3(0.85, 1.0, 0.7);
+				// The type's colours are what light comes back out of it as, so dark, and murky: most
+				// of their blue drawn out (the game's warm sunlight on them makes greens and olives).
+				// What colour the water seems is mostly the ground through it. The middle colour is a
+				// bright tint that would glow along every shore; left out.
+				vec3 water = mix(mix(uShallow, uDeep, 0.5) * 0.2, uDeep * 0.22, smoothstep(0.0, 6.0, depth));
+				water = mix(vec3(dot(water, vec3(0.3, 0.59, 0.11))), water, 0.5) * vec3(0.9, 1.0, 0.65);
 				vec2 rippleUv = vLiquidPos.xz / ${book.repeat.toFixed(1)};
 				setFlow(vLiquidPos.xz);
 				vec4 frame = uFramesLoaded > 0.5 ? flowingFlipbook(rippleUv) : vec4(0.0);
@@ -435,12 +436,13 @@ ${LIQUID_VERTEX_MAIN}`);
 					: 'float ripple = uFromBelow < 0.5 ? frame.a : frame.a * 0.4;'}
 				// Far off the ripples blur to an even sheen, and their repeats would show.
 				ripple *= 1.0 - smoothstep(60.0, 250.0, length(vViewPosition)) * 0.7;
-				diffuseColor.rgb = mix(water, uFoam * 0.6, ripple * 0.12);
-				// The ground shows through the shallows, with a soft edge where the water meets it.
-				diffuseColor.a = mix(0.45, diffuseColor.a, smoothstep(0.0, 4.0, depth));
-				diffuseColor.a = max(diffuseColor.a, ripple * 0.5);
-				${slime ? 'float foam = 0.0;' : /* glsl */ `
-				// Foam along the shore, reaching out further in places than others.
+				diffuseColor.rgb = mix(water, uFoam * 0.5, ripple * 0.08);
+				// The ground shows through, less the deeper it is, with a soft edge where the water meets it.
+				diffuseColor.a = mix(0.3, diffuseColor.a, smoothstep(0.0, 12.0, depth));
+				diffuseColor.a = max(diffuseColor.a, ripple * 0.3);
+				${kind !== 'ocean' ? 'float foam = 0.0;' : /* glsl */ `
+				// Foam where the sea meets the shore (lakes and rivers have none), reaching out further
+				// in places than others.
 				float foamReach = 11.0 * (0.55 + 0.45 * sin(vLiquidPos.x * 0.19 + sin(vLiquidPos.z * 0.23) * 2.0 + uTime * 0.07));
 				float foam = uFromBelow < 0.5 ? shoreFoam(vLiquidPos.xz, 1.0 - smoothstep(0.0, foamReach, depth), uTime) : 0.0;
 				foam *= 0.75 + 0.5 * frame.a;
@@ -451,7 +453,7 @@ ${LIQUID_VERTEX_MAIN}`);
 				diffuseColor.a *= smoothstep(0.0, 0.12, depth);`)
 			// The sun glints off the ripples, not the whole surface.
 			.replace('#include <specularmap_fragment>', /* glsl */ `#include <specularmap_fragment>
-				specularStrength = ${slime ? '0.3' : '(uFramesLoaded > 0.5 ? 0.15 + ripple * 1.6 : 1.0) * (1.0 - foam)'};`)
+				specularStrength = ${slime ? '0.3' : '(uFramesLoaded > 0.5 ? 0.08 + ripple * 0.3 : 0.5) * (1.0 - foam)'};`)
 			.replace('#include <normal_fragment_maps>', /* glsl */ `#include <normal_fragment_maps>
 				// Gentle swell, and the ripples' own slopes for glints that follow them.
 				vec2 slope = waveSlope(vLiquidPos.xz, uTime) * 0.35;

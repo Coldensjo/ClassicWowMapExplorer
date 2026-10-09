@@ -437,9 +437,13 @@ ${LIQUID_VERTEX_MAIN}`);
 				// Far off the ripples blur to an even sheen, and their repeats would show.
 				ripple *= 1.0 - smoothstep(60.0, 250.0, length(vViewPosition)) * 0.7;
 				diffuseColor.rgb = mix(water, uFoam * 0.5, ripple * 0.08);
-				// The ground shows through, less the deeper it is, with a soft edge where the water meets it.
-				diffuseColor.a = mix(0.3, diffuseColor.a, smoothstep(0.0, 12.0, depth));
-				diffuseColor.a = max(diffuseColor.a, ripple * 0.3);
+				// The ground shows through, less the deeper it is: clear at the shore, so the water fades
+				// in over the first few yards rather than starting at an edge. A pale haze of silt in the
+				// shallowest of it.
+				float murk = 1.0 - exp(-depth / 2.0);
+				diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(uShallow, vec3(0.3, 0.59, 0.11)) * 0.45), (1.0 - smoothstep(0.0, 3.0, depth)) * 0.6);
+				diffuseColor.a *= murk;
+				diffuseColor.a = max(diffuseColor.a, ripple * 0.3 * murk);
 				${kind !== 'ocean' ? 'float foam = 0.0;' : /* glsl */ `
 				// Foam where the sea meets the shore (lakes and rivers have none), reaching out further
 				// in places than others.
@@ -464,7 +468,8 @@ ${LIQUID_VERTEX_MAIN}`);
 				normal = normalize((viewMatrix * vec4(-slope.x, 1.0, -slope.y, 0.0)).xyz);`)
 			.replace('#include <opaque_fragment>', /* glsl */ `
 				// More opaque, and mirroring the sky, at low angles.
-				diffuseColor.a = mix(0.97, diffuseColor.a, facing);
+				// Not at the waterline, though, so it still fades in from there.
+				diffuseColor.a = mix(0.97 * smoothstep(0.0, 1.5, depth), diffuseColor.a, facing);
 				#ifdef USE_FOG
 					outgoingLight = mix(outgoingLight, fogColor, pow(1.0 - facing, 4.0) * 0.55 * (1.0 - max(ripple, foam)) * (1.0 - uFromBelow));
 				#endif

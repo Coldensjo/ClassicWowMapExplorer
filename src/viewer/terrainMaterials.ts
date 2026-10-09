@@ -274,6 +274,45 @@ vec2 waveSlope(vec2 p, float t) {
 `;
 
 /**
+ * Foam along the shore: a lace of bubbles around round holes (drifting cell noise), solid at the
+ * waterline and thinning to wisps further out. amount: 1 at the shore, 0 past the foam.
+ */
+const SHORE_FOAM = /* glsl */ `
+vec2 foamHash(vec2 p) {
+	p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+	return fract(sin(p) * 43758.5453);
+}
+// Distance to the nearest of a set of slowly wandering points, one per unit cell: 0 at the
+// middles of the holes, about 0.7 in the foam between them.
+float foamHoles(vec2 p, float t) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	float d1 = 8.0;
+	for (int y = -1; y <= 1; y++) {
+		for (int x = -1; x <= 1; x++) {
+			vec2 g = vec2(float(x), float(y));
+			vec2 h = foamHash(i + g);
+			vec2 r = g + 0.5 + 0.35 * sin(t * (0.5 + h) + 6.2831 * h) - f;
+			// Holes of different sizes.
+			d1 = min(d1, dot(r, r) * (0.5 + 1.2 * fract(h.x * 7.31 + h.y)));
+		}
+	}
+	return sqrt(d1);
+}
+float shoreFoam(vec2 xz, float amount, float t) {
+	if (amount <= 0.0) return 0.0;
+	// Big holes and small ones, the small breaking up the lace between the big.
+	float lace = smoothstep(0.15, 0.75, foamHoles(xz * 0.55 + vec2(t * 0.04, t * 0.025), t * 0.5));
+	lace *= 0.7 + 0.3 * smoothstep(0.05, 0.5, foamHoles(xz * 1.9 - vec2(t * 0.05, 0.0), t * 0.8 + 1.7));
+	// The more foam, the further into the holes it fills: thin strands around big holes out at
+	// its edge, a milky haze over the last of the shallows.
+	float fill = amount * amount;
+	float foam = smoothstep(1.0 - fill, 1.55 - fill, lace) * mix(0.45, 1.0, fill);
+	return max(foam, fill * fill * 0.35) * smoothstep(0.0, 0.2, amount);
+}
+`;
+
+/**
  * The distance from the camera to the ground under each pixel (GroundDistancePass), and the
  * screen's size in pixels to look it up by. 0 where there's no ground: deep water.
  */
@@ -362,7 +401,7 @@ ${LIQUID_VERTEX_MAIN}`);
 				uniform sampler2D uGroundDistance;
 				uniform vec2 uScreenSize;
 				uniform float uFromBelow;
-				${WAVES}${FLIPBOOK}${FLOWING_FLIPBOOK}${sea ? SEA_MASK : ''}`)
+				${WAVES}${SHORE_FOAM}${FLIPBOOK}${FLOWING_FLIPBOOK}${sea ? SEA_MASK : ''}`)
 			.replace('#include <clipping_planes_fragment>', sea
 				// The sea plane: nothing where there's no open sea. Nor on the pixel row at its horizon,
 				// where antialiasing works out the depth at pixel centres just past the sea's edge and
@@ -382,9 +421,11 @@ ${LIQUID_VERTEX_MAIN}`);
 					float ground = texture2D(uGroundDistance, gl_FragCoord.xy / uScreenSize).r;
 					if (ground > 0.0) depth = max(ground - length(vViewPosition), 0.0) * max(facing, 0.05);
 				}
-				// The middle colour is a light tint that washes out under direct light; a touch of it only.
-				vec3 water = mix(uShallow, uDeep, smoothstep(0.0, 7.0, depth));
-				water = mix(water, uMid, 0.15 * (1.0 - smoothstep(0.0, 3.0, depth)));
+				// The type's colours are what light comes back out of it as, so dark: murky at the
+				// shore, through its middle colour to its deep one, most of the light soaked up.
+				// Murky, the blue drawn out of it. The middle colour is a bright tint that would glow
+				// along every shore; left out.
+				vec3 water = mix(mix(uShallow, uDeep, 0.5) * 0.2, uDeep * 0.22, smoothstep(0.0, 6.0, depth)) * vec3(0.85, 1.0, 0.7);
 				vec2 rippleUv = vLiquidPos.xz / ${book.repeat.toFixed(1)};
 				setFlow(vLiquidPos.xz);
 				vec4 frame = uFramesLoaded > 0.5 ? flowingFlipbook(rippleUv) : vec4(0.0);
@@ -394,13 +435,23 @@ ${LIQUID_VERTEX_MAIN}`);
 					: 'float ripple = uFromBelow < 0.5 ? frame.a : frame.a * 0.4;'}
 				// Far off the ripples blur to an even sheen, and their repeats would show.
 				ripple *= 1.0 - smoothstep(60.0, 250.0, length(vViewPosition)) * 0.7;
-				diffuseColor.rgb = mix(water, uFoam, ripple * 0.3);
+				diffuseColor.rgb = mix(water, uFoam * 0.6, ripple * 0.12);
 				// The ground shows through the shallows, with a soft edge where the water meets it.
-				diffuseColor.a = mix(0.2, diffuseColor.a, smoothstep(0.0, 8.0, depth));
-				diffuseColor.a = max(diffuseColor.a, ripple * 0.5) * smoothstep(0.0, 0.12, depth);`)
+				diffuseColor.a = mix(0.45, diffuseColor.a, smoothstep(0.0, 4.0, depth));
+				diffuseColor.a = max(diffuseColor.a, ripple * 0.5);
+				${slime ? 'float foam = 0.0;' : /* glsl */ `
+				// Foam along the shore, reaching out further in places than others.
+				float foamReach = 11.0 * (0.55 + 0.45 * sin(vLiquidPos.x * 0.19 + sin(vLiquidPos.z * 0.23) * 2.0 + uTime * 0.07));
+				float foam = uFromBelow < 0.5 ? shoreFoam(vLiquidPos.xz, 1.0 - smoothstep(0.0, foamReach, depth), uTime) : 0.0;
+				foam *= 0.75 + 0.5 * frame.a;
+				foam *= 1.0 - smoothstep(80.0, 300.0, length(vViewPosition));
+				// Churned up sand in it: warmer than the type's own foam colour.
+				diffuseColor.rgb = mix(diffuseColor.rgb, mix(uFoam, vec3(0.9, 0.7, 0.5), 0.8), foam);
+				diffuseColor.a = max(diffuseColor.a, foam * 0.95);`}
+				diffuseColor.a *= smoothstep(0.0, 0.12, depth);`)
 			// The sun glints off the ripples, not the whole surface.
 			.replace('#include <specularmap_fragment>', /* glsl */ `#include <specularmap_fragment>
-				specularStrength = ${slime ? '0.3' : 'uFramesLoaded > 0.5 ? 0.15 + ripple * 1.6 : 1.0'};`)
+				specularStrength = ${slime ? '0.3' : '(uFramesLoaded > 0.5 ? 0.15 + ripple * 1.6 : 1.0) * (1.0 - foam)'};`)
 			.replace('#include <normal_fragment_maps>', /* glsl */ `#include <normal_fragment_maps>
 				// Gentle swell, and the ripples' own slopes for glints that follow them.
 				vec2 slope = waveSlope(vLiquidPos.xz, uTime) * 0.35;
@@ -413,7 +464,7 @@ ${LIQUID_VERTEX_MAIN}`);
 				// More opaque, and mirroring the sky, at low angles.
 				diffuseColor.a = mix(0.97, diffuseColor.a, facing);
 				#ifdef USE_FOG
-					outgoingLight = mix(outgoingLight, fogColor, pow(1.0 - facing, 4.0) * 0.55 * (1.0 - ripple) * (1.0 - uFromBelow));
+					outgoingLight = mix(outgoingLight, fogColor, pow(1.0 - facing, 4.0) * 0.55 * (1.0 - max(ripple, foam)) * (1.0 - uFromBelow));
 				#endif
 				#include <opaque_fragment>`);
 	};

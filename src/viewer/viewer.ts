@@ -1,4 +1,7 @@
+import { unlockPointer } from './session';
 import * as THREE from 'three';
+import { captureCamera, restoreCamera, type CameraView } from './gameVersion';
+import { sessionHost } from './session';
 import { SunLight } from 'three/addons/lights/SunLight.js';
 import { TILE_SIZE } from '../formats/adt';
 import { KNOWN_MAPS } from '../explorer/maps';
@@ -46,6 +49,8 @@ import type { LiquidKind } from '../formats/mh2o';
 import type { LiquidLooks } from '../explorer/clientDb';
 import { createTexture, supportsCompressedTextures } from './textures';
 import { isTyping } from './typing';
+import type { HeldInput, WalkingSnapshot } from './session';
+import type { FlyMotion } from './flyControls';
 import { WalkControls } from './walkControls';
 
 /** A dungeon view in the URL hash: #d<map ID>/... */
@@ -514,6 +519,7 @@ export class Viewer {
 		private readonly onHud: (info: HudInfo) => void,
 		private readonly onSelect: (info: SpawnInfo) => void = () => {},
 		plateContainer: HTMLElement | null = null,
+		private readonly characterStorage: AsyncStorageApi = storage,
 	) {
 		this.highlights = plateContainer ? new Highlights(plateContainer, storage.loadLockKinds()) : null;
 		this.regionOverlay = plateContainer ? new RegionOverlay(plateContainer, (x, z) => this.terrain?.surfaceAt(x, z) ?? -Infinity) : null;
@@ -615,7 +621,7 @@ export class Viewer {
 		if (this.pressedWalking) return;
 		const hit = this.pickAt(e);
 		if (hit) {
-			if (this.controls.locked) document.exitPointerLock();
+			if (this.controls.locked) unlockPointer();
 			this.onSelect(hit);
 		} else {
 			this.controls.lock();
@@ -714,7 +720,7 @@ export class Viewer {
 
 	/** The races the character can be, with how many looks each sex has (classic and HD). */
 	characterRaces(): Promise<CharacterRace[]> {
-		return this.storage.characterRaces();
+		return this.characterStorage.characterRaces();
 	}
 
 	/**
@@ -973,7 +979,7 @@ export class Viewer {
 		this.terrain = new TerrainManager(this.storage, this.usesCompressedTextures, anisotropy, this.objects, prepare);
 		this.terrain.preloadTexture = (texture) => this.uploads.texture(texture);
 		this.setUpWalker();
-		this.character = new Character(this.storage, this.usesCompressedTextures, anisotropy, prepare);
+		this.character = new Character(this.characterStorage, this.usesCompressedTextures, anisotropy, prepare);
 		this.scene.add(this.character.group);
 		// Walking creatures follow the ground.
 		this.objects.groundAt = (x, z) => this.terrain.heightAt(x, z);
@@ -1119,6 +1125,7 @@ export class Viewer {
 		if (!force && now - this.pendingHashSince < 1000) return;
 		this.lastHash = hash;
 		history.replaceState(null, '', hash);
+		sessionHost()?.hash(window, hash);
 	}
 
 	/**
@@ -1372,7 +1379,7 @@ export class Viewer {
 		else if (e.code === 'KeyO') this.overview();
 		else if (e.code === 'KeyR') this.controls.flyTo(this.startPosition(), 0, -0.3, 2.5);
 		// Walking, the number keys perform emotes instead (see the Emotes menu).
-		else if (e.code.startsWith('Digit') && !this.walker.active) this.goToContinent(Number(e.code.slice(5)) - 1);
+		else if (e.code.startsWith('Digit') && !this.walker.active && !e.ctrlKey && !e.metaKey && !e.altKey) this.goToContinent(Number(e.code.slice(5)) - 1);
 		else if (e.code === 'Backquote' && !e.ctrlKey && !e.metaKey && !e.altKey) {
 			const problem = this.setWalking(!this.walker.active);
 			if (problem) this.onNotice(problem);
@@ -1729,21 +1736,102 @@ export class Viewer {
 		this.camera.updateProjectionMatrix();
 	}
 
+	/** Exact coordinates, independent of the rounded, height-above-ground bookmark URL. */
+	captureView(): CameraView {
+		const map = this.terrain.locate(this.camera.position.x, this.camera.position.z)?.continent ?? null;
+		return captureCamera(this.camera.position, this.controls.yaw, this.controls.pitch, map);
+	}
+
+	captureWalking(): WalkingSnapshot | null {
+		if (!this.walker.active) return null;
+		const map = this.terrain.locate(this.walker.position.x, this.walker.position.z)?.continent ?? null;
+		return { feet: captureCamera(this.walker.position, this.walker.yaw, this.walker.pitch, map), motion: this.walker.captureState(), look: this.look };
+	}
+
+	captureMotion(): FlyMotion { return this.controls.captureMotion(); }
+	resumeInput(input: HeldInput, motion?: FlyMotion): void {
+		if (motion) this.controls.restoreMotion(motion);
+		this.controls.resumeInput(input);
+		this.walker.resumeInput(input);
+	}
+
+	async restoreWalking(snapshot: WalkingSnapshot): Promise<string | null> {
+		const map = snapshot.feet.mapId === null ? null : await this.placementFor(snapshot.feet.mapId);
+		const feet = new THREE.Vector3(...restoreCamera(snapshot.feet, map));
+		const at = this.terrain.locate(feet.x, feet.z);
+		if (!at || (map && at.continent.mapId !== map.mapId)) return 'No ground at the character position; switched to fly mode';
+		// Pump the paused viewer until this tile's collision data is ready. Waiting for the whole
+		// scene's model/upload queues also waits for distant scenery and NPCs, even on a warm switch.
+		// Coarse terrain alone cannot prove a building floor is absent; include this tile's objects.
+		const deadline = performance.now() + 60000;
+		let ready = false;
+		do {
+			this.terrain.update(feet);
+			this.objects.update(performance.now(), feet);
+			this.uploads.drain();
+			ready = this.terrain.collisionReadyAt(feet.x, feet.z);
+			if (ready) break;
+			await new Promise(resolve => setTimeout(resolve, 16));
+		} while (performance.now() < deadline);
+		if (!ready) throw new Error('Ground at the character position is still loading. Try the switch again.');
+		if (Object.entries(snapshot.look).some(([key, value]) => this.characterLook[key as keyof CharacterLook] !== value)) await this.setLook(snapshot.look);
+		if (!this.walker.restore(feet, snapshot.motion)) return 'No usable ground below the character; switched to fly mode';
+		this.controls.enabled = false;
+		void this.dressCharacter();
+		this.controls.mirror(this.walker.yaw, this.walker.pitch, 0, 0);
+		this.onChange('walking');
+		return null;
+	}
+
+	async restoreView(view: CameraView): Promise<void> {
+		const map = view.mapId === null ? null : await this.placementFor(view.mapId);
+		const position = new THREE.Vector3(...restoreCamera(view, map));
+		if (map && this.terrain.locate(position.x, position.z)?.continent.mapId !== map.mapId) {
+			throw new Error('This location is unavailable in the selected game.');
+		}
+		// Verify that the current tile is readable before making this scene visible.
+		const at = this.terrain.locate(position.x, position.z);
+		if (at && !at.continent.building && !this.terrain.detailedAt(position.x, position.z)) await this.storage.loadNearTile(at.continent.wdt, at.tileX, at.tileY, this.usesCompressedTextures);
+		this.endShot();
+		this.controls.set(position, view.yaw, view.pitch, true);
+		this.triggersArmed = false;
+		// Render the exact view once without collision correction or automatic travel.
+		this.holdView = true;
+		this.tick(0, performance.now());
+		this.holdView = false;
+	}
+
+	private frameId = 0;
+	private running = false;
+	private holdView = false;
+
+	pause(): void {
+		this.endShot();
+		this.running = false;
+		cancelAnimationFrame(this.frameId);
+		this.controls.enabled = false;
+		this.stopTime();
+	}
+
 	start(): void {
+		if (this.running) return;
+		this.running = true;
+		this.controls.enabled = !this.walker.active;
 		let last = performance.now();
 		const frame = (now: number) => {
+			if (!this.running) return;
 			const dt = Math.min(0.1, (now - last) / 1000);
 			last = now;
 			this.tick(dt, now);
-			requestAnimationFrame(frame);
+			this.frameId = requestAnimationFrame(frame);
 		};
-		requestAnimationFrame(frame);
+		this.frameId = requestAnimationFrame(frame);
 	}
 
 	private tick(dt: number, now: number): void {
 		perf.frameStart(now, this.renderer.info.programs?.length ?? 0);
 		// The camera holds still while a screenshot is prepared.
-		if (!this.shot) {
+		if (!this.shot && !this.holdView) {
 			if (this.walker.active) {
 				this.walker.update(dt);
 				const cam = this.camera.position;
@@ -1758,7 +1846,7 @@ export class Viewer {
 		animateFlipbooks(now / 1000);
 		const pos = this.camera.position;
 
-		if (now - this.lastTriggerCheck > 100) {
+		if (!this.holdView && now - this.lastTriggerCheck > 100) {
 			this.lastTriggerCheck = now;
 			this.checkTriggers();
 		}
@@ -1864,7 +1952,7 @@ export class Viewer {
 	 * tuft of grass and particle effect on them however far off, and once they have the picture is saved (see updateShot).
 	 */
 	private startShot(): void {
-		if (this.controls.locked) document.exitPointerLock();
+		if (this.controls.locked) unlockPointer();
 		// Only the tiles that can be seen: not those behind a hill, or above a cave from inside it.
 		this.occlusion ??= new ViewOcclusion(this.renderer);
 		this.occlusion.render(this.renderer, this.camera, this.terrain.group, this.objects.group, this.objects.buildingMeshes());

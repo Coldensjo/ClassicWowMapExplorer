@@ -1,3 +1,8 @@
+import { unlockPointer, pointerLocked } from './session';
+import { setAudioActive } from './audioOut';
+import { GAME_PRODUCTS, productLabel, gameOrder, moveGame, gameHotkey, gameShortcutIndex } from './gameVersion';
+import { sessionHost, type SessionSnapshot, type ViewerSession } from './session';
+import type { ProductInfo } from '../casc/config';
 import { droppedFolderToSource, filesToSource, hasDirectoryPicker, pickDirectory } from '../app/folderPicker';
 import { createStorageClient } from '../worker/client';
 import type { SourceInit } from '../worker/protocol';
@@ -24,6 +29,11 @@ import { WorldMap } from './worldMap';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = $('status');
+const host = sessionHost();
+const requested = host?.request(window);
+if (requested) setAudioActive(false);
+let sourceInit: SourceInit;
+let installedProducts: ProductInfo[] = [];
 
 const storage = createStorageClient((message) => showProgress(message), () => ($('game-updated').hidden = false));
 $('game-updated-reload').addEventListener('click', () => location.reload());
@@ -60,6 +70,7 @@ const FOLDER_CREEP = [0.42, 20] as const;
 /** Shows the loading bar at a step, in place of the folder buttons. */
 function showProgress(message: string): void {
 	perf.log('load', message);
+	host?.progress(window, message);
 	const step = LOADING_STEPS.find(([pattern]) => pattern.test(message));
 	const appearing = $('loading').hidden;
 	$('drop').hidden = true;
@@ -84,13 +95,19 @@ function hideProgress(): void {
 }
 
 async function useSource(init: SourceInit): Promise<void> {
+	sourceInit = init;
 	showProgress('Reading .build.info');
 	try {
-		const products = (await storage.setSource(init)).filter((p) => p.product.startsWith('wow'));
+		const builds = (await storage.setSource(init)).filter((p) => p.product.startsWith('wow'));
+		// Prefer the same active build metadata that CascStorage.open tries first.
+		const products = [...new Set(builds.map(p => p.product))].map(id =>
+			builds.find(p => p.product === id && p.active) ?? builds.find(p => p.product === id)!);
+		installedProducts = products;
 		const select = $<HTMLSelectElement>('product');
-		select.replaceChildren(...products.map((p) => new Option(`${p.product} ${p.version}`, p.product)));
+		select.replaceChildren(...products.map((p) => new Option(`${productLabel(p.product)} ${p.version}`, p.product)));
 		// Prefer a classic build: the continent file IDs are the classic ones.
-		const preferred = products.find((p) => p.product === 'wow_classic_beta') ?? products.find((p) => p.product.startsWith('wow_classic'));
+		if (requested && !products.some(p => p.product === requested.product)) throw new Error(productLabel(requested.product) + ' is no longer installed.');
+		const preferred = (requested ? products.find(p => p.product === requested.product) : undefined) ?? GAME_PRODUCTS.map(id => products.find(p => p.product === id)).find(Boolean);
 		if (preferred) {
 			// Nothing to choose: straight in.
 			select.value = preferred.product;
@@ -103,6 +120,7 @@ async function useSource(init: SourceInit): Promise<void> {
 	} catch (e) {
 		console.error('Reading the game folder failed', e);
 		setStatus(folderProblem(init, e), true);
+		host?.failed(window, folderProblem(init, e));
 	}
 }
 
@@ -139,7 +157,8 @@ async function findWow(): Promise<void> {
 	$('start').classList.remove('finding');
 	if (found) await useSource({ kind: 'http', base });
 }
-void findWow();
+if (requested) void useSource(requested.source);
+else void findWow();
 
 // Dropping the folder on the page works like choosing it.
 const drop = $('drop');
@@ -206,9 +225,28 @@ async function explore(): Promise<void> {
 	button.disabled = true;
 	for (const id of ['pick', 'pick-direct']) $<HTMLButtonElement>(id).disabled = true;
 	try {
-		await storage.open($<HTMLSelectElement>('product').value);
+		const opened = await storage.open($<HTMLSelectElement>('product').value);
+		console.info('[MapExplorer] Opened product: ' + JSON.stringify({ product: opened.product, version: opened.version, buildName: opened.buildName }));
+		const actual = installedProducts.find(p => p.product === opened.product);
+		if (actual) actual.version = opened.version;
 		const ui = loadUiAssets(storage);
-		const viewer = new Viewer($('view'), storage, showHud, showInfo, $('nameplates'));
+		let characterStorage = storage;
+		let characterNotice: string | null = null;
+		if (opened.product !== 'wow_classic_beta') {
+			if (installedProducts.some(p => p.product === 'wow_classic_beta')) {
+				try {
+					const forever = createStorageClient(() => {}, () => ($('game-updated').hidden = false));
+					await forever.setSource(sourceInit);
+					const build = await forever.open('wow_classic_beta');
+					characterStorage = forever;
+					console.info('[MapExplorer] Walking character assets: ' + build.product + ' ' + build.version);
+				} catch (error) {
+					console.warn('Forever character source unavailable:', error);
+					characterNotice = 'Forever character files could not be opened; using this game’s character files.';
+				}
+			} else characterNotice = 'Forever is not installed; using this game’s character files.';
+		}
+		const viewer = new Viewer($('view'), storage, showHud, showInfo, $('nameplates'), characterStorage);
 		infoViewer = viewer;
 		// For poking at the scene from the console (and test scripts) while developing.
 		if (import.meta.env.DEV) (globalThis as unknown as { mapExplorerViewer: Viewer }).mapExplorerViewer = viewer;
@@ -223,20 +261,79 @@ async function explore(): Promise<void> {
 		$('start').hidden = true;
 		$('menu').hidden = $('top-left').hidden = $('side').hidden = false;
 		setUpView(viewer);
-		viewer.start();
+
 		perf.log('load', 'world shown');
 		console.info('[MapExplorer] Freezes of 100 ms or more are written here as they happen. F9 saves the full debug log to a file; mapExplorerPerf.verbose = true writes every log line here too.');
 		setUpMinimap(viewer, minimapArrow);
 		void setUpGoTo(viewer);
 		setUpHighlights(viewer);
 		setUpTravel(viewer, minimapArrow);
-		setUpWalking(viewer);
+		const syncWalking = setUpWalking(viewer);
 		setUpEmotes(viewer);
 		setUpSound(viewer);
 		setUpHelp();
+		let currentSound = requested?.snapshot.sound ?? viewer.soundOn;
+		let motion = viewer.captureMotion();
+		let switchNotice: string | null = null;
+		window.addEventListener('blur', event => { if (event.isTrusted) host?.blur(window); });
+		// Track native input before controllers see it, including releases during a switch.
+		for (const type of ['keydown', 'keyup', 'mousedown', 'mouseup', 'mousemove', 'wheel', 'click', 'contextmenu']) window.addEventListener(type, event => {
+			if (!event.isTrusted || (type === 'keydown' && isTyping(event as KeyboardEvent))) return;
+			if (host && !host.input(window, event as KeyboardEvent | MouseEvent)) { event.preventDefault(); event.stopImmediatePropagation(); }
+		}, { capture: true, passive: false });
+		for (const type of ['pointerlockchange', 'pointerlockerror']) document.addEventListener(type, event => {
+			if (event.isTrusted && host && !host.captureChanged(window, type)) event.stopImmediatePropagation();
+		}, true);
+		const syncGame = setUpGame();
+		const session: ViewerSession = {
+			source: sourceInit, product: $<HTMLSelectElement>('product').value, products: installedProducts,
+			snapshot: () => ({ camera: viewer.captureView(), settings: viewer.settings, time: viewer.timeMinutes, sound: viewer.soundOn, fly: viewer.captureMotion(), walking: viewer.captureWalking() }),
+			pause: () => {
+				currentSound = viewer.soundOn;
+				motion = viewer.captureMotion();
+				viewer.pause();
+				setAudioActive(false);
+			},
+			prepare: async (snapshot: SessionSnapshot) => {
+				viewer.settings = snapshot.settings;
+				await viewer.restoreView(snapshot.camera);
+				motion = snapshot.fly;
+				switchNotice = snapshot.walking ? await viewer.restoreWalking(snapshot.walking) : null;
+				viewer.timeMinutes = snapshot.time;
+				currentSound = snapshot.sound;
+				syncViewSettings?.();
+				syncWalking();
+			},
+			activate: (input = { keys: [], buttons: 0 }) => {
+				syncGame();
+				if (characterNotice) { notify(characterNotice); characterNotice = null; }
+				if (currentSound !== null && viewer.soundOn !== currentSound) viewer.soundOn = currentSound;
+				setAudioActive(true);
+				viewer.start();
+				viewer.resumeInput(input, motion);
+				if (switchNotice) { notify(switchNotice); switchNotice = null; }
+			},
+			event: event => {
+				const init = { bubbles: true, cancelable: true };
+				if (event.type === 'blur') window.dispatchEvent(new Event('blur'));
+				else if (event.type.startsWith('pointerlock')) document.dispatchEvent(new Event(event.type));
+				else if (event.type.startsWith('key')) {
+					const e = event as KeyboardEvent;
+					$('view').dispatchEvent(new KeyboardEvent(e.type, { ...init, key: e.key, code: e.code, repeat: e.repeat, ctrlKey: e.ctrlKey, altKey: e.altKey, shiftKey: e.shiftKey, metaKey: e.metaKey }));
+				} else {
+					const e = event as MouseEvent;
+					const mouse = { ...init, button: e.button, buttons: e.buttons, clientX: e.clientX, clientY: e.clientY, movementX: e.movementX, movementY: e.movementY };
+					$('view').dispatchEvent(e.type === 'wheel' ? new WheelEvent(e.type, { ...mouse, deltaY: (e as WheelEvent).deltaY }) : new MouseEvent(e.type, mouse));
+				}
+			},
+		};
+		if (requested) await session.prepare(requested.snapshot);
+		host?.ready(window, session);
+		if (!host) session.activate();
 	} catch (e) {
 		perf.log('error', `could not start: ${(e as Error).message}`);
 		setStatus(`Could not start: ${(e as Error).message}`, true);
+		host?.failed(window, `Could not switch: ${(e as Error).message}`);
 		button.disabled = false;
 		for (const id of ['pick', 'pick-direct']) $<HTMLButtonElement>(id).disabled = false;
 	}
@@ -301,7 +398,8 @@ document.addEventListener('change', (e) => {
 });
 document.addEventListener('click', (e) => {
 	// Space flies up; it mustn't fold a panel or press a button again.
-	(e.target as Element).closest<HTMLElement>('summary, button')?.blur();
+	const control = (e.target as Element).closest<HTMLElement>('summary, button');
+	if (!control?.classList.contains('game-handle')) control?.blur();
 });
 $('view').addEventListener('pointerdown', () => {
 	(document.activeElement as HTMLElement | null)?.blur();
@@ -326,6 +424,8 @@ type SavedView = Partial<ViewSettings> & { stats: boolean };
 const hudFollowers: (() => void)[] = [];
 
 /** The View, Graphics and Camera menus: every setting the keys toggle, the time of day and the HUD's stats; remembered between visits. */
+let syncViewSettings: (() => void) | undefined;
+
 function setUpView(viewer: Viewer): void {
 	const menu = $('menu');
 	const { stats = false, ...settings } = readSaved<SavedView>(VIEW_KEY);
@@ -341,6 +441,7 @@ function setUpView(viewer: Viewer): void {
 			else c.value = String(value);
 		}
 	};
+
 	const setStats = (on: boolean) => {
 		statsBox.checked = on;
 		$('hud-stats').hidden = !on;
@@ -486,6 +587,7 @@ function setUpView(viewer: Viewer): void {
 	}
 	syncResolution();
 
+	syncViewSettings = () => { sync(); syncResolution(); syncTime(); syncSpeed(); syncClutterRange(); syncDetailRange(); syncMouseSpeed(); syncSound(viewer); };
 	viewer.onChange = (change) => {
 		const s = viewer.settings;
 		sync();
@@ -752,7 +854,7 @@ void labelKeys();
 const WALK_KEY = 'mapExplorer.walker';
 
 /** The Travel menu's switch between flying and walking, and the travel form that walks: race, sex, model, outfit and look, remembered. */
-function setUpWalking(viewer: Viewer): void {
+function setUpWalking(viewer: Viewer): () => void {
 	const race = $<HTMLSelectElement>('walk-race');
 	const sex = $<HTMLSelectElement>('walk-sex');
 	const model = $<HTMLSelectElement>('walk-model');
@@ -853,6 +955,7 @@ function setUpWalking(viewer: Viewer): void {
 	});
 	hudFollowers.push(sync);
 	sync();
+	return () => { look = viewer.look; show(); sync(); };
 }
 
 const EMOTE_KEY = 'mapExplorer.emotes';
@@ -1128,7 +1231,7 @@ async function setUpGoTo(viewer: Viewer): Promise<void> {
 	window.addEventListener('keydown', (e) => {
 		if (e.key !== '/' || isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
 		e.preventDefault();
-		if (document.pointerLockElement) document.exitPointerLock();
+		if (pointerLocked()) unlockPointer();
 		menu.open = true;
 		input.focus();
 	});
@@ -1239,7 +1342,7 @@ function setUpHelp(): void {
 	const help = $('help');
 	const show = (on: boolean) => {
 		help.hidden = !on;
-		if (on && document.pointerLockElement) document.exitPointerLock();
+		if (on && pointerLocked()) unlockPointer();
 	};
 	$('help-hint').addEventListener('click', () => show(Boolean(help.hidden)));
 	$('help-close').addEventListener('click', () => show(false));
@@ -1303,7 +1406,7 @@ function showShotStatus(text: string | null, done = false): void {
 // --- Clicked creature or object ---
 
 document.addEventListener('pointerlockchange', () => {
-	$('crosshair').hidden = !document.pointerLockElement;
+	$('crosshair').hidden = !pointerLocked();
 });
 $('info-close').addEventListener('click', () => ($('info').hidden = true));
 window.addEventListener('keydown', (e) => {
@@ -1420,4 +1523,105 @@ function showHud(info: HudInfo): void {
 		]);
 	}
 	for (const follow of hudFollowers) follow();
+}
+
+/** Installed games in a persisted order, shared with the other cached viewer documents. */
+function setUpGame(): () => void {
+	const current = $<HTMLSelectElement>('product').value;
+	const list = $('game-list');
+	const key = 'mapExplorer.gameOrder';
+	const products = installedProducts.map(p => p.product);
+	let order: string[] = [];
+	let dragged: string | null = null;
+	$('game-title').textContent = 'Game';
+	const change = (product: string) => {
+		if (product !== current) host?.switchProduct(window, product);
+	};
+	const reorder = (product: string, target: string, after: boolean) => {
+		order = moveGame(order, product, target, after);
+		save(key, { order });
+		render();
+		list.querySelector<HTMLButtonElement>('[data-product="' + CSS.escape(product) + '"] .game-handle')?.focus();
+	};
+	function render(): void {
+		list.replaceChildren(...order.map((product, index) => {
+			const row = document.createElement('div');
+			row.className = 'game-row';
+			row.dataset.product = product;
+			row.setAttribute('role', 'listitem');
+			const handle = document.createElement('button');
+			handle.className = 'game-handle';
+			handle.textContent = '☰';
+			handle.draggable = true;
+			handle.setAttribute('aria-label', 'Reorder ' + productLabel(product));
+			handle.title = 'Drag to reorder; Arrow Up/Down to move';
+			handle.addEventListener('keydown', e => {
+				if (!['ArrowUp', 'ArrowDown'].includes(e.code)) return;
+				e.preventDefault(); e.stopPropagation();
+				const target = order[index + (e.code === 'ArrowUp' ? -1 : 1)];
+				if (target) reorder(product, target, e.code === 'ArrowDown');
+			});
+			handle.addEventListener('dragstart', e => {
+				dragged = product;
+				if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', product); }
+				row.classList.add('dragging');
+			});
+			handle.addEventListener('dragend', () => { dragged = null; clearDrag(); });
+			row.addEventListener('dragover', e => {
+				if (!dragged || dragged === product) return;
+				e.preventDefault();
+				if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+				clearDrag();
+				const rect = row.getBoundingClientRect();
+				row.classList.add(e.clientY > rect.top + rect.height / 2 ? 'drop-after' : 'drop-before');
+			});
+			row.addEventListener('dragleave', () => row.classList.remove('drop-before', 'drop-after'));
+			row.addEventListener('drop', e => {
+				if (!dragged) return;
+				e.preventDefault();
+				const rect = row.getBoundingClientRect();
+				const moving = dragged; dragged = null;
+				reorder(moving, product, e.clientY > rect.top + rect.height / 2);
+			});
+			const button = document.createElement('button');
+			button.className = 'game-choice';
+			button.classList.toggle('active', product === current);
+			button.setAttribute('aria-pressed', String(product === current));
+			button.setAttribute('aria-label', productLabel(product));
+			const shortcut = gameHotkey(index);
+			if (shortcut) button.setAttribute('aria-keyshortcuts', shortcut.replace('Ctrl', 'Control'));
+			button.title = product + ' ' + installedProducts.find(p => p.product === product)!.version;
+			const name = document.createElement('span');
+			name.className = 'game-name';
+			name.textContent = productLabel(product);
+			const version = document.createElement('small');
+			version.textContent = installedProducts.find(p => p.product === product)!.version;
+			name.append(version);
+			const active = document.createElement('span');
+			active.className = 'game-active';
+			active.textContent = product === current ? '✓' : '';
+			active.setAttribute('aria-hidden', 'true');
+			const hotkey = document.createElement('kbd');
+			hotkey.textContent = shortcut;
+			button.append(active, name, hotkey);
+			button.addEventListener('click', () => change(product));
+			row.append(handle, button);
+			return row;
+		}));
+	}
+	function clearDrag(): void {
+		for (const row of list.children) row.classList.remove('dragging', 'drop-before', 'drop-after');
+	}
+	const sync = () => { order = gameOrder(products, readSaved<{ order: string[] }>(key).order); render(); };
+	window.addEventListener('storage', e => { if (e.key === key || e.key === null) sync(); });
+	window.addEventListener('keydown', e => {
+		const index = gameShortcutIndex(e);
+		if (index === null) return;
+		// Consume before the existing number-key continent shortcuts and browser tab selection.
+		e.preventDefault(); e.stopImmediatePropagation();
+		const product = gameOrder(products, readSaved<{ order: string[] }>(key).order)[index];
+		if (product) change(product);
+	}, true);
+	sync();
+	return sync;
 }

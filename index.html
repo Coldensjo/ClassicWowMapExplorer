@@ -44,6 +44,10 @@
 
 	<!-- Along the top: the menus, each dropping down below its name, and Go to and the controls list at the right. -->
 	<nav id="menu" aria-label="Settings" hidden>
+		<details id="game-panel" name="menu">
+			<summary id="game-title">Game</summary>
+			<div class="menu-body panel game-list" id="game-list" role="list" aria-label="Installed games"></div>
+		</details>
 		<details id="view-panel" name="menu">
 			<summary>View</summary>
 			<div class="menu-body panel settings">
@@ -381,6 +385,7 @@
 					<h3>Screen</h3>
 					<div>Click creatures and objects for their details</div>
 					<div><kbd>P</kbd> screenshot, everything in view in full detail</div>
+					<div><kbd>Ctrl</kbd> + <kbd>1</kbd> through <kbd>9</kbd> (then <kbd>0</kbd>) select a game in menu order</div>
 					<div><kbd>U</kbd> hide the interface · <kbd>K</kbd> performance stats · <kbd>F9</kbd> save a debug log</div>
 					<div><kbd>?</kbd> or <kbd>F1</kbd> this list</div>
 				</section>
@@ -389,6 +394,6 @@
 		</div>
 	</div>
 
-	<script type="module" src="/src/viewer/main.ts"></script>
+	<script type="module" src="/src/viewer/entry.ts"></script>
 </body>
 </html>

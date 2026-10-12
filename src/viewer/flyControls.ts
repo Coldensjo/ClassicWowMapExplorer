@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { lookPerPixel } from './look';
 import { isTyping } from './typing';
+import { lockPointer, pointerLocked, sessionHost } from './session';
+import type { HeldInput } from './session';
+
+export interface FlyMotion { lookYaw: number; lookPitch: number; zoomVelocity: number }
 
 const MAX_PITCH = THREE.MathUtils.degToRad(89.5);
 const MIN_CLEARANCE = 2;
@@ -52,6 +56,7 @@ export class FlyControls {
 	private lastGround = -Infinity;
 	/** How far below the ground the camera may still be while it eases up after the ground popped. */
 	private groundEase = 0;
+	private holdPosition = false;
 	/** Height above ground at the last update. */
 	altitude = 0;
 	speed = 0;
@@ -62,7 +67,7 @@ export class FlyControls {
 	) {
 
 		document.addEventListener('mousemove', (e) => {
-			if (!this.enabled || document.pointerLockElement !== element) return;
+			if (!this.enabled || !pointerLocked(element)) return;
 			// Browsers now and then report a bogus jump (the hidden cursor being recentred), which
 			// would snap the view; no real flick covers a third of the window in one event.
 			if (Math.abs(e.movementX) > window.innerWidth / 3 || Math.abs(e.movementY) > window.innerHeight / 3) return;
@@ -75,11 +80,13 @@ export class FlyControls {
 			e.preventDefault();
 			if (!this.enabled) return;
 			this.flight = null;
+			this.holdPosition = false;
 			this.zoomVelocity += -Math.sign(e.deltaY) * 2.5;
 		}, { passive: false });
 		window.addEventListener('keydown', (e) => {
 			if (isTyping(e) || !this.enabled) return;
 			this.keys.add(e.code);
+			if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyQ', 'Space', 'KeyC', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) this.holdPosition = false;
 			if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC'].includes(e.code)) {
 				this.flight = null;
 				// Moving yourself gets you off a ride, as does Escape.
@@ -89,7 +96,7 @@ export class FlyControls {
 			if (e.code === 'Space') e.preventDefault();
 		});
 		window.addEventListener('keyup', (e) => this.keys.delete(e.code));
-		window.addEventListener('blur', () => this.keys.clear());
+		window.addEventListener('blur', () => { if (!sessionHost()?.focused()) this.keys.clear(); });
 	}
 
 	/** Adjusts a move so it doesn't pass through solid things; set by the viewer. */
@@ -144,12 +151,29 @@ export class FlyControls {
 		if (this.locked) return;
 		// Raw mouse movement skips the OS pointer acceleration, which is also where the spurious
 		// jumps come from; fall back to the plain lock where it isn't supported.
-		const request = (this.element.requestPointerLock as (options?: { unadjustedMovement?: boolean }) => Promise<void> | void).call(this.element, { unadjustedMovement: true });
-		if (request instanceof Promise) request.catch(() => this.element.requestPointerLock());
+		const request = lockPointer(this.element, true);
+		void Promise.resolve(request).catch(() => lockPointer(this.element)).catch(() => {});
 	}
 
 	get locked(): boolean {
-		return document.pointerLockElement === this.element;
+		return pointerLocked(this.element);
+	}
+
+	captureMotion(): FlyMotion {
+		return { lookYaw: this.lookYaw, lookPitch: this.lookPitch, zoomVelocity: this.zoomVelocity };
+	}
+
+	restoreMotion(motion: FlyMotion): void {
+		this.lookYaw = motion.lookYaw;
+		this.lookPitch = motion.lookPitch;
+		this.zoomVelocity = motion.zoomVelocity;
+		if (this.zoomVelocity) this.holdPosition = false;
+	}
+
+	resumeInput(input: HeldInput): void {
+		this.keys.clear();
+		for (const key of input.keys) this.keys.add(key);
+		if (input.keys.some(key => /^(Key[WASDEQC]|Space|Arrow(Up|Down|Left|Right))$/.test(key))) this.holdPosition = false;
 	}
 
 	forward(out = new THREE.Vector3()): THREE.Vector3 {
@@ -163,6 +187,7 @@ export class FlyControls {
 		let fromYaw = this.yaw;
 		while (yaw - fromYaw > Math.PI) fromYaw += Math.PI * 2;
 		while (fromYaw - yaw > Math.PI) fromYaw -= Math.PI * 2;
+		this.holdPosition = false;
 		this.flight = { from: this.camera.position.clone(), to: position.clone(), fromYaw, toYaw: yaw, fromPitch: this.pitch, toPitch: pitch, t: 0, duration };
 	}
 
@@ -175,6 +200,7 @@ export class FlyControls {
 		this.onTakeOver?.();
 		this.endRide(false);
 		this.flight = null;
+		this.holdPosition = false;
 		this.riding = { ride, onEnd, looked: RIDE_LOOK_HOLD };
 	}
 
@@ -189,9 +215,10 @@ export class FlyControls {
 		r.onEnd(completed);
 	}
 
-	set(position: THREE.Vector3, yaw: number, pitch: number): void {
+	set(position: THREE.Vector3, yaw: number, pitch: number, holdPosition = false): void {
 		this.onTakeOver?.();
 		this.endRide(false);
+		this.holdPosition = holdPosition;
 		this.camera.position.copy(position);
 		this.yaw = this.lookYaw = yaw;
 		this.pitch = this.lookPitch = pitch;
@@ -216,6 +243,16 @@ export class FlyControls {
 		this.groundEase *= Math.exp(-dt * 6);
 		if (this.groundEase < 0.01) this.groundEase = 0;
 		const surface = surfaceHeight(pos.x, pos.z);
+		if (this.holdPosition) {
+			// A build can put a wall or ground where the previous build had free space.
+			// Keep the exact restored position until the user actually moves.
+			this.yaw = this.lookYaw;
+			this.pitch = this.lookPitch;
+			this.altitude = Math.max(0, pos.y - Math.max(surface, 0));
+			this.speed = 0;
+			this.apply();
+			return;
+		}
 		this.altitude = Math.max(0, pos.y - Math.max(surface, 0));
 		// Underground (entered through a hole): caves and mines lie below the surface, so the
 		// ground only stops the camera when it comes from above.

@@ -1,3 +1,4 @@
+import { unlockPointer } from './session';
 import type { MapAssignment, WorldMapInfo } from '../explorer/worldMap';
 import type { Image } from '../formats/blp';
 import type { AsyncStorageApi } from '../worker/protocol';
@@ -91,7 +92,7 @@ export class WorldMap {
 
 	async open(): Promise<void> {
 		this.panel.hidden = false;
-		document.exitPointerLock?.();
+		unlockPointer();
 		await this.load();
 		const view = this.where();
 		this.show(view ? this.mapAt(view.mapId, view.x, view.y, ZONE) ?? this.mapAt(view.mapId, view.x, view.y, CONTINENT) : null);

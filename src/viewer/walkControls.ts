@@ -2,6 +2,14 @@ import * as THREE from 'three';
 import { lookPerPixel } from './look';
 import { isTyping } from './typing';
 import { WALKABLE } from './walkable';
+import { lockPointer, pointerLocked, unlockPointer, sessionHost } from './session';
+import type { HeldInput } from './session';
+
+export interface WalkSnapshot {
+	facing: number; orbit: number; pitch: number;
+	zoom: number; zoomTarget: number; distance: number;
+	walkMode: boolean; dragging: boolean; dragged: number;
+}
 
 /** Speeds in yards per second, as in the original game. */
 export const RUN_SPEED = 7;
@@ -48,8 +56,6 @@ const SHORE_CLIMB = 0.6;
 
 /** A press that moves the mouse further than this (pixels) is a drag, not a click. */
 const DRAG_THRESHOLD = 4;
-/** ms before asking again to hide the mouse when the browser refused (still showing it from the last press). */
-const CAPTURE_RETRY = 100;
 /** The bit in MouseEvent.buttons for each MouseEvent.button: left, middle, right, back, forward. */
 const BUTTON_BITS = [1, 4, 2, 8, 16];
 
@@ -171,6 +177,7 @@ export class WalkControls {
 			if (!this.active) return;
 			this.dragging = true;
 			this.dragged = 0;
+			this.captureFailed = false;
 			this.buttons = e.buttons;
 			// Taking hold with the right button turns the character to where the camera looks, and
 			// hides the mouse while it's held (as in the game), so it can turn without running out of screen.
@@ -194,7 +201,7 @@ export class WalkControls {
 			if (!this.active) return;
 			// While the mouse is hidden every mouseup is heard, and Firefox on Linux reports no buttons
 			// held on its moves then, so only the presses and lets go say what's held.
-			if (document.pointerLockElement !== element) this.buttons = e.buttons;
+			if (!pointerLocked(element)) this.buttons = e.buttons;
 			// Only while a button is held: left turns the camera, right the character too.
 			if (!(this.dragging && this.buttons & 3)) {
 				// The button came up somewhere it wasn't heard: show the mouse again.
@@ -226,12 +233,14 @@ export class WalkControls {
 		}, { passive: false });
 		window.addEventListener('keydown', (e) => {
 			if (!this.active || isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+			if (e.code === 'Escape') { this.dragging = false; this.buttons = 0; this.release(); return; }
 			this.keys.add(e.code);
 			if (e.code === 'Space') e.preventDefault();
 			if ((e.code === 'NumpadDivide' || e.code === 'Backslash') && !e.repeat) this.walkMode = !this.walkMode;
 		});
 		window.addEventListener('keyup', (e) => this.keys.delete(e.code));
 		window.addEventListener('blur', () => {
+			if (sessionHost()?.focused()) return;
 			this.keys.clear();
 			this.buttons = 0;
 			this.dragging = false;
@@ -241,24 +250,26 @@ export class WalkControls {
 			const asked = this.requesting;
 			this.requesting = false;
 			this.skipMove = true;
-			const locked = document.pointerLockElement === element;
+			const locked = pointerLocked(element);
 			// Hidden for walking only once flying again: show it, rather than leave flying turned by it.
 			if (!this.active) {
-				if (asked && locked) document.exitPointerLock();
+				if (asked && locked) unlockPointer();
 				return;
 			}
 			// Let go before the hiding took (a quick click): show it again.
 			if (locked && !this.dragging) this.release();
-			// Asked again while the last showing was still under way, which the browser refuses: ask now it's done.
-			else if (!locked && this.dragging && this.wantHidden) this.capture();
+
 		});
 		document.addEventListener('pointerlockerror', () => {
 			this.requesting = false;
+			this.captureFailed = true;
 		});
 	}
 
 	/** A request to hide the mouse is under way. */
 	private requesting = false;
+	/** A refused capture must not retry and steal focus on every mouse movement. */
+	private captureFailed = false;
 	/** The mouse should be hidden (a button is turning the view). */
 	private wantHidden = false;
 	/** Skip the next movement: the jump from hiding or showing the mouse. */
@@ -279,22 +290,21 @@ export class WalkControls {
 	 */
 	private capture(): void {
 		this.wantHidden = true;
-		if (document.pointerLockElement === this.element || this.requesting) return;
+		document.documentElement.classList.add('turning-camera');
+		if (pointerLocked(this.element) || this.requesting || this.captureFailed) return;
 		this.requesting = true;
-		const request = this.element.requestPointerLock() as Promise<void> | undefined;
-		// Refused (an earlier showing still under way): pointerlockchange asks again once it's done,
-		// or, if that came first, ask again in a moment.
-		request?.catch?.(() => {
+		const request = lockPointer(this.element);
+		// Keep uncaptured dragging usable on refusal; retry only on a fresh mouse press.
+		void Promise.resolve(request).catch(() => {
 			this.requesting = false;
-			setTimeout(() => {
-				if (this.active && this.dragging && this.wantHidden) this.capture();
-			}, CAPTURE_RETRY);
+			this.captureFailed = true;
 		});
 	}
 
 	private release(): void {
 		this.wantHidden = false;
-		if (document.pointerLockElement === this.element) document.exitPointerLock();
+		document.documentElement.classList.remove('turning-camera');
+		if (pointerLocked(this.element)) unlockPointer();
 	}
 
 
@@ -371,6 +381,50 @@ export class WalkControls {
 		this.buttons = 0;
 		this.dragging = false;
 		this.release();
+	}
+
+	captureState(): WalkSnapshot {
+		return { facing: this.facing, orbit: this.orbit, pitch: this.pitch, zoom: this.zoom,
+			zoomTarget: this.zoomTarget, distance: this.distance, walkMode: this.walkMode,
+			dragging: this.dragging, dragged: this.dragged };
+	}
+
+	/** Prefer existing support; only search from above when the same spot has no usable floor. */
+	restore(feet: THREE.Vector3, snapshot: WalkSnapshot): boolean {
+		const usable = (floor: Floor | null) => floor && floor.normal.y >= WALKABLE ? floor : null;
+		const floor = usable(this.floorAt(feet.x, feet.z, feet.y + STEP_UP, feet.y - SNAP_DOWN))
+			?? usable(this.floorAt(feet.x, feet.z, feet.y + 50, feet.y - 5000));
+		if (!floor) return false;
+		const water = this.world!.liquid(feet.clone().setY(floor.y));
+		if (water?.sea && water.surface - floor.y > 2) return false;
+		this.place(feet.clone().setY(floor.y), snapshot.facing, snapshot.pitch);
+		this.orbit = snapshot.orbit;
+		this.zoom = snapshot.zoom;
+		this.zoomTarget = snapshot.zoomTarget;
+		this.distance = snapshot.distance;
+		this.walkMode = snapshot.walkMode;
+		this.dragging = snapshot.dragging;
+		this.dragged = snapshot.dragged;
+		this.wantHidden = snapshot.dragging;
+		this.state = 'ground';
+		this.ground = floor.ground;
+		this.lastStand.copy(this.position);
+		this.lastStandFacing = this.facing;
+		this.hasStood = true;
+		this.active = true;
+		this.updateCamera(0, false);
+		return true;
+	}
+
+	resumeInput(input: HeldInput): void {
+		this.keys.clear();
+		for (const key of input.keys) this.keys.add(key);
+		this.buttons = input.buttons;
+		if (!(input.buttons & 3)) {
+			this.dragging = false;
+			this.wantHidden = false;
+			if (this.active) this.release();
+		} else if (this.active && this.dragging && (this.wantHidden || this.buttons & 2)) this.capture();
 	}
 
 	/**
@@ -735,10 +789,10 @@ export class WalkControls {
 	}
 
 	/** The camera behind and above the character's head, pulled in front of anything in between. */
-	private updateCamera(dt: number): void {
+	private updateCamera(dt: number, snap = dt <= 0): void {
 		const world = this.world;
 		const ease = 1 - Math.exp(-dt * 12);
-		this.zoom += (this.zoomTarget - this.zoom) * (dt > 0 ? ease : 1);
+		this.zoom += (this.zoomTarget - this.zoom) * (snap ? 1 : ease);
 		const target = this.position.clone().setY(this.position.y + this.height * EYE);
 		const yaw = this.yaw;
 		const back = new THREE.Vector3(Math.sin(yaw) * Math.cos(this.pitch), -Math.sin(this.pitch), Math.cos(yaw) * Math.cos(this.pitch));
@@ -764,7 +818,7 @@ export class WalkControls {
 		}
 		reach = Math.max(0.1, reach);
 		// In at once, so nothing hides the character; back out gently.
-		if (reach < this.distance || dt <= 0) this.distance = reach;
+		if (reach < this.distance || snap) this.distance = reach;
 		else this.distance += (reach - this.distance) * (1 - Math.exp(-dt * CAMERA_EASE_OUT));
 		this.camera.position.copy(target).addScaledVector(back, this.distance);
 		this.camera.quaternion.setFromEuler(new THREE.Euler(this.pitch, yaw, 0, 'YXZ'));

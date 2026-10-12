@@ -13,7 +13,17 @@ try {
 }
 
 // The browser keeps the context suspended until the page is clicked or a key is pressed.
-const resume = () => void context?.resume();
+let sessionActive = true;
+const outputs = new Set<HTMLAudioElement>();
+const resume = () => { if (sessionActive) void context?.resume(); };
+
+/** Silence cached sessions immediately, including unrouted/fallback media and late loads. */
+export function setAudioActive(active: boolean): void {
+	sessionActive = active;
+	for (const audio of outputs) audio.muted = !active;
+	if (active) resume();
+	else void context?.suspend();
+}
 window.addEventListener('pointerdown', resume);
 window.addEventListener('keydown', resume);
 
@@ -56,6 +66,9 @@ export function audioContext(): AudioContext | null {
  */
 export function newAudio(url: string, output?: AudioNode): HTMLAudioElement {
 	const audio = new Audio(url);
+	outputs.add(audio);
+	audio.muted = !sessionActive;
+	audio.addEventListener('ended', () => outputs.delete(audio));
 	audio.volume = 0;
 	if (context?.state === 'running') route(audio, output);
 	else if (context) waiting.set(audio, output);
@@ -77,4 +90,5 @@ export function stopAudio(audio: HTMLAudioElement): void {
 	audio.removeAttribute('src');
 	gains.get(audio)?.disconnect();
 	waiting.delete(audio);
+	outputs.delete(audio);
 }

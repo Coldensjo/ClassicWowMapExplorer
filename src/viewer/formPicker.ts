@@ -1,3 +1,4 @@
+import { unlockPointer, pointerLocked } from './session';
 import { CHARACTER_OUTFITS, type CharacterOutfit, type CharacterRace } from '../explorer/spawns';
 import type { CharacterLook } from './character';
 import type { Portraits } from './portraits';
@@ -164,7 +165,7 @@ export class FormPicker {
 	/** Opens on the model the character wears, with its look marked and scrolled to. */
 	open(current: CharacterLook): void {
 		this.chosen = { ...current };
-		if (document.pointerLockElement) document.exitPointerLock();
+		if (pointerLocked()) unlockPointer();
 		const model = current.hd ? 'hd' : 'sd';
 		if (this.ui.model.value !== model) {
 			this.ui.model.value = model;

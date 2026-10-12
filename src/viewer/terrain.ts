@@ -647,6 +647,12 @@ export class TerrainManager {
 		return !!this.tileAt(x, z)?.nearHeights;
 	}
 
+	/** Full terrain and potential object floors at the destination, independent of distant streaming. */
+	collisionReadyAt(x: number, z: number): boolean {
+		const tile = this.tileAt(x, z);
+		return !!tile && (!tile.hasAdt || !!tile.nearHeights) && this.objects.collisionReady(TerrainManager.objectKey(tile));
+	}
+
 	/**
 	 * What the ground sounds like underfoot at a world position: its footstep sound group (1 dirt,
 	 * 3 stone, 6 grass...), from the texture covering most of the cell; 0 where unknown.

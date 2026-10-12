@@ -673,6 +673,20 @@ export class ObjectManager {
 		return n;
 	}
 
+	/** All potential floors in this tile have finished loading, including buildings' doodads. */
+	collisionReady(tileKey: string): boolean {
+		const tile = this.tiles.get(tileKey);
+		if (!tile?.placements || tile.level !== 'all') return false;
+		for (const key of tile.applied.keys()) {
+			const object = this.objects.get(key)!;
+			if (object.placement.kind === 'creature') continue;
+			for (const { entry } of [...object.parts, ...object.doodadParts]) {
+				if (entry.state === 'queued' || entry.state === 'loading') return false;
+			}
+		}
+		return true;
+	}
+
 	private isVisible(entry: ModelEntry, key: string, m: THREE.Matrix4): boolean {
 		if ((entry.kind === 'creature' || entry.kind === 'object') && this.hiddenKinds.has(entry.kind)) return false;
 		if (entry.kind === 'creature' && this.hiddenKinds.has('spiritHealer') && this.objects.get(key)?.placement.spawn?.spiritHealer) return false;

@@ -14,11 +14,9 @@ import type { Emote } from './emotes';
 import type { CharacterRace } from '../explorer/spawns';
 import { FlyControls } from './flyControls';
 import { Footsteps } from './footsteps';
-import { Flights, type FlightMaster } from './flights';
 import { RegionData } from './regionData';
 import { RegionOverlay } from './regionOverlay';
 import { RestedAreas } from './restedAreas';
-import { Transports, type Transport } from './transports';
 import { SNOWFLAKE_TEXTURE, Weather, type WeatherSetting } from './weather';
 import type { WorldMapView } from './worldMap';
 import { Highlights, type HighlightSettings } from './highlights';
@@ -180,10 +178,6 @@ export interface HudInfo {
 	highlights: string;
 	/** The weather now, or '' when it's off. */
 	weather: string;
-	/** The flight being ridden, or ''. */
-	flight: string;
-	/** The boat or zeppelin ridden, or ''. */
-	voyage: string;
 	/** Whether walls, floors and the ground stop the camera (G toggles). */
 	collision: string;
 	/** What's still loading around the camera, or null when nothing is. */
@@ -261,7 +255,7 @@ export const FIXED_SPEED_MAX = 14;
 export const FIXED_SPEED_DEFAULT = 64;
 
 /** A setting, or the time of day or the sound, changed by its key; or walking started or stopped. */
-export type ViewChange = keyof ViewSettings | 'time' | 'sound' | 'flight' | 'voyage' | 'walking';
+export type ViewChange = keyof ViewSettings | 'time' | 'sound' | 'walking';
 
 /**
  * A point and a direction in one map's own frame, the same in every game version though each
@@ -464,18 +458,11 @@ export class Viewer {
 	private readonly nameplates: Nameplates | null;
 	/** Markers over chests, herbs, ore and anything found by name. */
 	private readonly highlights: Highlights | null;
-	/** The ground tinted by graveyard, territory, levels, subzones or fishing; rested areas; flight paths. */
+	/** The ground tinted by graveyard, territory, levels, subzones or fishing; rested areas. */
 	private readonly regionOverlay: RegionOverlay | null;
 	private readonly restedAreas: RestedAreas | null;
-	private readonly flights: Flights | null;
 	private readonly weather = new Weather();
 	private regionData: RegionData | null = null;
-	/** The flight being ridden: where to, and how long is left. */
-	private flight: { to: string; remaining: () => number } | null = null;
-	/** Boats and zeppelins, on their schedule; set up with the objects. */
-	private transports: Transports | null = null;
-	/** The boat or zeppelin being ridden. */
-	private voyage: Transport | null = null;
 	private lastExploreCheck = 0;
 	private lastWeatherRoomCheck = 0;
 	private weatherIndoors = false;
@@ -547,7 +534,6 @@ export class Viewer {
 		this.highlights = plateContainer ? new Highlights(plateContainer, storage.loadLockKinds()) : null;
 		this.regionOverlay = plateContainer ? new RegionOverlay(plateContainer, (x, z) => this.terrain?.surfaceAt(x, z) ?? -Infinity) : null;
 		this.restedAreas = plateContainer ? new RestedAreas(plateContainer) : null;
-		this.flights = plateContainer ? new Flights(plateContainer) : null;
 		this.mapLabels = plateContainer ? new MapLabels(plateContainer) : null;
 		this.plateContainer = plateContainer;
 		// Depth from half a yard to the horizon: a reversed float depth buffer where the GPU has
@@ -980,7 +966,6 @@ export class Viewer {
 		if (next.side) {
 			this.side = next.side;
 			this.regionOverlay?.setSide(next.side);
-			this.flights?.setSide(next.side);
 		}
 		if (next.weather) this.weather.setting = next.weather;
 		if (next.mapNames !== undefined && this.mapLabels) this.mapLabels.enabled = next.mapNames;
@@ -1526,10 +1511,9 @@ export class Viewer {
 		}
 	}
 
-	/** Reads the regions (areas, graveyards, inns, weather), flight paths and transports, and lays them over the continents. */
+	/** Reads the regions (areas, graveyards, inns, weather) and lays them over the continents. */
 	private loadRegions(): void {
 		if (this.restedAreas) this.scene.add(this.restedAreas.group);
-		if (this.flights) this.scene.add(this.flights.group);
 		this.scene.add(this.weather.group);
 		RegionData.load().then((data) => {
 			if (!data) return;
@@ -1537,16 +1521,6 @@ export class Viewer {
 			this.regionOverlay?.setData(data, this.continents);
 			this.restedAreas?.setData(data, this.continents);
 		}, (e) => console.warn('Regions unavailable:', e));
-		if (this.flights) {
-			Flights.loadFile().then((file) => {
-				if (file) this.flights!.setData(file, this.continents);
-			}, (e) => console.warn('Flight paths unavailable:', e));
-		}
-		const transports = new Transports(this.objects);
-		this.transports = transports;
-		Transports.loadFile().then((file) => {
-			if (file) transports.setData(file, this.continents, (mapId, x, y) => this.regionData?.areaAtWow(mapId, x, y)?.name ?? null);
-		}, (e) => console.warn('Boats and zeppelins unavailable:', e));
 		this.storage.loadTextures([SNOWFLAKE_TEXTURE], this.usesCompressedTextures).then(
 			([flake]) => {
 				if (flake?.texture) this.weather.setSnowflake(createTexture(flake.texture, 1));
@@ -1583,119 +1557,6 @@ export class Viewer {
 	/** What the ground tint's colours mean, for the panel's key. */
 	get tintKey(): [string, string][] {
 		return this.regionOverlay?.key ?? [];
-	}
-
-	/** Flight masters the side shown can use. */
-	get flightMasters(): FlightMaster[] {
-		return this.flights?.list ?? [];
-	}
-
-	/** Called when the flight masters on offer change (the side changed, or they were read). */
-	set onFlightsChange(fn: () => void) {
-		if (this.flights) this.flights.onChange = fn;
-	}
-
-	/** Whether the flight paths are drawn. */
-	set flightPathsShown(shown: boolean) {
-		if (this.flights) this.flights.shown = shown;
-	}
-
-	/** The flight master nearest the camera on this map, for the side shown. */
-	nearestFlightMaster(): FlightMaster | null {
-		const pos = this.camera.position;
-		const continent = this.terrain.locate(pos.x, pos.z)?.continent;
-		return continent && this.flights ? this.flights.nearest(pos, continent.mapId) : null;
-	}
-
-	/**
-	 * Takes the flight from one flight master to another, the way the game would route it, at a
-	 * multiple of the mounts' speed. The reason it can't, or null once under way.
-	 */
-	takeFlight(from: number, to: number, speedScale = 1): string | null {
-		const flights = this.flights;
-		if (!flights) return 'No flight paths';
-		const plan = flights.plan(from, to);
-		if (!plan) return 'No route between those for this side';
-		const ride = flights.ride(plan.points, speedScale);
-		const start = plan.points[0];
-		const destination = flights.list.find((m) => m.id === to)?.name ?? '';
-		this.triggersArmed = false;
-		this.controls.set(start.clone().setY(start.y + 2), this.controls.yaw, this.controls.pitch);
-		this.flight = { to: destination, remaining: ride.remaining };
-		this.controls.ride(ride, () => {
-			this.flight = null;
-			this.triggersArmed = false;
-			this.onChange('flight');
-		});
-		this.onChange('flight');
-		return null;
-	}
-
-	/** Gets off the flight, boat or zeppelin being ridden. */
-	stopFlight(): void {
-		this.controls.endRide(false);
-	}
-
-	get onFlight(): boolean {
-		return this.flight !== null;
-	}
-
-	/** The boats and zeppelins, once read. */
-	get transportList(): Transport[] {
-		return this.transports?.transports ?? [];
-	}
-
-	/** Called once the boats and zeppelins are read. */
-	set onTransportsChange(fn: () => void) {
-		if (this.transports) this.transports.onChange = fn;
-	}
-
-	/** Puts the camera on board a boat or zeppelin, where it is now; the reason it can't, or null. */
-	goToTransport(entry: number): string | null {
-		const t = this.transports?.get(entry);
-		const seat = t && this.transports!.seat(t, Date.now());
-		if (!seat) return 'That isn’t anywhere on the continents';
-		this.triggersArmed = false;
-		this.controls.set(seat.position, seat.yaw, -0.15);
-		return null;
-	}
-
-	/** Rides a boat or zeppelin wherever it goes, holding still on board at the docks, until got off. */
-	rideTransport(entry: number): string | null {
-		const problem = this.goToTransport(entry);
-		if (problem) return problem;
-		const t = this.transports!.get(entry)!;
-		this.voyage = t;
-		this.controls.ride(this.transports!.ride(t), () => {
-			this.voyage = null;
-			this.triggersArmed = false;
-			this.onChange('voyage');
-		});
-		this.onChange('voyage');
-		return null;
-	}
-
-	get onTransport(): boolean {
-		return this.voyage !== null;
-	}
-
-	/** What a boat or zeppelin is doing now, in words. */
-	transportStatus(entry: number): string {
-		const t = this.transports?.get(entry);
-		if (!t) return '';
-		const s = this.transports!.status(t, Date.now());
-		return s.docked ? `At ${s.dock}, leaves for ${s.next} in ${formatDuration(s.seconds)}` : `On the way to ${s.next}, arrives in ${formatDuration(s.seconds)}`;
-	}
-
-	/** The dock nearest the camera on this map and the next departures from it, in words; '' where there's none. */
-	nearestDockStatus(): string {
-		const pos = this.camera.position;
-		const continent = this.terrain.locate(pos.x, pos.z)?.continent;
-		const dock = continent && this.transports?.nearestDock(pos, continent.mapId, Date.now());
-		if (!dock) return '';
-		const kinds = { ship: 'boat', zeppelin: 'zeppelin' };
-		const lines = dock.departures.map((d) => `The ${kinds[d.transport.kind]} to ${d.to} ${d.docked ? 'is in, ' : ''}leaves in ${formatDuration(d.seconds)}`);
-		return [`Nearest dock: ${dock.name}, ${(dock.distance / 1000).toFixed(1)} km away`, ...lines].join('\n');
 	}
 
 	/** Where the camera is (or the character walking), for the world map. */
@@ -1919,8 +1780,6 @@ export class Viewer {
 			perf.time('lod.update', () => this.terrain.update(pos));
 			if (this.terrain.nearShown) this.showFirstView();
 		}
-		// Before the objects, so the transports' new places are drawn this frame.
-		this.transports?.update(Date.now(), pos);
 		this.objects.extraEmitters = this.character?.emitterSources() ?? [];
 		perf.time('objects.update', () => this.objects.update(now, pos));
 		perf.time('uploads', () => this.uploads.drain());
@@ -1948,7 +1807,6 @@ export class Viewer {
 			this.highlights?.update(now, this.camera, continent, this.canvas.clientWidth, this.canvas.clientHeight);
 			this.regionOverlay?.update(now, this.camera, continent, this.terrain.surfaceAt(pos.x, pos.z), this.canvas.clientWidth, this.canvas.clientHeight);
 			this.restedAreas?.update(now, this.camera, this.canvas.clientWidth, this.canvas.clientHeight);
-			this.flights?.update(this.camera, continent, this.canvas.clientWidth, this.canvas.clientHeight);
 		});
 		this.updateWeather(dt, now);
 		if (now - this.lastExploreCheck > 250) {
@@ -2431,8 +2289,6 @@ export class Viewer {
 			music: this.music?.status ?? 'unavailable',
 			highlights: [this.highlights?.status, this.regionOverlay?.status, this.restedAreas?.status].filter(Boolean).join('\n'),
 			weather: this.weather.status,
-			flight: this.flight ? `To ${this.flight.to}, ${formatDuration(this.flight.remaining())} left (Esc or move to get off)` : '',
-			voyage: this.voyage ? `${this.voyage.name}: ${this.transportStatus(this.voyage.entry)} (Esc or move to get off)` : '',
 			collision: this.controls.ghost ? 'Off: through walls' : 'On',
 		};
 	}
@@ -2499,8 +2355,3 @@ function layoutContinents(loaded: { map: (typeof KNOWN_MAPS)[number]; tiles: Far
 	return placements;
 }
 
-/** Seconds as m:ss. */
-function formatDuration(seconds: number): string {
-	const s = Math.round(seconds);
-	return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-}

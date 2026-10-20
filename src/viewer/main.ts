@@ -899,8 +899,6 @@ function setUpView(viewer: Viewer): void {
 			fixedSpeed: () => `Flying speed ${fixedSpeedLabel(s.fixedSpeed)}`,
 			resolution: () => (parseResolution(s.resolution) ? `Viewer size ${s.resolution.replace('x', ' × ')}` : 'Viewer fills the window'),
 			weather: () => ({ auto: 'Weather: each zone\'s own', dry: 'Weather: no rain or snow', off: 'Weather: always clear', rain: 'Weather: rain', snow: 'Weather: snow', sandstorm: 'Weather: sandstorm' }[s.weather]),
-			flight: () => (viewer.onFlight ? 'Taking flight: Esc or moving gets you off' : 'Landed'),
-			voyage: () => (viewer.onTransport ? 'All aboard: Esc or moving gets you off' : 'Got off'),
 			walking: () => (viewer.walking ? `Walking: ${walkKey} to fly again` : 'Flying'),
 			time: () => (viewer.timeIsLocal ? `Local time, ${clock(viewer.timeMinutes)}` : `Time of day ${clock(viewer.timeMinutes)}`),
 			sound: () => `Music and sound ${onOff(viewer.soundOn ?? false)}`,
@@ -970,88 +968,13 @@ function setUpMinimap(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
 	$('minimap-out').addEventListener('click', () => minimap.zoomBy(1));
 }
 
-// --- Travel: flight paths and the world map ---
+// --- Travel: meeting stones and the world map ---
 
-/** The Travel menu: flight paths to show and take, and the world map (Tab). */
+/** The Travel menu: meeting stones and the world map (Tab). */
 function setUpTravel(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
-	const shown = $<HTMLInputElement>('flights-shown');
-	const from = $<HTMLSelectElement>('flight-from');
-	const to = $<HTMLSelectElement>('flight-to');
-	const speed = $<HTMLSelectElement>('flight-speed');
-	const go = $<HTMLButtonElement>('flight-go');
-	const stop = $<HTMLButtonElement>('flight-stop');
-	const transport = $<HTMLSelectElement>('transport');
 	const stone = $<HTMLSelectElement>('stone');
-	const saved = readSaved<{ shown?: boolean; from?: number; to?: number; speed?: string; transport?: number; stone?: number }>(TRAVEL_KEY);
-	shown.checked = saved.shown ?? false;
-	speed.value = saved.speed ?? '1';
-	viewer.flightPathsShown = shown.checked;
-	const remember = () => save(TRAVEL_KEY, { shown: shown.checked, from: Number(from.value), to: Number(to.value), speed: speed.value, transport: Number(transport.value) || saved.transport, stone: Number(stone.value) || saved.stone });
-
-	const fill = () => {
-		const keep = [Number(from.value) || saved.from, Number(to.value) || saved.to];
-		const masters = viewer.flightMasters;
-		for (const [select, value] of [[from, keep[0]], [to, keep[1]]] as const) {
-			select.replaceChildren(...masters.map((m) => new Option(m.name, String(m.id))));
-			if (masters.some((m) => m.id === value)) select.value = String(value);
-		}
-		go.disabled = masters.length < 2;
-	};
-	viewer.onFlightsChange = fill;
-	fill();
-	shown.addEventListener('change', () => {
-		viewer.flightPathsShown = shown.checked;
-		remember();
-	});
-	for (const s of [from, to, speed]) s.addEventListener('change', remember);
-	$('flight-nearest').addEventListener('click', () => {
-		const m = viewer.nearestFlightMaster();
-		if (m) from.value = String(m.id);
-		else notify('No flight master on this map for this side');
-		remember();
-	});
-	go.addEventListener('click', () => {
-		const problem = viewer.takeFlight(Number(from.value), Number(to.value), Number(speed.value));
-		if (problem) notify(problem);
-		else ($('travel') as HTMLDetailsElement).open = false;
-	});
-	stop.addEventListener('click', () => viewer.stopFlight());
-	hudFollowers.push(() => {
-		stop.disabled = !viewer.onFlight;
-	});
-
-	// Boats and zeppelins: on board where one is now, or along for the ride.
-	const transportStop = $<HTMLButtonElement>('transport-stop');
-	const fillTransports = () => {
-		const keep = Number(transport.value) || saved.transport;
-		const list = [...viewer.transportList].sort((a, b) => a.name.localeCompare(b.name));
-		transport.replaceChildren(...([['ship', 'Boats'], ['zeppelin', 'Zeppelins']] as const).map(([kind, label]) => {
-			const group = document.createElement('optgroup');
-			group.label = label;
-			group.append(...list.filter((t) => t.kind === kind).map((t) => new Option(t.name, String(t.entry))));
-			return group;
-		}));
-		if (list.some((t) => t.entry === keep)) transport.value = String(keep);
-		for (const id of ['transport-goto', 'transport-ride']) $<HTMLButtonElement>(id).disabled = !list.length;
-	};
-	viewer.onTransportsChange = fillTransports;
-	fillTransports();
-	transport.addEventListener('change', remember);
-	$('transport-goto').addEventListener('click', () => {
-		const problem = viewer.goToTransport(Number(transport.value));
-		if (problem) notify(problem);
-	});
-	$('transport-ride').addEventListener('click', () => {
-		const problem = viewer.rideTransport(Number(transport.value));
-		if (problem) notify(problem);
-		else ($('travel') as HTMLDetailsElement).open = false;
-	});
-	transportStop.addEventListener('click', () => viewer.stopFlight());
-	hudFollowers.push(() => {
-		transportStop.disabled = !viewer.onTransport;
-		$('transport-status').textContent = viewer.onTransport ? '' : viewer.transportStatus(Number(transport.value));
-		$('dock-status').textContent = viewer.nearestDockStatus();
-	});
+	const saved = readSaved<{ stone?: number }>(TRAVEL_KEY);
+	const remember = () => save(TRAVEL_KEY, { stone: Number(stone.value) || saved.stone });
 
 	// Meeting stones: summoned to one, or straight into its dungeon.
 	stone.replaceChildren(...([[0, 'Eastern Kingdoms'], [1, 'Kalimdor']] as const).map(([mapId, label]) => {
@@ -1800,10 +1723,7 @@ function showHud(info: HudInfo): void {
 		['Altitude', `${info.altitude.toFixed(0)} yd above ground`],
 		['Music', info.music],
 		...(info.weather ? [['Weather', info.weather] as [string, string]] : []),
-		...(info.flight ? [['Flight', info.flight] as [string, string]] : []),
-		...(info.voyage ? [['Aboard', info.voyage] as [string, string]] : []),
 	]);
-	$('flight-status').textContent = info.flight || info.voyage;
 	const loading = $('loading-status');
 	loading.hidden = !info.loading;
 	if (info.loading) loading.textContent = info.loading;

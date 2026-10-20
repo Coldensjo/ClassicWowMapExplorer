@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CHUNK_SIZE, CHUNKS_PER_TILE, TILE_CELLS, TILE_SIZE } from '../formats/adt';
 import { ALPHA_ATLAS_SIZE, buildSplatTerrain, type ChunkVertexLayout, type SplatGeometry } from '../explorer/splatMesh';
-import type { SceneModel, SceneTile } from '../scene/sceneModel';
+import { sameWater, type SceneModel, type SceneTile } from '../scene/sceneModel';
 import type { AsyncStorageApi } from '../worker/protocol';
 import { FlyControls } from '../viewer/flyControls';
 import { WalkControls } from '../viewer/walkControls';
@@ -303,7 +303,16 @@ export class SceneEditor {
 		}
 		tm.water = [];
 		const liquids: LiquidInstance[] = [];
+		const baseTile = this.model.baseData?.tiles[index];
 		this.model.tiles[index].chunks.forEach((chunk, id) => {
+			// A copied chunk whose water still equals its base renders the source liquid as the
+			// client does, non-flat surfaces and partial coverage included (spec 6.5).
+			if (baseTile && sameWater(chunk.water, baseTile.chunks[id].water)) {
+				if (chunk.water) {
+					for (const liquid of baseTile.liquids) if (liquid.chunk === id) liquids.push(liquid);
+				}
+				return;
+			}
 			const water = chunk.water;
 			if (!water) return;
 			const exists = new Uint8Array(64);

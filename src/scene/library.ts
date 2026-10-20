@@ -1,6 +1,7 @@
 import { dbOp, SCENE_STORE } from './db';
 import type { SceneModel } from './sceneModel';
-import { decodeScene, encodeScene, type DecodedScene } from './wscene';
+import type { Scene } from './types';
+import { decodeFile, encodeScene, readSceneFile } from './wscene';
 
 /**
  * The local scene library (spec 7.11): OPFS holds one .wscene per scene, and an IndexedDB index
@@ -77,15 +78,32 @@ export class SceneLibrary {
 		return new Uint8Array(await file.arrayBuffer());
 	}
 
-	async load(id: string): Promise<DecodedScene> {
-		return decodeScene(await this.bytes(id));
-	}
-
-	/** Validates and stores imported .wscene bytes; returns the scene. Replaces a scene with the same ID. */
-	async import(bytes: Uint8Array): Promise<DecodedScene> {
-		const decoded = decodeScene(bytes);
-		await this.saveBytes(decoded.model, bytes, decoded.thumbnail);
-		return decoded;
+	/**
+	 * Validates and stores imported .wscene bytes; returns the scene. Replaces a scene with the
+	 * same ID. A blank scene is validated whole; a copied one only as far as its container goes,
+	 * since full validation needs its source map, which opening it reads (spec 6.5).
+	 */
+	async import(bytes: Uint8Array): Promise<Scene> {
+		const file = readSceneFile(bytes);
+		if (!file.scene.base) decodeFile(file);
+		const scene = file.scene;
+		if (typeof scene.id !== 'string' || !/^[0-9a-zA-Z-]{1,64}$/.test(scene.id)) throw new Error('Not a scene: bad scene id');
+		const folder = await sceneFolder();
+		const handle = await folder.getFileHandle(`${scene.id}.wscene`, { create: true });
+		const writable = await handle.createWritable();
+		await writable.write(bytes as Uint8Array<ArrayBuffer>);
+		await writable.close();
+		const summary: SceneSummary = {
+			id: scene.id,
+			name: scene.name,
+			created: scene.created,
+			modified: scene.modified,
+			size: scene.size,
+			kind: scene.base ? 'copied' : 'blank',
+			thumbnail: file.thumbnail ? new Blob([file.thumbnail as Uint8Array<ArrayBuffer>], { type: 'image/webp' }) : null,
+		};
+		await indexOp('readwrite', (store) => store.put(summary));
+		return scene;
 	}
 
 	async delete(id: string): Promise<void> {

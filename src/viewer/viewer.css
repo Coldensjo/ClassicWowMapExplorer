@@ -2437,6 +2437,30 @@ body.wow-ui {
 	gap: 6px;
 }
 
+/* The Copy from world picker (spec 7.2): the form widens to fit the map overview. */
+#scene-create-form.copy {
+	width: min(600px, 100%);
+}
+
+.scene-start-options {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+#scene-map-canvas {
+	width: 100%;
+	image-rendering: pixelated;
+	cursor: crosshair;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	background: #14181d;
+}
+
+#scene-create-form .scene-check {
+	justify-content: flex-start;
+}
+
 #editor-bar {
 	position: fixed;
 	top: 0;

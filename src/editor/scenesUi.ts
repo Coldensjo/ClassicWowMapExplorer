@@ -1,8 +1,12 @@
 import type { StorageStats } from '../casc/storage';
+import type { CopyTile } from '../explorer/copyWorld';
 import type { AsyncStorageApi } from '../worker/protocol';
+import { createCopiedScene } from '../scene/copyScene';
 import { SceneLibrary, type SceneSummary } from '../scene/library';
 import { SceneModel } from '../scene/sceneModel';
 import { MAX_BLANK_TILES } from '../scene/types';
+import { decodeFile, readSceneFile } from '../scene/wscene';
+import { CopyPicker } from './copyPicker';
 import { EditorPanels } from './editorPanels';
 import { groundEffectScan, type GroundEffectScan } from './groundEffectScan';
 import { SceneEditor } from './sceneEditor';
@@ -22,6 +26,7 @@ let onExplore: () => void;
 let editor: SceneEditor | null = null;
 let panels: EditorPanels | null = null;
 let scan: GroundEffectScan | null = null;
+let picker: CopyPicker | null = null;
 let lastSaved = '';
 let autosaveTimer = 0;
 
@@ -56,21 +61,35 @@ function wireOnce(): void {
 
 	$('status-scan').addEventListener('click', () => scan?.setPaused(!scan.paused));
 
-	// New scene: a name, a grid of 1x1 to 3x3 tiles and a base texture (spec 3.2).
+	// New scene: a name, then blank tiles or a copied area (spec 3.2).
 	const sizes = (select: HTMLSelectElement) => {
 		select.replaceChildren(...Array.from({ length: MAX_BLANK_TILES }, (_, i) => new Option(String(i + 1), String(i + 1))));
 	};
 	sizes($('scene-tiles-x') as HTMLSelectElement);
 	sizes($('scene-tiles-y') as HTMLSelectElement);
 	$<HTMLSelectElement>('scene-texture').replaceChildren(...BASE_TEXTURES.map((t) => new Option(t.name, String(t.fdid))));
+	picker = new CopyPicker(() => storage, notice);
+	const syncStart = () => {
+		const copy = $<HTMLSelectElement>('scene-start').value === 'copy';
+		$('scene-blank-options').hidden = copy;
+		$('scene-copy-options').hidden = !copy;
+		$('scene-create-form').classList.toggle('copy', copy);
+		if (copy) void picker!.open();
+	};
+	$('scene-start').addEventListener('change', syncStart);
 	$('scene-new').addEventListener('click', () => {
 		$('scene-create').hidden = false;
 		$<HTMLInputElement>('scene-name').value = '';
 		$<HTMLInputElement>('scene-name').focus();
+		syncStart();
 	});
 	$('scene-create-cancel').addEventListener('click', () => ($('scene-create').hidden = true));
 	$('scene-create-form').addEventListener('submit', (e) => {
 		e.preventDefault();
+		if ($<HTMLSelectElement>('scene-start').value === 'copy') {
+			void createCopy();
+			return;
+		}
 		const baseTexture = Number($<HTMLSelectElement>('scene-texture').value);
 		const model = SceneModel.blank({
 			name: $<HTMLInputElement>('scene-name').value.trim() || 'Untitled scene',
@@ -95,8 +114,8 @@ function wireOnce(): void {
 		input.value = '';
 		if (!file) return;
 		try {
-			const { model } = await library.import(new Uint8Array(await file.arrayBuffer()));
-			if (model.meta.client.build !== stats.buildName) notice(`This scene was made with build ${model.meta.client.build}; textures it uses may differ here.`);
+			const scene = await library.import(new Uint8Array(await file.arrayBuffer()));
+			if (scene.client.build !== stats.buildName) notice(`This scene was made with build ${scene.client.build}; what it references may differ here.`);
 			await refreshList();
 		} catch (error) {
 			notice(error instanceof Error ? error.message : String(error));
@@ -105,6 +124,98 @@ function wireOnce(): void {
 
 	// The editor bar.
 	$('editor-save').addEventListener('click', () => void saveOpen(true));
+	wireEditorBar();
+}
+
+/** Progress while source tiles load, shown in the New scene dialog (spec 7.2). */
+function createProgress(text: string | null): void {
+	const element = $('scene-create-progress');
+	element.hidden = !text;
+	element.textContent = text ?? '';
+}
+
+/** Reads every source tile of the rectangle, row-major, reporting progress. */
+async function loadCopyTiles(wdt: number, tileMin: [number, number], tileMax: [number, number], progress: (text: string) => void): Promise<CopyTile[]> {
+	const total = (tileMax[0] - tileMin[0] + 1) * (tileMax[1] - tileMin[1] + 1);
+	const tiles: CopyTile[] = [];
+	for (let y = tileMin[1]; y <= tileMax[1]; y++) {
+		for (let x = tileMin[0]; x <= tileMax[0]; x++) {
+			progress(`Copying tile ${tiles.length + 1} of ${total} (${x}_${y})…`);
+			tiles.push(await storage.loadCopyTile(wdt, x, y));
+		}
+	}
+	return tiles;
+}
+
+/** Creates a scene from the picker's map, rectangle and options (spec 7.2). */
+async function createCopy(): Promise<void> {
+	const map = picker?.map;
+	const selection = picker?.selection;
+	if (!map || !selection) {
+		notice('Pick a map and drag the area to copy first');
+		return;
+	}
+	const form = $<HTMLFormElement>('scene-create-form');
+	const buttons = form.querySelectorAll('button');
+	buttons.forEach((b) => (b.disabled = true));
+	try {
+		const tiles = await loadCopyTiles(map.wdt, selection.tileMin, selection.tileMax, createProgress);
+		createProgress('Building the scene…');
+		const model = createCopiedScene({
+			name: $<HTMLInputElement>('scene-name').value.trim() || map.name,
+			client: { product: stats.product, build: stats.buildName },
+			map: { id: map.id, directory: map.directory },
+			tileMin: selection.tileMin,
+			tileMax: selection.tileMax,
+			includeDoodads: $<HTMLInputElement>('scene-include-doodads').checked,
+			includeWmos: $<HTMLInputElement>('scene-include-wmos').checked,
+		}, tiles);
+		$('scene-create').hidden = true;
+		await openEditor(model, true);
+	} catch (e) {
+		notice(`The area couldn't be copied: ${e instanceof Error ? e.message : e}`);
+	} finally {
+		createProgress(null);
+		buttons.forEach((b) => (b.disabled = false));
+	}
+}
+
+/** Progress while a saved scene's source tiles load, over the scene list. */
+function openProgress(text: string | null): void {
+	const element = $('scenes-progress');
+	element.hidden = !text;
+	element.textContent = text ?? '';
+}
+
+/** Opens a saved scene; a copied one reads its source map first (spec 6.5). */
+async function openSavedScene(id: string): Promise<void> {
+	try {
+		const bytes = await library.bytes(id);
+		const file = readSceneFile(bytes);
+		if (!file.scene.base) {
+			await openEditor(decodeFile(file).model);
+			return;
+		}
+		const base = file.scene.base;
+		openProgress(`Looking for ${base.mapDirectory} in this client…`);
+		const maps = await storage.listCopyMaps();
+		const map = maps.find((m) => m.id === base.mapId);
+		if (!map) {
+			notice(`This scene copies map "${base.mapDirectory}" (${base.mapId}), which isn't in this client, so it can't open.`);
+			return;
+		}
+		const tiles = await loadCopyTiles(map.wdt, base.tileMin, base.tileMax, openProgress);
+		openProgress('Building the scene…');
+		const decoded = decodeFile(file, tiles);
+		await openEditor(decoded.model);
+	} catch (e) {
+		notice(`The scene couldn't be opened: ${e instanceof Error ? e.message : e}`);
+	} finally {
+		openProgress(null);
+	}
+}
+
+function wireEditorBar(): void {
 	$('editor-export').addEventListener('click', async () => {
 		if (!editor) return;
 		await saveOpen(true);
@@ -136,7 +247,7 @@ async function refreshList(): Promise<void> {
 			details.className = 'muted small';
 			details.textContent = `${s.size.tilesX}×${s.size.tilesY} tiles · ${s.kind} · ${new Date(s.modified).toLocaleString()}`;
 			label.append(name, details);
-			const open = button('Open', 'primary', () => void library.load(s.id).then(({ model }) => openEditor(model)).catch((e) => notice(String(e instanceof Error ? e.message : e))));
+			const open = button('Open', 'primary', () => void openSavedScene(s.id));
 			const exportButton = button('Export', '', () => void library.bytes(s.id).then((bytes) => download(`${s.name}.wscene`, bytes)));
 			const remove = button('Delete', '', () => {
 				if (confirm(`Delete "${s.name}"? This can't be undone.`)) void library.delete(s.id).then(refreshList);

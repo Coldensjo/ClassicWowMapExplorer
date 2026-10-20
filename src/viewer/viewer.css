@@ -2576,3 +2576,31 @@ body.wow-ui {
 	margin-left: auto;
 	font-variant-numeric: tabular-nums;
 }
+
+.texture-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	max-height: 180px;
+	overflow: auto;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	padding: 4px;
+}
+
+.texture-list button {
+	text-align: left;
+	border: none;
+	background: none;
+	padding: 4px 6px;
+	border-radius: 4px;
+}
+
+.texture-list button.active {
+	background: var(--accent);
+	color: #fff;
+}
+
+.tool-props .paint-modes {
+	grid-template-columns: 1fr 1fr;
+}

@@ -9,7 +9,9 @@ import { createAlphaTexture, createSplatMaterial, seaMask } from '../viewer/terr
 import { TextureCache } from '../viewer/textureCache';
 import { supportsCompressedTextures } from '../viewer/textures';
 import { CommandStack } from './commands';
+import { PaintStroke, type PaintSettings } from './paint';
 import { SculptStroke, type BrushSettings } from './sculpt';
+import { ALPHA_SIZE } from '../formats/adtTex';
 
 const SKY = new THREE.Color(0x9ec4e4);
 /** Camera distance limits for small scenes. */
@@ -27,7 +29,7 @@ interface TileMesh {
 	group: THREE.Group;
 	geometry: THREE.BufferGeometry;
 	materials: THREE.Material[];
-	alpha: THREE.Texture;
+	alpha: THREE.DataTexture;
 	textures: number[];
 	/** Shared-lattice heights and normals, kept for in-place height updates. */
 	outer: Float32Array;
@@ -96,17 +98,23 @@ export class SceneEditor {
 
 	/** The editor core (spec 7.11): every change goes through a command. */
 	readonly commands = new CommandStack();
-	/** Which tool the left mouse button drives. Phase 2 starts with sculpting. */
-	tool: 'sculpt' = 'sculpt';
+	/** Which tool the left mouse button drives. */
+	tool: 'sculpt' | 'paint' = 'sculpt';
 	/** The sculpt brush, edited by the properties panel. */
 	readonly brush: BrushSettings = { radius: 15, strength: 0.5, falloff: 'smooth', mode: 'raise', flattenTo: null };
+	/** The paint brush (spec 7.5), edited by the properties panel. */
+	readonly paint: PaintSettings;
+	/** The ground effect a texture usually carries, wired to the scan table (spec 7.7.2). */
+	effectFor: (fdid: number) => number = () => 0;
 
 	/** Where the mouse last was, in normalized device coordinates. */
 	private readonly mouse = new THREE.Vector2(NaN, NaN);
 	private readonly raycaster = new THREE.Raycaster();
 	/** The ground under the mouse this frame. */
 	private cursor: { x: number; z: number; height: number } | null = null;
-	private stroke: SculptStroke | null = null;
+	private stroke: SculptStroke | PaintStroke | null = null;
+	/** Chunks flashed red because they could not take another texture (spec 7.5). */
+	private readonly flags: { ring: THREE.LineLoop; until: number }[] = [];
 	/** Tiles the open stroke touched, for refreshing bounds when it ends. */
 	private readonly strokeTiles = new Set<number>();
 	/** The ramp's first clicked point, waiting for the second. */
@@ -123,6 +131,7 @@ export class SceneEditor {
 		storage: AsyncStorageApi,
 		readonly model: SceneModel,
 	) {
+		this.paint = { fdid: model.textures[0], radius: 15, strength: 0.7, opacity: 1, mode: 'paint', policy: 'replace' };
 		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 		this.textures = new TextureCache(storage, supportsCompressedTextures(this.renderer), this.renderer.capabilities.getMaxAnisotropy());
@@ -309,6 +318,48 @@ export class SceneEditor {
 	}
 
 	/**
+	 * Rewrites changed chunks' alpha maps into the tile's atlas texture (spec 7.5): layer 1-3
+	 * alpha goes to the R, G and B channels of the chunk's 64x64 atlas region.
+	 */
+	private updateTileAlpha(index: number, chunkIds: Set<number>): void {
+		const tm = this.tileMeshes.get(index);
+		if (!tm) return;
+		const tile = this.model.tiles[index];
+		const data = tm.alpha.image.data as Uint8Array;
+		const texels = ALPHA_SIZE * ALPHA_SIZE;
+		for (const id of chunkIds) {
+			const chunk = tile.chunks[id];
+			const cx = id % CHUNKS_PER_TILE;
+			const cy = Math.floor(id / CHUNKS_PER_TILE);
+			for (let layer = 0; layer < 3; layer++) {
+				const map = chunk.alpha && layer < chunk.layers.length - 1 ? chunk.alpha.subarray(layer * texels, (layer + 1) * texels) : null;
+				for (let y = 0; y < ALPHA_SIZE; y++) {
+					const row = ((cy * ALPHA_SIZE + y) * ALPHA_ATLAS_SIZE + cx * ALPHA_SIZE) * 4 + layer;
+					for (let x = 0; x < ALPHA_SIZE; x++) data[row + x * 4] = map ? map[y * ALPHA_SIZE + x] : 0;
+				}
+			}
+		}
+		tm.alpha.needsUpdate = true;
+	}
+
+	/** Flashes a red ring over chunks that could not take the texture (spec 7.5). */
+	private flashBlocked(stroke: PaintStroke): void {
+		while (stroke.blocked.length) {
+			const { x, z } = stroke.blocked.pop()!;
+			const ring = makeRing(4);
+			(ring.material as THREE.LineBasicMaterial).color.set(0xe04040);
+			const positions = ring.geometry.getAttribute('position') as THREE.BufferAttribute;
+			const corners = [[x + 0.5, z + 0.5], [x + CHUNK_SIZE - 0.5, z + 0.5], [x + CHUNK_SIZE - 0.5, z + CHUNK_SIZE - 0.5], [x + 0.5, z + CHUNK_SIZE - 0.5]];
+			corners.forEach(([px, pz], i) => positions.setXYZ(i, px, (this.model.surfaceAt(px, pz) ?? 0) + 0.3, pz));
+			positions.needsUpdate = true;
+			ring.visible = true;
+			this.scene.add(ring);
+			this.flags.push({ ring, until: performance.now() + 1200 });
+			this.onNotice('That chunk already has 4 textures');
+		}
+	}
+
+	/**
 	 * Recomputes area-weighted lattice normals for the vertices of cells [sx0..sx1]x[sz0..sz1],
 	 * accumulating over those cells plus a one-cell ring, exactly as the full build does.
 	 */
@@ -432,6 +483,7 @@ export class SceneEditor {
 		this.updateCursor();
 		if (this.stroke && this.cursor) {
 			this.stroke.apply(this.cursor.x, this.cursor.z, dt);
+			if (this.stroke instanceof PaintStroke) this.flashBlocked(this.stroke);
 		}
 		for (const [index, chunks] of this.model.dirtyHeights) {
 			this.model.dirtyHeights.delete(index);
@@ -441,6 +493,19 @@ export class SceneEditor {
 		}
 		// Culling bounds refresh once the edit is over (stroke end, ramp, undo, redo).
 		if (!this.stroke && this.strokeTiles.size) this.refreshBounds();
+		for (const [index, chunks] of this.model.dirtyAlpha) {
+			this.model.dirtyAlpha.delete(index);
+			if (this.model.dirtyTiles.has(index)) continue;
+			this.updateTileAlpha(index, chunks);
+		}
+		const now = performance.now();
+		for (let i = this.flags.length - 1; i >= 0; i--) {
+			if (now < this.flags[i].until) continue;
+			const [flag] = this.flags.splice(i, 1);
+			this.scene.remove(flag.ring);
+			flag.ring.geometry.dispose();
+			(flag.ring.material as THREE.Material).dispose();
+		}
 		for (const index of this.model.dirtyTiles) {
 			this.model.dirtyTiles.delete(index);
 			void this.buildTile(this.model.tiles[index]);
@@ -495,10 +560,13 @@ export class SceneEditor {
 
 	/** Lays the brush ring (and the ramp's anchor ring) on the terrain. */
 	private updateRings(): void {
-		if (this.brush.mode !== 'ramp') this.rampStart = null;
+		if (this.tool !== 'sculpt' || this.brush.mode !== 'ramp') this.rampStart = null;
 		const show = this.cursor !== null && !this.walker.active && !this.controls.locked;
 		this.ring.visible = show;
-		if (show && this.cursor) this.layRing(this.ring, this.cursor.x, this.cursor.z, this.brush.radius, this.cursor.height);
+		const radius = this.tool === 'paint'
+			? (this.paint.mode === 'paint' || this.paint.mode === 'erase' ? this.paint.radius : 2)
+			: this.brush.radius;
+		if (show && this.cursor) this.layRing(this.ring, this.cursor.x, this.cursor.z, radius, this.cursor.height);
 		this.rampRing.visible = this.rampStart !== null;
 		if (this.rampStart) this.layRing(this.rampRing, this.rampStart.x, this.rampStart.z, Math.min(this.brush.radius, 3), this.rampStart.h);
 	}
@@ -542,6 +610,10 @@ export class SceneEditor {
 	/** Starts the active tool at the cursor (left button). */
 	private beginStroke(): void {
 		if (!this.cursor || this.walker.active || this.controls.locked) return;
+		if (this.tool === 'paint') {
+			this.stroke = new PaintStroke(this.model, this.paint, this.effectFor);
+			return;
+		}
 		if (this.tool !== 'sculpt') return;
 		if (this.brush.mode === 'ramp') {
 			if (!this.rampStart) {

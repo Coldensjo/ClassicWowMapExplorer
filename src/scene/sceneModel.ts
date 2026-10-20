@@ -222,6 +222,29 @@ export class SceneModel {
 	}
 
 	/**
+	 * The palette index of a texture FDID, adding it when new (spec 7.2: copied layers and later
+	 * paint share one palette). The palette only grows, so layer references never go stale.
+	 */
+	textureIndex(fdid: number): number {
+		const index = this.textures.indexOf(fdid);
+		if (index >= 0) return index;
+		this.textures.push(fdid);
+		return this.textures.length - 1;
+	}
+
+	/** Puts back a chunk's layers and alpha whole (undo/redo), marking the lightest dirty channel. */
+	restorePaint(tileIndex: number, chunkId: number, layers: ChunkLayer[], alpha: Uint8Array | null): void {
+		const chunk = this.tiles[tileIndex].chunks[chunkId];
+		const structural =
+			chunk.layers.length !== layers.length ||
+			chunk.layers.some((l, i) => l.texture !== layers[i].texture || l.effectId !== layers[i].effectId);
+		chunk.layers = layers.map((l) => ({ ...l }));
+		chunk.alpha = alpha ? alpha.slice() : null;
+		if (structural) this.markDirty(this.tiles[tileIndex]);
+		else this.markAlphaDirty(tileIndex, chunkId);
+	}
+
+	/**
 	 * The ground height at scene-space (x, z), exact against the rendered mesh: each cell is four
 	 * triangles fanned around its centre vertex. Null outside the scene or over a hole.
 	 */

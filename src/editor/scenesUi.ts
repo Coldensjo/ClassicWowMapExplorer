@@ -6,20 +6,7 @@ import { MAX_BLANK_TILES } from '../scene/types';
 import { EditorPanels } from './editorPanels';
 import { SceneEditor } from './sceneEditor';
 
-/**
- * Base textures to start a blank scene with (spec 3.2): tileset textures sampled from the Forever
- * beta's own zones, until the Phase 2 asset browser lets any be picked.
- */
-const BASE_TEXTURES = [
-	{ name: 'Grass (Elwynn Forest)', fdid: 187138 },
-	{ name: 'Forest floor (Elwynn Forest)', fdid: 187127 },
-	{ name: 'Grass (Westfall)', fdid: 188990 },
-	{ name: 'Snow (Dun Morogh)', fdid: 188576 },
-	{ name: 'Dirt (Durotar)', fdid: 187018 },
-	{ name: 'Savanna (the Barrens)', fdid: 186901 },
-	{ name: 'Jungle grass (Stranglethorn)', fdid: 188824 },
-	{ name: 'Sand (the coast)', fdid: 189020 },
-];
+import { BASE_TEXTURES } from './baseTextures';
 
 /** Autosave to the library while a scene is open (spec 7.11). */
 const AUTOSAVE_SECONDS = 30;

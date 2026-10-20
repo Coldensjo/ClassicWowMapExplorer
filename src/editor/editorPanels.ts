@@ -1,3 +1,5 @@
+import { BASE_TEXTURES, textureName } from './baseTextures';
+import type { PaintMode } from './paint';
 import type { SceneEditor } from './sceneEditor';
 import type { Falloff, SculptMode } from './sculpt';
 
@@ -6,12 +8,19 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 /** Tools on the rail (spec 8): the ones Phase 2 hasn't delivered yet are disabled. */
 const TOOLS: { id: string; key: string; ready: boolean }[] = [
 	{ id: 'sculpt', key: 'Digit1', ready: true },
-	{ id: 'paint', key: 'Digit2', ready: false },
+	{ id: 'paint', key: 'Digit2', ready: true },
 	{ id: 'holes', key: 'Digit3', ready: false },
 	{ id: 'water', key: 'Digit4', ready: false },
 	{ id: 'place', key: 'Digit5', ready: false },
 	{ id: 'npcs', key: 'Digit6', ready: false },
 ];
+
+const PAINT_HINTS: Record<PaintMode, string> = {
+	paint: 'Hold the left button to paint the texture into the ground.',
+	erase: 'Hold the left button to wash paint away, back to the base texture.',
+	fill: 'Click a chunk to fill it with the texture at the set opacity.',
+	base: 'Click a chunk to swap its base texture, keeping the paint on top.',
+};
 
 const SCULPT_HINTS: Record<SculptMode, string> = {
 	raise: 'Hold the left button to raise the ground.',
@@ -34,10 +43,12 @@ export class EditorPanels {
 		this.show(true);
 		this.wireRail();
 		this.wireSculpt();
+		this.wirePaint();
 		this.wireUndo();
 		this.wireKeys();
 		this.wireStatus();
 		this.syncSculpt();
+		this.syncPaint();
 	}
 
 	private show(on: boolean): void {
@@ -71,6 +82,7 @@ export class EditorPanels {
 		this.editor.tool = id as SceneEditor['tool'];
 		for (const tool of TOOLS) $(`tool-${tool.id}`).classList.toggle('active', tool.id === id);
 		$('sculpt-props').hidden = id !== 'sculpt';
+		$('paint-props').hidden = id !== 'paint';
 	}
 
 	// ---- Sculpt properties ----
@@ -115,6 +127,70 @@ export class EditorPanels {
 		$('tool-hint').textContent = SCULPT_HINTS[brush.mode];
 	}
 
+	// ---- Paint properties (spec 7.5) ----
+
+	private wirePaint(): void {
+		const paint = this.editor.paint;
+		for (const mode of Object.keys(PAINT_HINTS) as PaintMode[]) {
+			this.listen($(`paint-${mode}`), 'click', () => {
+				paint.mode = mode;
+				this.syncPaint();
+			});
+		}
+		this.listen($('paint-radius'), 'input', () => {
+			paint.radius = Number($<HTMLInputElement>('paint-radius').value);
+			this.syncPaint();
+		});
+		this.listen($('paint-strength'), 'input', () => {
+			paint.strength = Number($<HTMLInputElement>('paint-strength').value);
+			this.syncPaint();
+		});
+		this.listen($('paint-opacity'), 'input', () => {
+			paint.opacity = Number($<HTMLInputElement>('paint-opacity').value);
+			this.syncPaint();
+		});
+		this.listen($('paint-policy'), 'change', () => {
+			paint.policy = $<HTMLSelectElement>('paint-policy').value as typeof paint.policy;
+		});
+		this.buildTextureList();
+	}
+
+	/** The textures to paint with: the scene's palette plus the starter set (spec 3.2). */
+	private buildTextureList(): void {
+		const list = $('paint-textures');
+		const fdids = [...new Set([...this.editor.model.textures, ...BASE_TEXTURES.map((t) => t.fdid)])];
+		list.replaceChildren(
+			...fdids.map((fdid) => {
+				const button = document.createElement('button');
+				button.textContent = textureName(fdid);
+				button.dataset.fdid = String(fdid);
+				button.addEventListener('click', () => {
+					this.editor.paint.fdid = fdid;
+					this.syncPaint();
+				});
+				return button;
+			}),
+		);
+	}
+
+	private syncPaint(): void {
+		const paint = this.editor.paint;
+		for (const mode of Object.keys(PAINT_HINTS) as PaintMode[]) {
+			$(`paint-${mode}`).classList.toggle('active', paint.mode === mode);
+		}
+		for (const button of $('paint-textures').children) {
+			button.classList.toggle('active', Number((button as HTMLElement).dataset.fdid) === paint.fdid);
+		}
+		$<HTMLInputElement>('paint-radius').value = String(paint.radius);
+		$('paint-radius-out').textContent = `${paint.radius} yd`;
+		$<HTMLInputElement>('paint-strength').value = String(paint.strength);
+		$('paint-strength-out').textContent = paint.strength.toFixed(2);
+		$<HTMLInputElement>('paint-opacity').value = String(paint.opacity);
+		$('paint-opacity-out').textContent = `${Math.round(paint.opacity * 100)}%`;
+		$<HTMLSelectElement>('paint-policy').value = paint.policy;
+		$('paint-hint').textContent = PAINT_HINTS[paint.mode];
+	}
+
 	// ---- Undo and redo ----
 
 	private wireUndo(): void {
@@ -143,13 +219,14 @@ export class EditorPanels {
 			if (e.ctrlKey || e.metaKey || e.altKey) return;
 			if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
 			if (this.editor.walking) return;
-			const brush = this.editor.brush;
 			const tool = TOOLS.find((t) => t.key === e.code);
 			if (tool?.ready) {
 				this.setTool(tool.id);
 				return;
 			}
 			if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
+				// [ and ] size the active tool's brush; with Shift, its strength (spec 8).
+				const brush = this.editor.tool === 'paint' ? this.editor.paint : this.editor.brush;
 				const up = e.code === 'BracketRight';
 				if (e.shiftKey) {
 					brush.strength = Math.min(1, Math.max(0, Math.round((brush.strength + (up ? 0.05 : -0.05)) * 100) / 100));
@@ -158,6 +235,7 @@ export class EditorPanels {
 					brush.radius = Math.min(100, Math.max(1, brush.radius + (up ? step : -step)));
 				}
 				this.syncSculpt();
+				this.syncPaint();
 			}
 		});
 	}

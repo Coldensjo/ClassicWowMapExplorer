@@ -118,6 +118,7 @@ export async function loadCopyTile(maps: MapExplorer, wdtFdid: number, x: number
 	const tile = wdt.tiles[y * 64 + x];
 	if (!tile) return { x, y, exists: false, chunks: null, liquids: [], placements: [] };
 
+	if (!tile.files.root || maps.storage.status(tile.files.root) !== 'ok') throw new Error(`Tile ${x}_${y}: its terrain file isn't in your client`);
 	let rootBytes: Uint8Array;
 	try {
 		rootBytes = await maps.storage.readFile(tile.files.root);

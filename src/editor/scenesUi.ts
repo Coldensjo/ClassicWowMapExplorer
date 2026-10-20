@@ -127,6 +127,13 @@ function wireOnce(): void {
 	wireEditorBar();
 }
 
+/** Source tiles that exist in the map but can't be read from this client. */
+class MissingTilesError extends Error {
+	constructor(readonly tiles: string[]) {
+		super(`tile${tiles.length === 1 ? '' : 's'} ${tiles.join(', ')} ${tiles.length === 1 ? "isn't" : "aren't"} in your client`);
+	}
+}
+
 /** Progress while source tiles load, shown in the New scene dialog (spec 7.2). */
 function createProgress(text: string | null): void {
 	const element = $('scene-create-progress');
@@ -138,12 +145,19 @@ function createProgress(text: string | null): void {
 async function loadCopyTiles(wdt: number, tileMin: [number, number], tileMax: [number, number], progress: (text: string) => void): Promise<CopyTile[]> {
 	const total = (tileMax[0] - tileMin[0] + 1) * (tileMax[1] - tileMin[1] + 1);
 	const tiles: CopyTile[] = [];
+	// Every unreadable tile is collected, so the user sees all of them at once (spec 6.5).
+	const missing: string[] = [];
 	for (let y = tileMin[1]; y <= tileMax[1]; y++) {
 		for (let x = tileMin[0]; x <= tileMax[0]; x++) {
-			progress(`Copying tile ${tiles.length + 1} of ${total} (${x}_${y})…`);
-			tiles.push(await storage.loadCopyTile(wdt, x, y));
+			progress(`Reading tile ${tiles.length + missing.length + 1} of ${total} (${x}_${y})…`);
+			try {
+				tiles.push(await storage.loadCopyTile(wdt, x, y));
+			} catch {
+				missing.push(`${x}_${y}`);
+			}
 		}
 	}
+	if (missing.length) throw new MissingTilesError(missing);
 	return tiles;
 }
 
@@ -204,10 +218,26 @@ async function openSavedScene(id: string): Promise<void> {
 			notice(`This scene copies map "${base.mapDirectory}" (${base.mapId}), which isn't in this client, so it can't open.`);
 			return;
 		}
-		const tiles = await loadCopyTiles(map.wdt, base.tileMin, base.tileMax, openProgress);
+		let tiles: CopyTile[];
+		try {
+			tiles = await loadCopyTiles(map.wdt, base.tileMin, base.tileMax, openProgress);
+		} catch (e) {
+			if (!(e instanceof MissingTilesError)) throw e;
+			notice(`This scene copies ${map.name} (${base.mapDirectory}), but ${e.message}, so it can't open.`);
+			return;
+		}
 		openProgress('Building the scene…');
 		const decoded = decodeFile(file, tiles);
 		await openEditor(decoded.model);
+		// The source may have changed since the copy (spec 6.5): overrides apply as stored, with a warning.
+		const warnings: string[] = [];
+		if (base.build !== stats.buildName) {
+			warnings.push(`This scene was copied from build ${base.build}; the terrain and objects underneath may have changed since then in build ${stats.buildName}. Your edits are applied as saved.`);
+		}
+		if (decoded.missingObjects) {
+			warnings.push(`${decoded.missingObjects} edited copied object${decoded.missingObjects === 1 ? ' is' : 's are'} no longer in the source map and ${decoded.missingObjects === 1 ? 'was' : 'were'} dropped.`);
+		}
+		if (warnings.length) notice(warnings.join(' '));
 	} catch (e) {
 		notice(`The scene couldn't be opened: ${e instanceof Error ? e.message : e}`);
 	} finally {

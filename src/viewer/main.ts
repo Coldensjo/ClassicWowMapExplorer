@@ -18,6 +18,7 @@ import { DEFAULT_EMOTE_KEYS, EMOTES, type Emote } from './emotes';
 import { CHARACTER_OUTFITS, type CharacterOutfit, type CharacterRace } from '../explorer/display';
 
 import { WorldMap } from './worldMap';
+import { knownFolders, productRank, REFERENCE_PRODUCT } from './clientConfig';
 import { keptVersions, productName, sessionHost, setKeptVersions, setQuickSwitching, quickSwitching, type SwitchState, type ViewerSession } from './session';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -105,8 +106,6 @@ let installed: ProductInfo[] = [];
 /** Set once a game version has been opened: the viewer starts once per page, so another one takes a reload. */
 let exploring = false;
 
-/** The Game version menu lists these first, in this order (and so they get Ctrl+1, 2, 3); the rest after. */
-const PRODUCT_ORDER = ['wow_classic_beta', 'wow_classic_era', 'wow'];
 
 /** Ctrl and the number for the nth version in the menu: 1 to 9, then 0; none past the tenth. */
 function versionKey(index: number): string {
@@ -196,14 +195,14 @@ async function useSource(init: SourceInit): Promise<void> {
 		const products = (await storage.setSource(init)).filter((p) => p.product.startsWith('wow'));
 		// Once each: a version can be listed with several builds, and opening it picks the one that can be read.
 		installed = products.filter((p, i) => products.findIndex((q) => q.product === p.product) === i);
-		const rank = (product: string) => (PRODUCT_ORDER.includes(product) ? PRODUCT_ORDER.indexOf(product) : PRODUCT_ORDER.length);
-		installed.sort((a, b) => rank(a.product) - rank(b.product));
+		installed.sort((a, b) => productRank(a.product) - productRank(b.product));
 		const select = $<HTMLSelectElement>('product');
 		select.replaceChildren(...products.map((p) => new Option(`${productName(p.product)} ${p.version}`, p.product)));
 		if (requested && !products.some((p) => p.product === requested.product)) throw new Error(`${productName(requested.product)} isn't in this folder`);
 		const saved = requested?.product ?? savedProduct();
-		// The version chosen before, if it's still installed. Otherwise prefer a classic build: the continent file IDs are the classic ones.
-		const preferred = products.find((p) => p.product === saved) ?? products.find((p) => p.product === 'wow_classic_beta') ?? products.find((p) => p.product.startsWith('wow_classic'));
+		// The version chosen before, if it's still installed. Otherwise the reference client, or
+		// another classic build as best-effort: the continent file IDs are the classic ones.
+		const preferred = products.find((p) => p.product === saved) ?? products.find((p) => p.product === REFERENCE_PRODUCT) ?? products.find((p) => p.product.startsWith('wow_classic'));
 		if (preferred) {
 			// Nothing to choose: straight in.
 			select.value = preferred.product;
@@ -231,7 +230,7 @@ function folderProblem(init: SourceInit, error: unknown): string {
 		// The browser's folder dialog leaves out hidden files (.build.info) on macOS and Linux.
 		return `${counts} The browser's folder dialog left out .build.info, a hidden file. Drag the folder onto this page instead.`;
 	}
-	return `${counts} That doesn't look like the World of Warcraft folder: choose the one that contains _classic_ or _classic_beta_ (not that folder itself). Reason: ${reason}`;
+	return `${counts} That doesn't look like the World of Warcraft folder: choose the one that contains ${knownFolders().join(' or ')} (not that folder itself). Reason: ${reason}`;
 }
 
 /**

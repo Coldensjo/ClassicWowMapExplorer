@@ -9,23 +9,7 @@ import type { ViewSpot } from './viewer';
  */
 const QUICK_KEY = 'mapExplorer.quickSwitch';
 
-/** What each game version is called, by its product code; others go by their code. */
-const PRODUCT_NAMES: Record<string, string> = {
-	wow_classic_beta: 'Forever',
-	wow_classic_era: 'Classic',
-	wow: 'Retail',
-	wow_classic: 'MoP Classic',
-	wow_anniversary: 'Classic Anniversary',
-	wowt: 'Retail PTR',
-	wowxptr: 'Retail PTR (next patch)',
-	wow_beta: 'Retail Beta',
-	wow_classic_ptr: 'MoP Classic PTR',
-	wow_classic_era_ptr: 'Classic Era PTR',
-};
-
-export function productName(product: string): string {
-	return PRODUCT_NAMES[product] ?? product;
-}
+export { productName } from './clientConfig';
 
 export function quickSwitching(): boolean {
 	try {

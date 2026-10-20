@@ -13,9 +13,6 @@ import type { Emote } from './emotes';
 import type { CharacterRace } from '../explorer/display';
 import { FlyControls } from './flyControls';
 import { Footsteps } from './footsteps';
-import { RegionData } from './regionData';
-import { RegionOverlay } from './regionOverlay';
-import { RestedAreas } from './restedAreas';
 import { SNOWFLAKE_TEXTURE, Weather, type WeatherSetting } from './weather';
 import type { WorldMapView } from './worldMap';
 import { mouseSpeed, setMouseSpeed } from './look';
@@ -154,8 +151,6 @@ export interface HudInfo {
 	objects: string;
 	/** Game time of day, e.g. 14:30. */
 	time: string;
-	/** Side that NPC name colours are shown for. */
-	side: string;
 	/** Top-level zone and the subzone under the camera, when known. */
 	zone: string | null;
 	subzone: string | null;
@@ -182,8 +177,6 @@ export interface ViewSettings {
 	mouseSpeed: number;
 	/** Walls, floors and the ground stop the camera (G). */
 	collision: boolean;
-	/** Whose eyes name colours are seen through (F). */
-	side: Side;
 	/** Names over the dungeons and other maps laid out in the sea (I). */
 	mapNames: boolean;
 	/** Turning glides after the mouse rather than following it at once (J). */
@@ -222,9 +215,6 @@ export function parseResolution(resolution: string): [number, number] | null {
 	const [w, h] = [Number(match[1]), Number(match[2])];
 	return w >= RESOLUTION_MIN && h >= RESOLUTION_MIN ? [w, h] : null;
 }
-
-/** Whose eyes name and territory colours are seen through. */
-export type Side = 'alliance' | 'horde';
 
 /** Steps of the flying speed: each Y press or slider notch multiplies it by 2^(1/4). */
 export const FLY_SPEED_STEP = 0.25;
@@ -354,13 +344,7 @@ export class Viewer {
 	 * of the wrong kind, which the GPU refuses to draw with (GL_INVALID_OPERATION).
 	 */
 	private shadowMapsDrawn = false;
-	/** Whose eyes name colours are seen through (F toggles). */
-	private side: Side = 'alliance';
-	/** The ground tinted by graveyard, territory, levels, subzones or fishing; rested areas. */
-	private readonly regionOverlay: RegionOverlay | null;
-	private readonly restedAreas: RestedAreas | null;
 	private readonly weather = new Weather();
-	private regionData: RegionData | null = null;
 	private lastExploreCheck = 0;
 	private lastWeatherRoomCheck = 0;
 	private weatherIndoors = false;
@@ -417,8 +401,6 @@ export class Viewer {
 		let show = () => {};
 		this.firstView = new Promise((resolve) => (show = resolve));
 		this.showFirstView = show;
-		this.regionOverlay = plateContainer ? new RegionOverlay(plateContainer, (x, z) => this.terrain?.surfaceAt(x, z) ?? -Infinity) : null;
-		this.restedAreas = plateContainer ? new RestedAreas(plateContainer) : null;
 		this.mapLabels = plateContainer ? new MapLabels(plateContainer) : null;
 		this.plateContainer = plateContainer;
 		// Depth from half a yard to the horizon: a reversed float depth buffer where the GPU has
@@ -774,7 +756,6 @@ export class Viewer {
 			detailRange: this.objects?.detailRange ?? 1,
 			mouseSpeed: mouseSpeed(),
 			collision: !this.controls.ghost,
-			side: this.side,
 			mapNames: this.mapLabels?.enabled ?? false,
 			cinematic: this.controls.cinematic,
 			grading: this.post.gradingOn,
@@ -800,10 +781,6 @@ export class Viewer {
 		if (typeof next.detailRange === 'number' && next.detailRange > 0 && this.objects) this.objects.detailRange = next.detailRange;
 		if (typeof next.mouseSpeed === 'number' && next.mouseSpeed > 0) setMouseSpeed(next.mouseSpeed);
 		if (next.collision !== undefined) this.controls.ghost = !next.collision;
-		if (next.side) {
-			this.side = next.side;
-			this.regionOverlay?.setSide(next.side);
-		}
 		if (next.weather) this.weather.setting = next.weather;
 		if (next.mapNames !== undefined && this.mapLabels) this.mapLabels.enabled = next.mapNames;
 		if (next.cinematic !== undefined) this.controls.cinematic = next.cinematic;
@@ -917,7 +894,7 @@ export class Viewer {
 		await this.placeMaps();
 		this.terrain.buildSeaMask();
 		this.addOcean();
-		this.loadRegions();
+		this.loadWeather();
 
 		onStatus('Reading lighting and zone names');
 		// Light for every map in the install (any of them can be gone to).
@@ -1250,7 +1227,6 @@ export class Viewer {
 			const toggles: Record<string, Partial<ViewSettings>> = {
 				KeyL: { torch: !s.torch },
 				KeyG: { collision: !s.collision },
-				KeyF: { side: s.side === 'alliance' ? 'horde' : 'alliance' },
 				KeyV: { clutter: !s.clutter },
 				KeyJ: { cinematic: !s.cinematic },
 				KeyB: { grading: !s.grading },
@@ -1266,16 +1242,9 @@ export class Viewer {
 		}
 	}
 
-	/** Reads the regions (areas, graveyards, inns, weather) and lays them over the continents. */
-	private loadRegions(): void {
-		if (this.restedAreas) this.scene.add(this.restedAreas.group);
+	/** Sets the weather up over the continents. */
+	private loadWeather(): void {
 		this.scene.add(this.weather.group);
-		RegionData.load().then((data) => {
-			if (!data) return;
-			this.regionData = data;
-			this.regionOverlay?.setData(data, this.continents);
-			this.restedAreas?.setData(data, this.continents);
-		}, (e) => console.warn('Regions unavailable:', e));
 		this.storage.loadTextures([SNOWFLAKE_TEXTURE], this.usesCompressedTextures).then(
 			([flake]) => {
 				if (flake?.texture) this.weather.setSnowflake(createTexture(flake.texture, 1));
@@ -1284,18 +1253,15 @@ export class Viewer {
 		);
 	}
 
-	/** The weather for the zone under the camera, drawn round it outdoors and above water. */
+	/** The weather chosen in the View menu, drawn round the camera outdoors and above water. */
 	private updateWeather(dt: number, now: number): void {
 		const pos = this.camera.position;
-		const continent = this.terrain.locate(pos.x, pos.z)?.continent;
-		const area = continent && this.regionData ? this.regionData.areaAt(continent, pos.x, pos.z) : null;
-		const zone = area ? this.regionData!.areas.get(area.zone) ?? area : null;
 		if (now - this.lastWeatherRoomCheck > 250) {
 			this.lastWeatherRoomCheck = now;
 			this.weatherIndoors = !!this.objects.roomAt(pos);
 		}
 		const open = !this.underwater && !this.weatherIndoors;
-		this.weather.update(dt, this.camera, zone ? { id: zone.id, name: zone.name } : null, zone ? this.regionData!.weather(zone.id) : null, open);
+		this.weather.update(dt, this.camera, null, null, open);
 	}
 
 	/** The area under the camera and its parents count as explored once the camera is down among them. */
@@ -1309,20 +1275,10 @@ export class Viewer {
 		if (areas.length) this.onExplore(areas);
 	}
 
-	/** What the ground tint's colours mean, for the panel's key. */
-	get tintKey(): [string, string][] {
-		return this.regionOverlay?.key ?? [];
-	}
-
 	/** Where the camera is (or the character walking), for the world map. */
 	worldMapView(): WorldMapView | null {
 		const w = this.wowPosition(this.walker.active ? this.walker.position : this.camera.position);
 		return w ? { ...w, facing: this.walker.active ? this.walker.facing : this.controls.yaw } : null;
-	}
-
-	/** The area's name at a point on a continent (WoW coordinates), for the world map. */
-	areaNameAt(mapId: number, x: number, y: number): string | null {
-		return this.regionData?.areaAtWow(mapId, x, y)?.name ?? null;
 	}
 
 	/** Flies over a point of a map in WoW coordinates. */
@@ -1510,11 +1466,6 @@ export class Viewer {
 			}
 			this.mapLabels.update(this.camera, this.canvas.clientWidth, this.canvas.clientHeight);
 		}
-		perf.time('highlights', () => {
-			const continent = this.terrain.locate(pos.x, pos.z)?.continent ?? null;
-			this.regionOverlay?.update(now, this.camera, continent, this.terrain.surfaceAt(pos.x, pos.z), this.canvas.clientWidth, this.canvas.clientHeight);
-			this.restedAreas?.update(now, this.camera, this.canvas.clientWidth, this.canvas.clientHeight);
-		});
 		this.updateWeather(dt, now);
 		if (now - this.lastExploreCheck > 250) {
 			this.lastExploreCheck = now;
@@ -1992,7 +1943,6 @@ export class Viewer {
 			loading: this.loadingText(),
 			time: (() => { const t = this.timeOfDay(); return `${String(Math.floor(t / 120)).padStart(2, '0')}:${String(Math.floor(t / 2) % 60).padStart(2, '0')}`; })(),
 			...this.zoneNames(),
-			side: this.side === 'alliance' ? 'Alliance' : 'Horde',
 			music: this.music?.status ?? 'unavailable',
 			weather: this.weather.status,
 			collision: this.controls.ghost ? 'Off: through walls' : 'On',

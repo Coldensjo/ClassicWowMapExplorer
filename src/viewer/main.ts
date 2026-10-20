@@ -878,7 +878,6 @@ function setUpView(viewer: Viewer): void {
 			detailRange: () => `Details out to ${Math.round(s.detailRange * 100)}% of the usual distance`,
 			mouseSpeed: () => `Mouse speed ${Math.round(s.mouseSpeed * 100)}%`,
 			collision: () => (s.collision ? 'Collision on: walls and floors stop you' : 'Collision off: flying through walls'),
-			side: () => `Name colours as the ${s.side === 'alliance' ? 'Alliance' : 'Horde'} sees them`,
 			mapNames: () => `Dungeon and raid names ${onOff(s.mapNames)}`,
 			minimap: () => `Minimap ${onOff(s.minimap)}`,
 			cinematic: () => (s.cinematic ? 'Cinematic camera: turning glides after the mouse' : 'Cinematic camera off'),
@@ -965,7 +964,7 @@ function setUpMinimap(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
 
 /** The Travel menu: the world map (Tab). */
 function setUpTravel(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
-	const map = new WorldMap($('worldmap'), $<HTMLCanvasElement>('worldmap-canvas'), storage, () => viewer.worldMapView(), (mapId, x, y) => viewer.flyOverWow(mapId, x, y), (mapId, x, y) => viewer.areaNameAt(mapId, x, y), arrow, {
+	const map = new WorldMap($('worldmap'), $<HTMLCanvasElement>('worldmap-canvas'), storage, () => viewer.worldMapView(), (mapId, x, y) => viewer.flyOverWow(mapId, x, y), () => null, arrow, {
 		title: $('worldmap-title'),
 		up: $<HTMLButtonElement>('worldmap-up'),
 		count: $('worldmap-count'),

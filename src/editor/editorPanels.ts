@@ -309,6 +309,8 @@ export class EditorPanels {
 		this.listen($('sel-drop'), 'click', () => objects.dropToGround());
 		this.listen($('sel-duplicate'), 'click', () => objects.duplicateSelection());
 		this.listen($('sel-delete'), 'click', () => objects.deleteSelection());
+		this.listen($('sel-doodadset'), 'change', () => objects.setDoodadSet(Number($<HTMLSelectElement>('sel-doodadset').value)));
+		this.listen($('sel-nameset'), 'change', () => objects.setNameSet(Math.max(0, Math.round(Number($<HTMLInputElement>('sel-nameset').value) || 0))));
 		this.listen($('sel-lock'), 'change', () => objects.setLocked($<HTMLInputElement>('sel-lock').checked));
 		this.listen($('sel-group'), 'change', () => objects.setGroup($<HTMLInputElement>('sel-group').value));
 		objects.onSelectionChange = () => this.syncSelection();
@@ -328,6 +330,20 @@ export class EditorPanels {
 			$(`gizmo-${mode}`).classList.toggle('active', objects.gizmoMode === mode);
 		}
 		if (!selected.length) return;
+		// The WMO set choices show for a single selected building (spec 7.8).
+		const wmo = selected.length === 1 && selected[0].kind === 'wmo' ? selected[0] : null;
+		$('sel-doodadset-row').hidden = !wmo;
+		$('sel-nameset-row').hidden = !wmo;
+		if (wmo) {
+			const sets = objects.doodadSets(wmo);
+			const select = $<HTMLSelectElement>('sel-doodadset');
+			select.replaceChildren(
+				...(sets?.map((name, i) => new Option(`${i} · ${name || 'unnamed'}${i === 0 ? ' (always shown)' : ''}`, String(i))) ?? [new Option('Loading…', String(wmo.doodadSet ?? 0))]),
+			);
+			select.value = String(wmo.doodadSet ?? 0);
+			select.disabled = !sets;
+			$<HTMLInputElement>('sel-nameset').value = String(wmo.nameSet ?? 0);
+		}
 		const lock = $<HTMLInputElement>('sel-lock');
 		lock.checked = selected.every((o) => o.locked);
 		lock.indeterminate = !lock.checked && selected.some((o) => o.locked);

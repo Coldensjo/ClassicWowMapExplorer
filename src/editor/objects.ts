@@ -572,6 +572,26 @@ export class SceneObjects {
 		}, true);
 	}
 
+	/** A placed WMO's doodad set names, for the panel's choice; null until its model loads. */
+	doodadSets(o: PlacedObject): string[] | null {
+		if (o.kind !== 'wmo') return null;
+		return this.manager.modelInfo(o.kind, o.fdid)?.doodadSets ?? null;
+	}
+
+	/** Chooses the doodad set shown inside the selected buildings (set 0 always shows, spec 7.8). */
+	setDoodadSet(set: number): void {
+		this.editSelection('Change doodad set', (after, o) => {
+			if (o.kind === 'wmo') after.doodadSet = set;
+		});
+	}
+
+	/** Chooses the name set of the selected buildings (which WMOAreaTable rows name its rooms). */
+	setNameSet(set: number): void {
+		this.editSelection('Change name set', (after, o) => {
+			if (o.kind === 'wmo') after.nameSet = set;
+		});
+	}
+
 	/** An edit of every selected object's snapshot, as one undoable command. */
 	editSelection(label: string, change: (after: Snapshot, o: PlacedObject) => void, includeLocked = false): void {
 		const before: Snapshot[] = [];

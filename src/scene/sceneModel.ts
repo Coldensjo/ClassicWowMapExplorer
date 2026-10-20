@@ -130,6 +130,15 @@ export class SceneModel {
 	 * triangles fanned around its centre vertex. Null outside the scene or over a hole.
 	 */
 	heightAt(x: number, z: number): number | null {
+		return this.sample(x, z, false);
+	}
+
+	/** The terrain surface ignoring holes: what counts as above or below ground. */
+	surfaceAt(x: number, z: number): number | null {
+		return this.sample(x, z, true);
+	}
+
+	private sample(x: number, z: number, ignoreHoles: boolean): number | null {
 		const tile = this.tileAt(x, z);
 		if (!tile) return null;
 		const lx = x - tile.x * TILE_SIZE;
@@ -143,7 +152,7 @@ export class SceneModel {
 		const fz = (lz - cy * CHUNK_SIZE) / cell;
 		const col = Math.min(Math.floor(fx), INNER - 1);
 		const row = Math.min(Math.floor(fz), INNER - 1);
-		if (chunk.holes[row] & (1 << col)) return null;
+		if (!ignoreHoles && chunk.holes[row] & (1 << col)) return null;
 		const u = fx - col;
 		const v = fz - row;
 		const h = chunk.heights;

@@ -19,6 +19,8 @@ import { CHARACTER_OUTFITS, type CharacterOutfit, type CharacterRace } from '../
 
 import { WorldMap } from './worldMap';
 import { knownFolders, productRank, REFERENCE_PRODUCT } from './clientConfig';
+import { showScenes } from '../editor/scenesUi';
+import type { StorageStats } from '../casc/storage';
 import { keptVersions, productName, sessionHost, setKeptVersions, setQuickSwitching, quickSwitching, type SwitchState, type ViewerSession } from './session';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -105,6 +107,42 @@ const PRODUCT_KEY = 'mapExplorer.product';
 let installed: ProductInfo[] = [];
 /** Set once a game version has been opened: the viewer starts once per page, so another one takes a reload. */
 let exploring = false;
+
+/** The one open of the chosen game version, shared by the scene library and the world explorer. */
+let opened: Promise<StorageStats> | null = null;
+
+function openStorage(): Promise<StorageStats> {
+	opened ??= storage.open($<HTMLSelectElement>('product').value);
+	return opened;
+}
+
+/**
+ * The builder's landing screen (spec 3.1): opens the install and shows the scene library, with
+ * the world explorer a button away.
+ */
+async function openScenes(): Promise<void> {
+	const button = $<HTMLButtonElement>('explore');
+	button.disabled = true;
+	$<HTMLButtonElement>('pick').disabled = true;
+	try {
+		const stats = await openStorage();
+		hideProgress();
+		dismissStart();
+		showScenes(storage, stats, () => {
+			// The explorer loads the whole world: bring the start card's loading bar back for it.
+			const start = $('start');
+			start.hidden = false;
+			start.classList.remove('leaving');
+			void explore();
+		});
+	} catch (e) {
+		perf.log('error', `could not open: ${(e as Error).message}`);
+		setStatus(`Could not open: ${(e as Error).message}`, true);
+		button.disabled = false;
+		$<HTMLButtonElement>('pick').disabled = false;
+		if (installed.length > 1) $('product-step').hidden = false;
+	}
+}
 
 
 /** Ctrl and the number for the nth version in the menu: 1 to 9, then 0; none past the tenth. */
@@ -204,9 +242,10 @@ async function useSource(init: SourceInit): Promise<void> {
 		// another classic build as best-effort: the continent file IDs are the classic ones.
 		const preferred = products.find((p) => p.product === saved) ?? products.find((p) => p.product === REFERENCE_PRODUCT) ?? products.find((p) => p.product.startsWith('wow_classic'));
 		if (preferred) {
-			// Nothing to choose: straight in.
+			// Nothing to choose: straight in. A switched-to version goes to the world it was
+			// switched from; otherwise the scene library is the landing screen.
 			select.value = preferred.product;
-			await explore();
+			await (requested ? explore() : openScenes());
 			return;
 		}
 		hideProgress();
@@ -305,7 +344,7 @@ $<HTMLInputElement>('pick-input').addEventListener('change', async (event) => {
 $('explore').addEventListener('click', () => {
 	// After a version that couldn't start, another one starts from a fresh page.
 	if (exploring) switchProduct($<HTMLSelectElement>('product').value);
-	else void explore();
+	else void openScenes();
 });
 
 const ORDER_KEY = 'mapExplorer.gameOrder';
@@ -467,7 +506,7 @@ async function explore(): Promise<void> {
 	button.disabled = true;
 	$<HTMLButtonElement>('pick').disabled = true;
 	try {
-		await storage.open($<HTMLSelectElement>('product').value);
+		await openStorage();
 		const ui = loadUiAssets(storage);
 		const viewer = new Viewer($('view'), storage, showHud, $('nameplates'));
 		infoViewer = viewer;

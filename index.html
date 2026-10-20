@@ -3,7 +3,7 @@
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Map Explorer</title>
+	<title>WoW Dungeon Builder</title>
 	<link rel="icon" href="/icon.svg" type="image/svg+xml">
 	<link rel="stylesheet" href="/src/viewer/viewer.css">
 </head>
@@ -18,8 +18,8 @@
 			<header>
 				<img class="logo" src="/icon.svg" alt="" width="32" height="32">
 				<div>
-					<h1>Map Explorer</h1>
-					<p class="tagline">Fly over Azeroth, drawn from the game files on your computer.</p>
+					<h1>WoW Dungeon Builder</h1>
+					<p class="tagline">Build small WoW-style areas from the game files on your computer.</p>
 				</div>
 			</header>
 			<!-- The loading bar takes the folder row's place, over it, so the card keeps its size. -->
@@ -36,12 +36,55 @@
 			<input id="pick-input" type="file" webkitdirectory hidden>
 			<div id="product-step" hidden>
 				<label>Game version <select id="product"></select></label>
-				<button id="explore" class="primary">Explore</button>
+				<button id="explore" class="primary">Open</button>
 			</div>
 			<p id="status"></p>
 			<p class="note">The browser calls it an upload, but nothing leaves your computer: the files are only read here.</p>
 		</div>
 	</div>
+
+	<!-- The scene library: the saved scenes, New scene, import and export (spec 3.1). -->
+	<div id="scenes" hidden>
+		<div class="scenes-frame help-card" role="dialog" aria-labelledby="scenes-title">
+			<header>
+				<h2 id="scenes-title">Your scenes</h2>
+				<span id="scenes-build" class="muted small"></span>
+				<button id="scenes-explore" class="small" title="Fly over the world instead of editing a scene">Explore the world</button>
+			</header>
+			<div class="scenes-actions">
+				<button id="scene-new" class="primary">New scene</button>
+				<button id="scene-import">Import a .wscene…</button>
+				<input id="scene-import-input" type="file" accept=".wscene" hidden>
+			</div>
+			<div id="scene-list" class="scene-list"></div>
+			<p id="scene-list-empty" class="muted">No scenes yet. Make one with New scene.</p>
+			<p class="muted small">Scenes are kept in this browser and hold only your edits plus references to game files; export a .wscene to share or back one up.</p>
+		</div>
+	</div>
+
+	<!-- Making a new scene: a name, a grid of flat tiles and a base texture (spec 3.2). -->
+	<div id="scene-create" hidden>
+		<form id="scene-create-form" class="help-card" role="dialog" aria-labelledby="scene-create-title">
+			<h2 id="scene-create-title">New scene</h2>
+			<label>Name <input id="scene-name" type="text" maxlength="80" placeholder="My dungeon" autocomplete="off"></label>
+			<label>Size <span class="scene-size"><select id="scene-tiles-x" aria-label="Tiles across"></select> × <select id="scene-tiles-y" aria-label="Tiles down"></select> tiles</span></label>
+			<label>Base texture <select id="scene-texture"></select></label>
+			<div class="scenes-actions">
+				<button type="submit" class="primary">Create</button>
+				<button type="button" id="scene-create-cancel">Cancel</button>
+			</div>
+		</form>
+	</div>
+
+	<!-- Along the top while a scene is open. -->
+	<nav id="editor-bar" aria-label="Scene" hidden>
+		<span id="editor-name"></span>
+		<button id="editor-save">Save</button>
+		<button id="editor-export" title="Download this scene as a .wscene file">Export</button>
+		<button id="editor-back" title="Save and go back to your scenes">Scenes</button>
+		<span id="editor-status" class="muted small"></span>
+		<span class="editor-hint muted small"><kbd>Tab</kbd> walk · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly · <kbd>Click</kbd> look</span>
+	</nav>
 
 	<!-- Along the top: the menus, each dropping down below its name, and Go to and the controls list at the right. -->
 	<nav id="menu" aria-label="Settings" hidden>

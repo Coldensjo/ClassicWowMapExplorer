@@ -2642,11 +2642,28 @@ body.wow-ui {
 	line-height: 1.2;
 }
 
-.texture-item canvas {
+.texture-item canvas,
+.texture-item img {
 	width: 56px;
 	height: 56px;
 	border-radius: 4px;
 	background: #20242b;
+	object-fit: contain;
+}
+
+#model-browser .browser-top {
+	display: flex;
+	gap: 4px;
+	margin-top: 6px;
+}
+
+#model-browser .browser-top input {
+	flex: 1;
+	min-width: 0;
+}
+
+#place-props input[type='number'] {
+	width: 64px;
 }
 
 .texture-item span {

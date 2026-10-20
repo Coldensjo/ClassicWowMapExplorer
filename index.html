@@ -94,7 +94,7 @@
 		<button id="tool-paint" title="Paint textures (2)">Paint</button>
 		<button id="tool-holes" title="Cut holes in the ground (3)">Holes</button>
 		<button id="tool-water" title="Add water (4)">Water</button>
-		<button id="tool-place" title="Place objects (coming in Phase 3)" disabled>Place</button>
+		<button id="tool-place" title="Place objects (5)">Place</button>
 		<button id="tool-npcs" title="Place NPCs (coming in Phase 5)" disabled>NPCs</button>
 	</div>
 
@@ -160,6 +160,32 @@
 			<label class="prop-row">Surface <input type="number" id="water-height" step="0.5" placeholder="above click" title="Surface height in yards; empty puts it a little above the ground you click"><span class="muted small">yd</span></label>
 			<label class="prop-row">Radius <input type="range" id="water-radius" min="1" max="30" step="1" title="[ and ] change it too"><output id="water-radius-out"></output></label>
 			<p id="water-hint" class="muted small"></p>
+		</div>
+		<div id="place-props" class="tool-props" hidden>
+			<h3>Place</h3>
+			<div class="mode-row" role="group" aria-label="Place mode">
+				<button id="place-place" title="Click the ground to drop the picked asset">Place</button>
+				<button id="place-select" title="Click objects to select and edit them">Select</button>
+			</div>
+			<!-- The doodad and building tabs of the asset browser (spec 7.3). -->
+			<div id="model-browser">
+				<div class="mode-row" role="group" aria-label="Asset kind">
+					<button id="model-tab-m2" title="M2 doodads under world/">Doodads</button>
+					<button id="model-tab-wmo" title="WMO buildings (root files)">Buildings</button>
+				</div>
+				<div class="browser-top">
+					<input id="model-search" type="search" placeholder="Search models… e.g. elwynn tree" autocomplete="off" spellcheck="false" aria-label="Search models">
+					<button id="model-refresh" title="Fetch the listfile afresh" aria-label="Refresh the listfile">⟳</button>
+				</div>
+				<div id="model-grid" class="texture-grid" aria-label="Models"></div>
+				<div id="model-count" class="muted small"></div>
+			</div>
+			<div id="model-picked" class="muted small"></div>
+			<label class="prop-row"><input type="checkbox" id="place-align"> Align to slope</label>
+			<label class="prop-row"><input type="checkbox" id="place-random-yaw"> Random facing</label>
+			<label class="prop-row" title="Placed doodads pick a random size in this range">Scale <input type="number" id="place-scale-min" min="0.05" max="10" step="0.05" value="1"> – <input type="number" id="place-scale-max" min="0.05" max="10" step="0.05" value="1"></label>
+			<label class="prop-row">Grid snap <select id="place-snap"><option value="0">Off</option><option value="0.5">0.5 yd</option><option value="1">1 yd</option><option value="5">5 yd</option></select></label>
+			<p id="place-hint" class="muted small"></p>
 		</div>
 		<!-- Ground clutter settings (spec 7.7), under whichever tool is open. -->
 		<div id="clutter-box" class="tool-props">

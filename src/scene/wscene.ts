@@ -2,7 +2,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { CHUNK_HEIGHTS, CHUNKS_PER_TILE } from '../formats/adt';
 import { ALPHA_SIZE } from '../formats/adtTex';
 import { SceneModel, type SceneChunk, type SceneTile } from './sceneModel';
-import { MAX_COPIED_TILES, SCENE_VERSION, type BinRef, type Chunk, type Scene, type Tile } from './types';
+import { MAX_COPIED_TILES, SCENE_VERSION, type BinRef, type Chunk, type PlacedObject, type Scene, type Tile, type Vec3 } from './types';
 
 /**
  * The .wscene container (spec 6.2): a zip holding scene.json plus the binary arrays it references
@@ -209,8 +209,44 @@ function toModel(scene: Scene, files: Record<string, Uint8Array>): SceneModel {
 		},
 		scene.textures,
 		tiles,
-		scene.objects ?? [],
+		validObjects(scene.objects ?? []),
 		scene.npcPresets ?? [],
 		scene.npcs ?? [],
 	);
+}
+
+/** Checks placed objects (spec 7.8) and keeps only the fields the format defines. */
+function validObjects(objects: PlacedObject[]): PlacedObject[] {
+	if (!Array.isArray(objects)) throw new Error('Bad placed object list');
+	const seen = new Set<string>();
+	const vec3 = (v: Vec3, what: string): Vec3 => {
+		if (!Array.isArray(v) || v.length !== 3 || !v.every(Number.isFinite)) throw new Error(`${what} has a bad vector`);
+		return [v[0], v[1], v[2]];
+	};
+	return objects.map((o, i) => {
+		const what = `Placed object ${i}`;
+		if (typeof o?.id !== 'string' || !o.id || seen.has(o.id)) throw new Error(`${what} has a missing or repeated id`);
+		seen.add(o.id);
+		if (o.kind !== 'm2' && o.kind !== 'wmo') throw new Error(`${what} has kind "${o.kind}"`);
+		if (!Number.isInteger(o.fdid) || o.fdid <= 0) throw new Error(`${what} has a bad file ID`);
+		if (!Number.isFinite(o.scale) || o.scale <= 0) throw new Error(`${what} has a bad scale`);
+		const sets = (value: number | undefined, name: string): number | undefined => {
+			if (value === undefined) return undefined;
+			if (!Number.isInteger(value) || value < 0) throw new Error(`${what} has a bad ${name}`);
+			return value;
+		};
+		return {
+			id: o.id,
+			...(typeof o.baseKey === 'string' && o.baseKey ? { baseKey: o.baseKey } : {}),
+			kind: o.kind,
+			fdid: o.fdid,
+			position: vec3(o.position, what),
+			rotation: vec3(o.rotation, what),
+			// WMO scale is fixed at 1 (spec 6.1).
+			scale: o.kind === 'wmo' ? 1 : o.scale,
+			...(o.kind === 'wmo' ? { doodadSet: sets(o.doodadSet, 'doodad set') ?? 0, nameSet: sets(o.nameSet, 'name set') ?? 0 } : {}),
+			...(o.locked === true ? { locked: true } : {}),
+			...(typeof o.group === 'string' && o.group ? { group: o.group } : {}),
+		};
+	});
 }

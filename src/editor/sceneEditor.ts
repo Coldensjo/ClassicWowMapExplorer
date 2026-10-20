@@ -12,6 +12,7 @@ import { CommandStack } from './commands';
 import { HoleStroke, WaterStroke, type HoleSettings, type WaterSettings } from './cells';
 import { PaintStroke, type PaintSettings } from './paint';
 import { SculptStroke, type BrushSettings } from './sculpt';
+import { SceneObjects } from './objects';
 import { ALPHA_SIZE } from '../formats/adtTex';
 import { liquidKind, type LiquidInstance, type LiquidKind } from '../formats/mh2o';
 import { buildLiquidMeshes } from '../explorer/liquidMesh';
@@ -114,7 +115,9 @@ export class SceneEditor {
 	/** The editor core (spec 7.11): every change goes through a command. */
 	readonly commands = new CommandStack();
 	/** Which tool the left mouse button drives. */
-	tool: 'sculpt' | 'paint' | 'holes' | 'water' = 'sculpt';
+	tool: 'sculpt' | 'paint' | 'holes' | 'water' | 'place' = 'sculpt';
+	/** The placed doodads and buildings (spec 7.8). */
+	readonly objects: SceneObjects;
 	/** The hole brush (spec 7.6), edited by the properties panel. */
 	readonly holes: HoleSettings = { radius: 4, mode: 'cut' };
 	/** The water brush (spec 7.6), edited by the properties panel. */
@@ -192,6 +195,19 @@ export class SceneEditor {
 			await this.renderer.compileAsync(object, this.camera, this.scene);
 		});
 		this.scene.add(this.clutter.group);
+		this.objects = new SceneObjects(
+			this.scene,
+			model,
+			this.commands,
+			storage,
+			supportsCompressedTextures(this.renderer),
+			this.renderer.capabilities.getMaxAnisotropy(),
+			async (object) => {
+				await this.renderer.compileAsync(object, this.camera, this.scene);
+			},
+			(x, z) => this.model.surfaceAt(x, z),
+		);
+		this.objects.onNotice = (text) => this.onNotice(text);
 		// The explorer's sea mask tints terrain below sea level; a scene has no sea.
 		seaMask.uSeaBounds.value.set(1e9, 1e9, 1, 1);
 
@@ -216,6 +232,7 @@ export class SceneEditor {
 		// Water colours come from LiquidType.db2; the materials update when they arrive.
 		void this.storage.loadLiquidLooks().then(setLiquidLooks).catch(() => {});
 		for (const tile of this.model.tiles) await this.buildTile(tile);
+		this.objects.load();
 		this.render();
 	}
 
@@ -739,6 +756,7 @@ export class SceneEditor {
 		}
 		const ground = this.model.surfaceAt(this.camera.position.x, this.camera.position.z);
 		this.clutter.update(performance.now(), this.camera.position, ground ?? -Infinity);
+		this.objects.update(performance.now(), this.camera.position);
 		const now = performance.now();
 		for (let i = this.flags.length - 1; i >= 0; i--) {
 			if (now < this.flags[i].until) continue;
@@ -802,7 +820,7 @@ export class SceneEditor {
 	/** Lays the brush ring (and the ramp's anchor ring) on the terrain. */
 	private updateRings(): void {
 		if (this.tool !== 'sculpt' || this.brush.mode !== 'ramp') this.rampStart = null;
-		const show = this.cursor !== null && !this.walker.active && !this.controls.locked;
+		const show = this.cursor !== null && !this.walker.active && !this.controls.locked && this.tool !== 'place';
 		this.ring.visible = show;
 		const radius =
 			this.tool === 'paint' ? (this.paint.mode === 'paint' || this.paint.mode === 'erase' ? this.paint.radius : 2)
@@ -853,7 +871,14 @@ export class SceneEditor {
 
 	/** Starts the active tool at the cursor (left button). */
 	private beginStroke(): void {
-		if (!this.cursor || this.walker.active || this.controls.locked) return;
+		if (this.walker.active || this.controls.locked) return;
+		if (this.tool === 'place') {
+			if (Number.isNaN(this.mouse.x)) return;
+			this.raycaster.setFromCamera(this.mouse, this.camera);
+			if (this.objects.place.mode === 'place') this.objects.placeClick(this.raycaster, this.cursor);
+			return;
+		}
+		if (!this.cursor) return;
 		if (this.tool === 'paint') {
 			this.stroke = new PaintStroke(this.model, this.paint, this.effectFor);
 			return;
@@ -1014,6 +1039,7 @@ export class SceneEditor {
 		window.removeEventListener('keydown', this.onKeyDown);
 		window.removeEventListener('resize', this.onResize);
 		for (const index of [...this.tileMeshes.keys()]) this.dropTile(index);
+		this.objects.dispose();
 		this.ring.geometry.dispose();
 		(this.ring.material as THREE.Material).dispose();
 		this.rampRing.geometry.dispose();

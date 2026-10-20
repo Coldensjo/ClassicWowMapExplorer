@@ -4,6 +4,7 @@ import type { HoleMode, WaterMode } from './cells';
 import type { PaintMode } from './paint';
 import type { SceneEditor } from './sceneEditor';
 import type { Falloff, SculptMode } from './sculpt';
+import { ModelBrowser } from './modelBrowser';
 import { TextureBrowser } from './textureBrowser';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -14,7 +15,7 @@ const TOOLS: { id: string; key: string; ready: boolean }[] = [
 	{ id: 'paint', key: 'Digit2', ready: true },
 	{ id: 'holes', key: 'Digit3', ready: true },
 	{ id: 'water', key: 'Digit4', ready: true },
-	{ id: 'place', key: 'Digit5', ready: false },
+	{ id: 'place', key: 'Digit5', ready: true },
 	{ id: 'npcs', key: 'Digit6', ready: false },
 ];
 
@@ -36,6 +37,11 @@ const PAINT_HINTS: Record<PaintMode, string> = {
 	base: 'Click a chunk to swap its base texture, keeping the paint on top.',
 };
 
+const PLACE_HINTS: Record<'place' | 'select', string> = {
+	place: 'Pick an asset, then click the ground to drop it. Shift stays in place mode for scattering.',
+	select: 'Click an object to select it; Shift+click adds. Del deletes, Ctrl+D duplicates.',
+};
+
 const SCULPT_HINTS: Record<SculptMode, string> = {
 	raise: 'Hold the left button to raise the ground.',
 	lower: 'Hold the left button to lower the ground.',
@@ -54,10 +60,12 @@ export class EditorPanels {
 	private readonly cleanups: (() => void)[] = [];
 
 	private readonly textures: TextureBrowser;
+	/** Made when the Place tool first opens, so its listfile parts aren't fetched before then. */
+	private models: ModelBrowser | null = null;
 
 	constructor(
 		private readonly editor: SceneEditor,
-		storage: AsyncStorageApi,
+		private readonly storage: AsyncStorageApi,
 	) {
 		this.show(true);
 		this.wireRail();
@@ -65,6 +73,7 @@ export class EditorPanels {
 		this.wirePaint();
 		this.wireHoles();
 		this.wireWater();
+		this.wirePlace();
 		this.wireClutter();
 		this.wireUndo();
 		this.wireKeys();
@@ -113,6 +122,13 @@ export class EditorPanels {
 		$('paint-props').hidden = id !== 'paint';
 		$('holes-props').hidden = id !== 'holes';
 		$('water-props').hidden = id !== 'water';
+		$('place-props').hidden = id !== 'place';
+		if (id === 'place' && !this.models) {
+			this.models = new ModelBrowser(this.storage, this.editor.model.meta.client.build, (asset) => {
+				this.editor.objects.place.asset = asset;
+				this.syncPlace();
+			}, (text) => this.editor.onNotice(text));
+		}
 	}
 
 	// ---- Sculpt properties ----
@@ -258,6 +274,47 @@ export class EditorPanels {
 		$('water-hint').textContent = WATER_HINTS[water.mode];
 	}
 
+	// ---- Object placement (spec 7.8) ----
+
+	private wirePlace(): void {
+		const place = this.editor.objects.place;
+		for (const mode of ['place', 'select'] as const) {
+			this.listen($(`place-${mode}`), 'click', () => {
+				place.mode = mode;
+				this.syncPlace();
+			});
+		}
+		this.listen($('place-align'), 'change', () => {
+			place.alignToSlope = $<HTMLInputElement>('place-align').checked;
+		});
+		this.listen($('place-random-yaw'), 'change', () => {
+			place.randomYaw = $<HTMLInputElement>('place-random-yaw').checked;
+		});
+		this.listen($('place-scale-min'), 'input', () => {
+			place.scaleMin = Number($<HTMLInputElement>('place-scale-min').value) || 1;
+		});
+		this.listen($('place-scale-max'), 'input', () => {
+			place.scaleMax = Number($<HTMLInputElement>('place-scale-max').value) || 1;
+		});
+		this.listen($('place-snap'), 'change', () => {
+			place.gridSnap = Number($<HTMLSelectElement>('place-snap').value);
+		});
+		this.syncPlace();
+	}
+
+	private syncPlace(): void {
+		const place = this.editor.objects.place;
+		$('place-place').classList.toggle('active', place.mode === 'place');
+		$('place-select').classList.toggle('active', place.mode === 'select');
+		$<HTMLInputElement>('place-align').checked = place.alignToSlope;
+		$<HTMLInputElement>('place-random-yaw').checked = place.randomYaw;
+		$<HTMLInputElement>('place-scale-min').value = String(place.scaleMin);
+		$<HTMLInputElement>('place-scale-max').value = String(place.scaleMax);
+		$<HTMLSelectElement>('place-snap').value = String(place.gridSnap);
+		$('model-picked').textContent = place.asset ? `Placing ${place.asset.label}` : 'Nothing picked yet';
+		$('place-hint').textContent = PLACE_HINTS[place.mode];
+	}
+
 	// ---- Ground clutter (spec 7.7) ----
 
 	private wireClutter(): void {
@@ -357,6 +414,8 @@ export class EditorPanels {
 
 	dispose(): void {
 		this.textures.dispose();
+		this.models?.dispose();
+		this.models = null;
 		for (const cleanup of this.cleanups) cleanup();
 		this.cleanups.length = 0;
 		this.show(false);

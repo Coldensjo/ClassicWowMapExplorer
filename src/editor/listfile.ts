@@ -4,18 +4,13 @@ import { kvGet, kvSet } from '../scene/db';
  * The community listfile (spec 3.1, 7.1): the FDID → path mapping the asset browser's names and
  * search run on. It is fetched once from the community repository, narrowed to what the builder
  * needs, and cached in IndexedDB with its date; "Refresh listfile" fetches it again.
+ *
+ * The whole listfile is a 150 MB release asset GitHub serves without CORS headers, but the
+ * repository splits it into parts by category, and raw repository files come with open CORS — so
+ * only the parts that matter are fetched: the ones with tileset textures for the paint browser,
+ * and the world object parts for the doodad and building browser (spec 7.3).
  */
-
-/**
- * The community listfile's parts that hold tileset paths. The whole listfile is a 150 MB release
- * asset GitHub serves without CORS headers, but the repository splits it by category, and raw
- * repository files come with open CORS — so only the parts that matter are fetched (about 13 MB).
- */
-const LISTFILE_URLS = [
-	'https://raw.githubusercontent.com/wowdev/wow-listfile/master/parts/misc.csv',
-	'https://raw.githubusercontent.com/wowdev/wow-listfile/master/parts/placeholder.csv',
-];
-const KV_KEY = 'listfile:tileset:2';
+const PARTS = 'https://raw.githubusercontent.com/wowdev/wow-listfile/master/parts/';
 
 export interface ListfileEntry {
 	fdid: number;
@@ -32,52 +27,85 @@ interface CachedListfile {
  * specular companions (_h, _s) are not paintable themselves — the client binds them to their
  * base texture — so they are left out.
  */
-function wanted(path: string): boolean {
+function wantedTexture(path: string): boolean {
 	return path.startsWith('tileset/') && path.endsWith('.blp') && !path.endsWith('_h.blp') && !path.endsWith('_s.blp');
 }
 
-let loading: Promise<ListfileEntry[]> | null = null;
+/** Keeps placeable doodads: .m2 files under world/ (spec 7.1 asset filtering). */
+function wantedDoodad(path: string): boolean {
+	return path.startsWith('world/') && path.endsWith('.m2');
+}
+
+/**
+ * Keeps WMO root files (spec 7.1 asset filtering): not the _NNN group files, and not the _lod
+ * variants of either, which are the same building at lower detail.
+ */
+function wantedWmo(path: string): boolean {
+	return path.endsWith('.wmo') && !/(_\d{3}(_lod\d+)?|_lod\d*)\.wmo$/.test(path);
+}
+
+/** What each cached list is built from: the part files it needs, and the paths it keeps. */
+const KINDS = {
+	tileset: { key: 'listfile:tileset:2', parts: ['misc.csv', 'placeholder.csv'], wanted: wantedTexture },
+	doodad: { key: 'listfile:doodads:1', parts: ['world.csv', 'placeholder.csv'], wanted: wantedDoodad },
+	wmo: { key: 'listfile:wmos:1', parts: ['world-wmo.csv', 'placeholder.csv'], wanted: wantedWmo },
+} as const;
+
+export type ListfileKind = keyof typeof KINDS;
+
+const loading = new Map<ListfileKind, Promise<ListfileEntry[]>>();
 
 /** When the cached listfile was fetched, for the refresh button's label; null before first fetch. */
-export async function listfileDate(): Promise<string | null> {
-	const cached = await kvGet<CachedListfile>(KV_KEY).catch(() => undefined);
+export async function listfileDate(kind: ListfileKind = 'tileset'): Promise<string | null> {
+	const cached = await kvGet<CachedListfile>(KINDS[kind].key).catch(() => undefined);
 	return cached?.date ?? null;
 }
 
 /**
- * The tileset entries of the listfile: from the cache when present, otherwise fetched and cached.
- * Failures reject; the browser then falls back to the scene's own palette.
+ * One kind's entries of the listfile: from the cache when present, otherwise fetched and cached.
+ * Failures reject; the browsers then fall back to what the scene already uses.
  */
+export function listfile(kind: ListfileKind, onProgress?: (text: string) => void): Promise<ListfileEntry[]> {
+	let entry = loading.get(kind);
+	if (!entry) {
+		entry = load(kind, onProgress).catch((e) => {
+			loading.delete(kind);
+			throw e;
+		});
+		loading.set(kind, entry);
+	}
+	return entry;
+}
+
+/** The tileset entries, for the paint browser (kept as its own call for the Phase 2 code). */
 export function tilesetListfile(onProgress?: (text: string) => void): Promise<ListfileEntry[]> {
-	loading ??= load(onProgress).catch((e) => {
-		loading = null;
-		throw e;
-	});
-	return loading;
+	return listfile('tileset', onProgress);
 }
 
-/** Drops the cache and fetches the listfile afresh. */
-export function refreshListfile(onProgress?: (text: string) => void): Promise<ListfileEntry[]> {
-	loading = fetchListfile(onProgress).catch((e) => {
-		loading = null;
+/** Drops a kind's cache and fetches the listfile afresh. */
+export function refreshListfile(onProgress?: (text: string) => void, kind: ListfileKind = 'tileset'): Promise<ListfileEntry[]> {
+	const fresh = fetchListfile(kind, onProgress).catch((e) => {
+		loading.delete(kind);
 		throw e;
 	});
-	return loading;
+	loading.set(kind, fresh);
+	return fresh;
 }
 
-async function load(onProgress?: (text: string) => void): Promise<ListfileEntry[]> {
-	const cached = await kvGet<CachedListfile>(KV_KEY).catch(() => undefined);
+async function load(kind: ListfileKind, onProgress?: (text: string) => void): Promise<ListfileEntry[]> {
+	const cached = await kvGet<CachedListfile>(KINDS[kind].key).catch(() => undefined);
 	if (cached?.entries?.length) return cached.entries.map(([fdid, path]) => ({ fdid, path }));
-	return fetchListfile(onProgress);
+	return fetchListfile(kind, onProgress);
 }
 
-/** Streams the listfile parts, keeping only the lines the builder needs. */
-async function fetchListfile(onProgress?: (text: string) => void): Promise<ListfileEntry[]> {
+/** Streams the listfile parts, keeping only the lines the kind needs. */
+async function fetchListfile(kind: ListfileKind, onProgress?: (text: string) => void): Promise<ListfileEntry[]> {
+	const { key, parts, wanted } = KINDS[kind];
 	onProgress?.('Fetching the listfile…');
 	const entries: [number, string][] = [];
 	let bytes = 0;
-	for (const url of LISTFILE_URLS) {
-		const response = await fetch(url);
+	for (const part of parts) {
+		const response = await fetch(PARTS + part);
 		if (!response.ok || !response.body) throw new Error(`The listfile couldn't be fetched (${response.status})`);
 		const reader = response.body.getReader();
 		const decoder = new TextDecoder();
@@ -90,18 +118,18 @@ async function fetchListfile(onProgress?: (text: string) => void): Promise<Listf
 			const text = tail + decoder.decode(value, { stream: true });
 			const lines = text.split('\n');
 			tail = lines.pop() ?? '';
-			for (const line of lines) addLine(entries, line);
+			for (const line of lines) addLine(entries, line, wanted);
 		}
-		addLine(entries, tail);
+		addLine(entries, tail, wanted);
 	}
-	if (!entries.length) throw new Error('The listfile had no terrain textures in it');
+	if (!entries.length) throw new Error('The listfile had nothing the builder needs in it');
 	entries.sort((a, b) => a[1].localeCompare(b[1]));
-	await kvSet(KV_KEY, { date: new Date().toISOString(), entries } satisfies CachedListfile).catch(() => {});
+	await kvSet(key, { date: new Date().toISOString(), entries } satisfies CachedListfile).catch(() => {});
 	onProgress?.('');
 	return entries.map(([fdid, path]) => ({ fdid, path }));
 }
 
-function addLine(entries: [number, string][], line: string): void {
+function addLine(entries: [number, string][], line: string, wanted: (path: string) => boolean): void {
 	const semi = line.indexOf(';');
 	if (semi <= 0) return;
 	const path = line.slice(semi + 1).trim().toLowerCase();

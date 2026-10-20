@@ -262,10 +262,11 @@ export class ObjectManager {
 	}
 
 	/**
-	 * Places a model that no tile holds (a boat or zeppelin), or moves it there if it's placed
-	 * already. Buildings bring their doodads along. Shown at any distance until removeLoose.
+	 * Places a model that no tile holds (a boat, or the editor's placed objects), or moves it there
+	 * if it's placed already. Buildings bring their doodads along: set 0 plus the chosen set, as the
+	 * client shows them (spec 7.8). Shown at any distance until removeLoose.
 	 */
-	placeLoose(key: string, kind: Kind, fdid: number, matrix: THREE.Matrix4): void {
+	placeLoose(key: string, kind: Kind, fdid: number, matrix: THREE.Matrix4, doodadSet = 0): void {
 		const object = this.loose.get(key);
 		if (!object) {
 			const own = matrix.clone();
@@ -274,11 +275,15 @@ export class ObjectManager {
 			if (kind === 'wmo') {
 				this.whenReady('wmo', fdid, (entry) => {
 					if (this.loose.get(key) !== placed) return;
-					(entry.data?.doodadSets?.[0]?.doodads ?? []).forEach((d, i) => {
-						const local = new THREE.Matrix4().fromArray(d.matrix);
-						const placedMatrix = placed.matrix.clone().multiply(local);
-						placed.doodads.push({ local, matrix: placedMatrix, part: this.addInstance('m2', d.fdid, `${key}:${i}`, placedMatrix) });
-					});
+					const sets = entry.data?.doodadSets ?? [];
+					let i = 0;
+					for (const s of new Set([0, doodadSet])) {
+						for (const d of sets[s]?.doodads ?? []) {
+							const local = new THREE.Matrix4().fromArray(d.matrix);
+							const placedMatrix = placed.matrix.clone().multiply(local);
+							placed.doodads.push({ local, matrix: placedMatrix, part: this.addInstance('m2', d.fdid, `${key}:${i++}`, placedMatrix) });
+						}
+					}
 				});
 			}
 			return;
@@ -837,6 +842,48 @@ export class ObjectManager {
 		if (entry.animation) this.releaseBones(entry.animation.key);
 	}
 
+	private readonly pickProxy = new THREE.Mesh(new THREE.BufferGeometry(), ObjectManager.COLLIDER_MATERIAL);
+	private readonly pickSphere = new THREE.Sphere();
+
+	/**
+	 * The drawn instance nearest along a ray, for the editor's selection (spec 7.8): instances are
+	 * skipped by bounding sphere, and candidates ray-cast one copy at a time (the BVH where the
+	 * model has one). Returns the instance's key — a loose key, or `loose:<n>` for a WMO's doodads.
+	 */
+	pick(raycaster: THREE.Raycaster): { key: string; distance: number; point: THREE.Vector3 } | null {
+		let best: { key: string; distance: number; point: THREE.Vector3 } | null = null;
+		raycaster.firstHitOnly = true;
+		const proxy = this.pickProxy;
+		proxy.matrixAutoUpdate = false;
+		for (const entry of this.models.values()) {
+			const sphere = entry.geometry?.boundingSphere;
+			if (!entry.geometry || !entry.mesh?.visible || !sphere) continue;
+			for (const key of entry.visible) {
+				const m = entry.instances.get(key);
+				if (!m) continue;
+				this.pickSphere.copy(sphere).applyMatrix4(m);
+				if (best && raycaster.ray.distanceToPoint(this.pickSphere.center) - this.pickSphere.radius > best.distance) continue;
+				if (!raycaster.ray.intersectsSphere(this.pickSphere)) continue;
+				proxy.geometry = entry.geometry;
+				proxy.matrixWorld.copy(m);
+				const hit = raycaster.intersectObject(proxy, false)[0];
+				if (hit && (!best || hit.distance < best.distance)) best = { key, distance: hit.distance, point: hit.point.clone() };
+			}
+		}
+		return best;
+	}
+
+	/**
+	 * A loaded model's local bounds and (for WMOs) its doodad set names, for the editor's selection
+	 * box and properties; null until the model is ready.
+	 */
+	modelInfo(kind: Kind, fdid: number): { box: THREE.Box3; doodadSets: string[] } | null {
+		const entry = this.models.get(`${kind}:${fdid}`);
+		if (!entry?.geometry || entry.state !== 'ready') return null;
+		if (!entry.geometry.boundingBox) entry.geometry.computeBoundingBox();
+		return { box: entry.geometry.boundingBox!, doodadSets: (entry.data?.doodadSets ?? []).map((s) => s.name) };
+	}
+
 	/** Buildings' liquid surfaces in view (canals, pools, cave water), for telling if a point is under water. */
 	liquidMeshes(out: THREE.Object3D[] = []): THREE.Object3D[] {
 		for (const entry of this.models.values()) {
@@ -1018,6 +1065,16 @@ export class ObjectManager {
 			if (hit && axis.dot(hit.normal) < 0) offset.addScaledVector(axis, -(radius - hit.distance));
 		}
 		return offset;
+	}
+
+	/** Frees every model's GPU resources (the editor closing a scene; the explorer streams instead). */
+	disposeAll(): void {
+		for (const entry of this.models.values()) this.dispose(entry);
+		this.models.clear();
+		this.objects.clear();
+		this.tiles.clear();
+		this.loose.clear();
+		this.queue.length = 0;
 	}
 
 	stats(): ObjectStats {

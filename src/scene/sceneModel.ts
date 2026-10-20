@@ -249,6 +249,33 @@ export class SceneModel {
 		return this.textures.length - 1;
 	}
 
+	// ---- Placed objects (spec 7.8) ----
+	// The renderer mirrors scene.objects through the editor's objects controller; the model only
+	// keeps the list ordered and the modified date fresh, so autosave notices object edits.
+
+	/** Adds a placed object (place, paste, redo) and touches the modified date. */
+	addObject(object: PlacedObject): void {
+		this.objects.push(object);
+		this.meta.modified = new Date().toISOString();
+	}
+
+	/** Removes a placed object by id (delete, undo); returns it for the command's snapshot. */
+	removeObject(id: string): PlacedObject | null {
+		const index = this.objects.findIndex((o) => o.id === id);
+		if (index < 0) return null;
+		this.meta.modified = new Date().toISOString();
+		return this.objects.splice(index, 1)[0];
+	}
+
+	object(id: string): PlacedObject | null {
+		return this.objects.find((o) => o.id === id) ?? null;
+	}
+
+	/** An object changed in place (moved, rotated, re-set); keeps autosave aware. */
+	touchObjects(): void {
+		this.meta.modified = new Date().toISOString();
+	}
+
 	/** Puts back a chunk's hole mask whole (undo/redo); holes change the mesh, so the tile rebuilds. */
 	restoreHoles(tileIndex: number, chunkId: number, holes: Uint8Array): void {
 		this.tiles[tileIndex].chunks[chunkId].holes.set(holes);

@@ -261,3 +261,32 @@ test('Revert to base restores chunks per channel, keeps seams closed, and undoes
 	const scene = sceneJson(encodeScene(model));
 	expect(scene.tiles.every((t) => !t.overrides)).toBe(true);
 });
+
+test('a copied scene takes the zone light at the selection centre', async () => {
+	const { zoneLightAt } = await import('../src/explorer/lighting');
+	const { selectionCentre } = await import('../src/scene/copyScene');
+	const { tileOf } = await import('../src/explorer/coordinates');
+	// The centre of a 2x2 selection from tile (31, 48) is the shared corner of its four tiles.
+	const { wowX, wowY } = selectionCentre([31, 48], [32, 49]);
+	expect(tileOf(wowX + 1, wowY + 1)).toEqual({ tx: 31, ty: 48 });
+	expect(tileOf(wowX - 1, wowY - 1)).toEqual({ tx: 32, ty: 49 });
+
+	const zone = (id: number, x: number, y: number, inner: number, outer: number, mapId = 0) => ({ id, mapId, x, y, z: 0, inner, outer, params: id });
+	const zones = [
+		zone(1, 0, 0, 0, 0), // the map's global light
+		zone(2, wowX + 100, wowY, 200, 400), // full weight at the centre
+		zone(3, wowX + 300, wowY, 50, 500), // reaches it, but weaker
+		zone(4, wowX, wowY, 50, 100, 1), // another map's
+	];
+	expect(zoneLightAt(zones, 0, wowX, wowY)).toBe(2);
+	// Outside every sphere: the global light; on a map with no zones at all: the default preset.
+	expect(zoneLightAt(zones, 0, wowX + 5000, wowY)).toBe(1);
+	expect(zoneLightAt(zones, 7, wowX, wowY)).toBe(0);
+
+	const model = createCopiedScene(
+		{ name: 'Lit', client: CLIENT, map: MAP, tileMin: [30, 48], tileMax: [31, 48], includeDoodads: true, includeWmos: true, lightPreset: 2 },
+		[fakeTile(30, 48), fakeTile(31, 48)],
+	);
+	expect(model.meta.environment.lightPreset).toBe(2);
+	expect(decodeScene(encodeScene(model), [fakeTile(30, 48), fakeTile(31, 48)]).model.meta.environment.lightPreset).toBe(2);
+});

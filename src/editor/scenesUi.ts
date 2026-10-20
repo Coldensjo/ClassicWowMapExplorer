@@ -1,7 +1,8 @@
 import type { StorageStats } from '../casc/storage';
 import type { CopyTile } from '../explorer/copyWorld';
 import type { AsyncStorageApi } from '../worker/protocol';
-import { createCopiedScene } from '../scene/copyScene';
+import { createCopiedScene, selectionCentre } from '../scene/copyScene';
+import { zoneLightAt } from '../explorer/lighting';
 import { SceneLibrary, type SceneSummary } from '../scene/library';
 import { SceneModel } from '../scene/sceneModel';
 import { MAX_BLANK_TILES } from '../scene/types';
@@ -175,6 +176,15 @@ async function createCopy(): Promise<void> {
 	try {
 		const tiles = await loadCopyTiles(map.wdt, selection.tileMin, selection.tileMax, createProgress);
 		createProgress('Building the scene…');
+		// The scene starts with the light of the zone at the selection's centre (spec 7.2); when
+		// the light tables can't be read it keeps the default preset.
+		let lightPreset = 0;
+		try {
+			const { wowX, wowY } = selectionCentre(selection.tileMin, selection.tileMax);
+			lightPreset = zoneLightAt((await storage.loadLighting([map.id])).zones, map.id, wowX, wowY);
+		} catch {
+			// The default preset it is.
+		}
 		const model = createCopiedScene({
 			name: $<HTMLInputElement>('scene-name').value.trim() || map.name,
 			client: { product: stats.product, build: stats.buildName },
@@ -183,6 +193,7 @@ async function createCopy(): Promise<void> {
 			tileMax: selection.tileMax,
 			includeDoodads: $<HTMLInputElement>('scene-include-doodads').checked,
 			includeWmos: $<HTMLInputElement>('scene-include-wmos').checked,
+			lightPreset,
 		}, tiles);
 		$('scene-create').hidden = true;
 		await openEditor(model, true);

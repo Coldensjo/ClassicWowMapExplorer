@@ -29,6 +29,8 @@ export interface LightKey {
 
 /** A Light.db2 zone: global when outer is 0, otherwise a sphere in world coordinates. */
 export interface LightZone {
+	/** Light.db2 ID, what a scene's environment.lightPreset names. */
+	id: number;
 	mapId: number;
 	x: number;
 	y: number;
@@ -67,6 +69,7 @@ export async function loadLighting(storage: CascStorage, mapIds: number[]): Prom
 		const params = lights.getInt(id, 4, 0)!;
 		if (!params) continue;
 		zones.push({
+			id,
 			mapId,
 			x: lights.getFloat(id, 0, 0)!,
 			y: lights.getFloat(id, 0, 1)!,
@@ -94,6 +97,36 @@ export async function loadLighting(storage: CascStorage, mapIds: number[]): Prom
 	}
 	for (const list of Object.values(keys)) list.sort((a, b) => a.time - b.time);
 	return { zones, keys };
+}
+
+/**
+ * The Light.db2 zone that lights a point (wowX/wowY world coordinates, x north, y west): the
+ * local sphere weighing most there (as the client blends them, full inside inner), else the map's
+ * global light, else 0, the built-in default preset. Copied scenes take this for the selection's
+ * centre (spec 7.2).
+ */
+export function zoneLightAt(zones: LightZone[], mapId: number, wowX: number, wowY: number): number {
+	let global = 0;
+	let best = 0;
+	let bestWeight = 0;
+	let bestDistance = Infinity;
+	for (const zone of zones) {
+		if (zone.mapId !== mapId) continue;
+		if (zone.outer === 0) {
+			global ||= zone.id;
+			continue;
+		}
+		const d = Math.hypot(wowX - zone.x, wowY - zone.y);
+		if (d >= zone.outer) continue;
+		const weight = d <= zone.inner ? 1 : 1 - (d - zone.inner) / (zone.outer - zone.inner);
+		// Ties (two zones both at full weight) go to the nearer centre.
+		if (weight > bestWeight || (weight === bestWeight && d < bestDistance)) {
+			best = zone.id;
+			bestWeight = weight;
+			bestDistance = d;
+		}
+	}
+	return best || global;
 }
 
 /** Area names and parents (AreaTable.db2), for zone and subzone display. */

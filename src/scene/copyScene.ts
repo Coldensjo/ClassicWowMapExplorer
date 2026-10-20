@@ -196,6 +196,19 @@ export interface CopyRequest {
 	tileMax: [number, number];
 	includeDoodads: boolean;
 	includeWmos: boolean;
+	/** Light.db2 ID of the zone at the selection's centre, or 0 for the default preset (spec 7.2). */
+	lightPreset?: number;
+}
+
+/**
+ * The selection's centre in WoW world coordinates (x north, y west), for looking up the zone
+ * light there (spec 7.2). Placement space puts the map's corner at 0 and its centre at 32 tiles.
+ */
+export function selectionCentre(tileMin: [number, number], tileMax: [number, number]): { wowX: number; wowY: number } {
+	const origin = 32 * TILE_SIZE;
+	const px = ((tileMin[0] + tileMax[0] + 1) / 2) * TILE_SIZE;
+	const pz = ((tileMin[1] + tileMax[1] + 1) / 2) * TILE_SIZE;
+	return { wowX: origin - pz, wowY: origin - px };
 }
 
 /**
@@ -247,7 +260,7 @@ export function createCopiedScene(request: CopyRequest, copyTiles: CopyTile[]): 
 		size: { tilesX, tilesY },
 		base,
 		spawn: { position: [(tilesX * TILE_SIZE) / 2, 0, (tilesY * TILE_SIZE) / 2], yaw: 0 },
-		environment: { lightPreset: 0, timeOfDay: 1440 },
+		environment: { lightPreset: request.lightPreset ?? 0, timeOfDay: 1440 },
 		player: null,
 	};
 	const model = new SceneModel(meta, textures, tiles, objects, [], [], baseData);

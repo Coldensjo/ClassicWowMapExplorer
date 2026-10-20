@@ -70,7 +70,7 @@ export function encodeScene(model: SceneModel, thumbnail: Uint8Array | null = nu
 				layers: c.layers,
 				alpha: c.alpha ? alpha.add(c.alpha) : null,
 				holes: holesToHex(c.holes),
-				water: c.water,
+				water: c.water ? { kind: c.water.kind, height: c.water.height, coverage: holesToHex(c.water.coverage) } : null,
 			};
 		}),
 	}));
@@ -187,7 +187,8 @@ function toModel(scene: Scene, files: Record<string, Uint8Array>): SceneModel {
 				layers: c.layers,
 				alpha: c.alpha ? read(c.alpha, expectAlpha, `${what} alpha`) : null,
 				holes: holesFromHex(c.holes),
-				water: c.water,
+				// Scenes written before the v0.4 coverage mask carry none: water covers the chunk.
+				water: c.water ? { kind: c.water.kind, height: c.water.height, coverage: c.water.coverage ? holesFromHex(c.water.coverage) : new Uint8Array(8).fill(0xff) } : null,
 			};
 		});
 		return { x: tile.x, y: tile.y, chunks };

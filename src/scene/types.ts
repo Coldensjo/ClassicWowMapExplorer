@@ -98,6 +98,8 @@ export interface WaterSettings {
 	kind: number;
 	/** Flat surface height. */
 	height: number;
+	/** 64-bit mask as hex (16 chars): 8x8 cells, 1 = water present (spec 6.1, v0.4). */
+	coverage: string;
 }
 
 export interface PlacedObject {

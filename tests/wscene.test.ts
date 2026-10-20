@@ -63,7 +63,7 @@ test('a scene round-trips through .wscene identically', () => {
 	chunk.alpha = new Uint8Array(64 * 64).map((_, i) => i % 256);
 	chunk.vertexShade = new Uint8Array(145 * 4).fill(0x7f);
 	chunk.holes[3] = 0b1010_0001;
-	chunk.water = { kind: 1, height: 12.5 };
+	chunk.water = { kind: 1, height: 12.5, coverage: new Uint8Array(8).fill(0xff) };
 	scene.textures.push(190086);
 	scene.objects.push({ id: crypto.randomUUID(), kind: 'm2', fdid: 7549691, position: [10, 0, 20], rotation: [0, 45, 0], scale: 1.25 });
 	scene.npcs.push({ id: crypto.randomUUID(), appearance: { kind: 'creature', displayId: 1141 }, position: [5, 0, 5], facing: 90, scale: 1, animation: 'idle' });

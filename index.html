@@ -92,8 +92,8 @@
 	<div id="tool-rail" role="toolbar" aria-label="Tools" aria-orientation="vertical" hidden>
 		<button id="tool-sculpt" title="Sculpt the ground (1)">Sculpt</button>
 		<button id="tool-paint" title="Paint textures (2)">Paint</button>
-		<button id="tool-holes" title="Cut holes (coming in Phase 2)" disabled>Holes</button>
-		<button id="tool-water" title="Add water (coming in Phase 2)" disabled>Water</button>
+		<button id="tool-holes" title="Cut holes in the ground (3)">Holes</button>
+		<button id="tool-water" title="Add water (4)">Water</button>
 		<button id="tool-place" title="Place objects (coming in Phase 3)" disabled>Place</button>
 		<button id="tool-npcs" title="Place NPCs (coming in Phase 5)" disabled>NPCs</button>
 	</div>
@@ -139,6 +139,27 @@
 			<label class="prop-row" id="paint-opacity-row">Opacity <input type="range" id="paint-opacity" min="0" max="1" step="0.05" title="The strongest blend the brush paints toward"><output id="paint-opacity-out"></output></label>
 			<label class="prop-row" title="What happens painting a chunk that already has 4 textures">Full chunk <select id="paint-policy"><option value="replace">Replace weakest</option><option value="block">Block</option></select></label>
 			<p id="paint-hint" class="muted small"></p>
+		</div>
+		<div id="holes-props" class="tool-props" hidden>
+			<h3>Holes</h3>
+			<div class="mode-row holes-modes" role="group" aria-label="Hole mode">
+				<button id="holes-cut">Cut</button>
+				<button id="holes-fill">Fill</button>
+			</div>
+			<label class="prop-row">Radius <input type="range" id="holes-radius" min="1" max="30" step="1" title="[ and ] change it too"><output id="holes-radius-out"></output></label>
+			<p id="holes-hint" class="muted small"></p>
+		</div>
+		<div id="water-props" class="tool-props" hidden>
+			<h3>Water</h3>
+			<div class="mode-row water-modes" role="group" aria-label="Water mode">
+				<button id="water-add">Add</button>
+				<button id="water-remove">Remove</button>
+				<button id="water-flood" title="Fill a hollow with water up to the surface height">Flood fill</button>
+			</div>
+			<label class="prop-row">Liquid <select id="water-kind"><option value="1">Water</option><option value="2">Ocean</option><option value="3">Magma</option><option value="4">Slime</option></select></label>
+			<label class="prop-row">Surface <input type="number" id="water-height" step="0.5" placeholder="above click" title="Surface height in yards; empty puts it a little above the ground you click"><span class="muted small">yd</span></label>
+			<label class="prop-row">Radius <input type="range" id="water-radius" min="1" max="30" step="1" title="[ and ] change it too"><output id="water-radius-out"></output></label>
+			<p id="water-hint" class="muted small"></p>
 		</div>
 	</div>
 

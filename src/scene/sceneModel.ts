@@ -1,7 +1,17 @@
 import { CHUNK_HEIGHTS, CHUNK_SIZE, CHUNKS_PER_TILE, TILE_SIZE, type AdtChunk, type AdtRoot } from '../formats/adt';
 import { ALPHA_SIZE, type AdtTex } from '../formats/adtTex';
-import type { ChunkLayer, NpcAppearance, NpcPreset, PlacedNpc, PlacedObject, Scene, WaterSettings, WorldBase } from './types';
+import type { ChunkLayer, NpcAppearance, NpcPreset, PlacedNpc, PlacedObject, Scene, WorldBase } from './types';
 import { MAX_BLANK_TILES } from './types';
+
+/** A chunk's water as the editor holds it (spec 7.6): flat surface plus per-cell coverage. */
+export interface SceneWater {
+	/** LiquidType.db2 ID (water, ocean, magma, slime). */
+	kind: number;
+	/** Flat surface height. */
+	height: number;
+	/** One byte per cell row (8 rows of 8 cells); bit n set = cell n has water. */
+	coverage: Uint8Array;
+}
 
 /** A chunk as the editor holds it: the file's arrays decoded, one object per chunk. */
 export interface SceneChunk {
@@ -15,7 +25,7 @@ export interface SceneChunk {
 	alpha: Uint8Array | null;
 	/** One byte per cell row (8 rows of 8 cells); bit n set = cell n is a hole. */
 	holes: Uint8Array;
-	water: WaterSettings | null;
+	water: SceneWater | null;
 }
 
 export interface SceneTile {
@@ -57,6 +67,8 @@ export class SceneModel {
 	readonly dirtyHeights = new Map<number, Set<number>>();
 	/** Chunks (by tile index) whose alpha maps changed without the layer set changing. */
 	readonly dirtyAlpha = new Map<number, Set<number>>();
+	/** Tiles whose water changed; only their water meshes rebuild. */
+	readonly dirtyWater = new Set<number>();
 
 	constructor(
 		readonly meta: SceneMeta,
@@ -142,6 +154,11 @@ export class SceneModel {
 
 	markAlphaDirty(tileIndex: number, chunkId: number): void {
 		this.markChannel(this.dirtyAlpha, tileIndex, chunkId);
+	}
+
+	markWaterDirty(tileIndex: number): void {
+		this.dirtyWater.add(tileIndex);
+		this.meta.modified = new Date().toISOString();
 	}
 
 	// ---- The height lattice (spec 7.4) ----
@@ -230,6 +247,18 @@ export class SceneModel {
 		if (index >= 0) return index;
 		this.textures.push(fdid);
 		return this.textures.length - 1;
+	}
+
+	/** Puts back a chunk's hole mask whole (undo/redo); holes change the mesh, so the tile rebuilds. */
+	restoreHoles(tileIndex: number, chunkId: number, holes: Uint8Array): void {
+		this.tiles[tileIndex].chunks[chunkId].holes.set(holes);
+		this.markDirty(this.tiles[tileIndex]);
+	}
+
+	/** Puts back a chunk's water whole (undo/redo) and marks the tile's water for rebuilding. */
+	restoreWater(tileIndex: number, chunkId: number, water: SceneWater | null): void {
+		this.tiles[tileIndex].chunks[chunkId].water = water ? { kind: water.kind, height: water.height, coverage: water.coverage.slice() } : null;
+		this.markWaterDirty(tileIndex);
 	}
 
 	/** Puts back a chunk's layers and alpha whole (undo/redo), marking the lightest dirty channel. */

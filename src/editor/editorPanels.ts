@@ -1,5 +1,6 @@
 import type { AsyncStorageApi } from '../worker/protocol';
 import { textureName } from './baseTextures';
+import type { HoleMode, WaterMode } from './cells';
 import type { PaintMode } from './paint';
 import type { SceneEditor } from './sceneEditor';
 import type { Falloff, SculptMode } from './sculpt';
@@ -11,11 +12,22 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const TOOLS: { id: string; key: string; ready: boolean }[] = [
 	{ id: 'sculpt', key: 'Digit1', ready: true },
 	{ id: 'paint', key: 'Digit2', ready: true },
-	{ id: 'holes', key: 'Digit3', ready: false },
-	{ id: 'water', key: 'Digit4', ready: false },
+	{ id: 'holes', key: 'Digit3', ready: true },
+	{ id: 'water', key: 'Digit4', ready: true },
 	{ id: 'place', key: 'Digit5', ready: false },
 	{ id: 'npcs', key: 'Digit6', ready: false },
 ];
+
+const HOLE_HINTS: Record<HoleMode, string> = {
+	cut: 'Hold the left button to cut cells out of the ground, for caves and stairwells.',
+	fill: 'Hold the left button to close holes back up.',
+};
+
+const WATER_HINTS: Record<WaterMode, string> = {
+	add: 'Hold the left button to lay water cells at the surface height.',
+	remove: 'Hold the left button to dry cells out.',
+	flood: 'Click a hollow: everything connected below the surface height fills, like a lake.',
+};
 
 const PAINT_HINTS: Record<PaintMode, string> = {
 	paint: 'Hold the left button to paint the texture into the ground.',
@@ -51,6 +63,8 @@ export class EditorPanels {
 		this.wireRail();
 		this.wireSculpt();
 		this.wirePaint();
+		this.wireHoles();
+		this.wireWater();
 		this.wireUndo();
 		this.wireKeys();
 		this.wireStatus();
@@ -60,6 +74,8 @@ export class EditorPanels {
 		}, (text) => editor.onNotice(text));
 		this.syncSculpt();
 		this.syncPaint();
+		this.syncHoles();
+		this.syncWater();
 	}
 
 	private show(on: boolean): void {
@@ -94,6 +110,8 @@ export class EditorPanels {
 		for (const tool of TOOLS) $(`tool-${tool.id}`).classList.toggle('active', tool.id === id);
 		$('sculpt-props').hidden = id !== 'sculpt';
 		$('paint-props').hidden = id !== 'paint';
+		$('holes-props').hidden = id !== 'holes';
+		$('water-props').hidden = id !== 'water';
 	}
 
 	// ---- Sculpt properties ----
@@ -181,6 +199,64 @@ export class EditorPanels {
 		$('paint-hint').textContent = PAINT_HINTS[paint.mode];
 	}
 
+	// ---- Holes and water (spec 7.6) ----
+
+	private wireHoles(): void {
+		const holes = this.editor.holes;
+		for (const mode of Object.keys(HOLE_HINTS) as HoleMode[]) {
+			this.listen($(`holes-${mode}`), 'click', () => {
+				holes.mode = mode;
+				this.syncHoles();
+			});
+		}
+		this.listen($('holes-radius'), 'input', () => {
+			holes.radius = Number($<HTMLInputElement>('holes-radius').value);
+			this.syncHoles();
+		});
+	}
+
+	private syncHoles(): void {
+		const holes = this.editor.holes;
+		for (const mode of Object.keys(HOLE_HINTS) as HoleMode[]) {
+			$(`holes-${mode}`).classList.toggle('active', holes.mode === mode);
+		}
+		$<HTMLInputElement>('holes-radius').value = String(holes.radius);
+		$('holes-radius-out').textContent = `${holes.radius} yd`;
+		$('holes-hint').textContent = HOLE_HINTS[holes.mode];
+	}
+
+	private wireWater(): void {
+		const water = this.editor.water;
+		for (const mode of Object.keys(WATER_HINTS) as WaterMode[]) {
+			this.listen($(`water-${mode}`), 'click', () => {
+				water.mode = mode;
+				this.syncWater();
+			});
+		}
+		this.listen($('water-kind'), 'change', () => {
+			water.kind = Number($<HTMLSelectElement>('water-kind').value);
+		});
+		this.listen($('water-height'), 'input', () => {
+			const raw = $<HTMLInputElement>('water-height').value.trim();
+			water.height = raw === '' ? null : Number(raw);
+		});
+		this.listen($('water-radius'), 'input', () => {
+			water.radius = Number($<HTMLInputElement>('water-radius').value);
+			this.syncWater();
+		});
+	}
+
+	private syncWater(): void {
+		const water = this.editor.water;
+		for (const mode of Object.keys(WATER_HINTS) as WaterMode[]) {
+			$(`water-${mode}`).classList.toggle('active', water.mode === mode);
+		}
+		$<HTMLSelectElement>('water-kind').value = String(water.kind);
+		$<HTMLInputElement>('water-radius').value = String(water.radius);
+		$('water-radius-out').textContent = `${water.radius} yd`;
+		$('water-hint').textContent = WATER_HINTS[water.mode];
+	}
+
 	// ---- Undo and redo ----
 
 	private wireUndo(): void {
@@ -216,16 +292,20 @@ export class EditorPanels {
 			}
 			if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
 				// [ and ] size the active tool's brush; with Shift, its strength (spec 8).
-				const brush = this.editor.tool === 'paint' ? this.editor.paint : this.editor.brush;
 				const up = e.code === 'BracketRight';
+				const tool = this.editor.tool;
+				const brush = tool === 'paint' ? this.editor.paint : tool === 'holes' ? this.editor.holes : tool === 'water' ? this.editor.water : this.editor.brush;
 				if (e.shiftKey) {
-					brush.strength = Math.min(1, Math.max(0, Math.round((brush.strength + (up ? 0.05 : -0.05)) * 100) / 100));
+					if ('strength' in brush) brush.strength = Math.min(1, Math.max(0, Math.round((brush.strength + (up ? 0.05 : -0.05)) * 100) / 100));
 				} else {
+					const max = tool === 'holes' || tool === 'water' ? 30 : 100;
 					const step = Math.max(1, Math.round(brush.radius * 0.15));
-					brush.radius = Math.min(100, Math.max(1, brush.radius + (up ? step : -step)));
+					brush.radius = Math.min(max, Math.max(1, brush.radius + (up ? step : -step)));
 				}
 				this.syncSculpt();
 				this.syncPaint();
+				this.syncHoles();
+				this.syncWater();
 			}
 		});
 	}

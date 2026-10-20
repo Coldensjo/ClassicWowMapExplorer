@@ -9,9 +9,14 @@ import { createAlphaTexture, createSplatMaterial, seaMask } from '../viewer/terr
 import { TextureCache } from '../viewer/textureCache';
 import { supportsCompressedTextures } from '../viewer/textures';
 import { CommandStack } from './commands';
+import { HoleStroke, WaterStroke, type HoleSettings, type WaterSettings } from './cells';
 import { PaintStroke, type PaintSettings } from './paint';
 import { SculptStroke, type BrushSettings } from './sculpt';
 import { ALPHA_SIZE } from '../formats/adtTex';
+import { liquidKind, type LiquidInstance, type LiquidKind } from '../formats/mh2o';
+import { buildLiquidMeshes } from '../explorer/liquidMesh';
+import { liquidMaterial, liquidTime, releaseLiquidMaterial, setLiquidLooks } from '../viewer/terrainMaterials';
+import { GroundDistancePass } from '../viewer/groundDistance';
 
 const SKY = new THREE.Color(0x9ec4e4);
 /** Camera distance limits for small scenes. */
@@ -38,6 +43,8 @@ interface TileMesh {
 	skirtDepth: number;
 	/** Chunk vertex ranges by chunk index. */
 	layout: ChunkVertexLayout[];
+	/** The tile's water surfaces (spec 7.6), rebuilt whole when its water changes. */
+	water: THREE.Mesh[];
 }
 
 /** What the status bar shows each frame. */
@@ -83,6 +90,12 @@ function makeRing(segments: number): THREE.LineLoop {
 export class SceneEditor {
 	private readonly renderer: THREE.WebGLRenderer;
 	private readonly scene = new THREE.Scene();
+	/** The tile meshes alone, for the water depth pre-pass. */
+	private readonly terrain = new THREE.Group();
+	/** Water reads the ground's distance per pixel for its depth colours (see GroundDistancePass). */
+	private readonly groundPass: GroundDistancePass;
+	/** Whether any chunk has water, so the pre-pass only runs when it earns its cost. */
+	private hasWater = false;
 	private readonly camera: THREE.PerspectiveCamera;
 	private readonly controls: FlyControls;
 	private readonly walker: WalkControls;
@@ -99,7 +112,11 @@ export class SceneEditor {
 	/** The editor core (spec 7.11): every change goes through a command. */
 	readonly commands = new CommandStack();
 	/** Which tool the left mouse button drives. */
-	tool: 'sculpt' | 'paint' = 'sculpt';
+	tool: 'sculpt' | 'paint' | 'holes' | 'water' = 'sculpt';
+	/** The hole brush (spec 7.6), edited by the properties panel. */
+	readonly holes: HoleSettings = { radius: 4, mode: 'cut' };
+	/** The water brush (spec 7.6), edited by the properties panel. */
+	readonly water: WaterSettings = { radius: 8, mode: 'add', kind: 1, height: null };
 	/** The sculpt brush, edited by the properties panel. */
 	readonly brush: BrushSettings = { radius: 15, strength: 0.5, falloff: 'smooth', mode: 'raise', flattenTo: null };
 	/** The paint brush (spec 7.5), edited by the properties panel. */
@@ -112,7 +129,9 @@ export class SceneEditor {
 	private readonly raycaster = new THREE.Raycaster();
 	/** The ground under the mouse this frame. */
 	private cursor: { x: number; z: number; height: number } | null = null;
-	private stroke: SculptStroke | PaintStroke | null = null;
+	private stroke: SculptStroke | PaintStroke | HoleStroke | WaterStroke | null = null;
+	/** Build number per tile, so a stale structural rebuild never replaces a newer one. */
+	private readonly buildSerial = new Map<number, number>();
 	/** Chunks flashed red because they could not take another texture (spec 7.5). */
 	private readonly flags: { ring: THREE.LineLoop; until: number }[] = [];
 	/** Tiles the open stroke touched, for refreshing bounds when it ends. */
@@ -128,7 +147,7 @@ export class SceneEditor {
 
 	constructor(
 		private readonly canvas: HTMLCanvasElement,
-		storage: AsyncStorageApi,
+		private readonly storage: AsyncStorageApi,
 		readonly model: SceneModel,
 	) {
 		this.paint = { fdid: model.textures[0], radius: 15, strength: 0.7, opacity: 1, mode: 'paint', policy: 'replace' };
@@ -157,7 +176,8 @@ export class SceneEditor {
 		const sun = new THREE.DirectionalLight(0xfff2dd, Math.PI);
 		sun.position.set(-0.6, 1, 0.45);
 		const ambient = new THREE.HemisphereLight(0x8899aa, 0x8899aa, Math.PI);
-		this.scene.add(sun, ambient, this.ring, this.rampRing);
+		this.scene.add(sun, ambient, this.terrain, this.ring, this.rampRing);
+		this.groundPass = new GroundDistancePass(this.renderer);
 		// The explorer's sea mask tints terrain below sea level; a scene has no sea.
 		seaMask.uSeaBounds.value.set(1e9, 1e9, 1, 1);
 
@@ -179,16 +199,20 @@ export class SceneEditor {
 
 	/** Loads the texture palette and builds every tile; the scene is in view when this resolves. */
 	async load(): Promise<void> {
+		// Water colours come from LiquidType.db2; the materials update when they arrive.
+		void this.storage.loadLiquidLooks().then(setLiquidLooks).catch(() => {});
 		for (const tile of this.model.tiles) await this.buildTile(tile);
 		this.render();
 	}
 
 	private async buildTile(tile: SceneTile): Promise<void> {
 		const index = tile.y * this.model.tilesX + tile.x;
+		const serial = (this.buildSerial.get(index) ?? 0) + 1;
+		this.buildSerial.set(index, serial);
 		const { root, tex } = this.model.tileRenderData(tile);
 		const terrain = buildSplatTerrain(root, tex);
 		const textures = await this.textures.acquire(terrain.textures);
-		if (this.disposed) {
+		if (this.disposed || this.buildSerial.get(index) !== serial) {
 			this.textures.release(terrain.textures);
 			return;
 		}
@@ -204,8 +228,8 @@ export class SceneEditor {
 		const group = new THREE.Group();
 		group.add(mesh);
 		group.position.set(tile.x * TILE_SIZE, 0, tile.y * TILE_SIZE);
+		this.terrain.add(group);
 		group.updateMatrixWorld(true);
-		this.scene.add(group);
 		const layout: ChunkVertexLayout[] = [];
 		for (const l of terrain.layout) layout[l.id] = l;
 		this.tileMeshes.set(index, {
@@ -219,17 +243,66 @@ export class SceneEditor {
 			latticeNormals: terrain.latticeNormals,
 			skirtDepth: terrain.skirtDepth,
 			layout,
+			water: [],
 		});
+		this.buildTileWater(index);
+	}
+
+	/** Rebuilds a tile's water surfaces from its chunks' settings (spec 7.6). */
+	private buildTileWater(index: number): void {
+		const tm = this.tileMeshes.get(index);
+		if (!tm) return;
+		for (const mesh of tm.water) {
+			tm.group.remove(mesh);
+			mesh.geometry.dispose();
+			releaseLiquidMaterial(mesh.material as THREE.Material);
+		}
+		tm.water = [];
+		const liquids: LiquidInstance[] = [];
+		this.model.tiles[index].chunks.forEach((chunk, id) => {
+			const water = chunk.water;
+			if (!water) return;
+			const exists = new Uint8Array(64);
+			for (let row = 0; row < 8; row++) {
+				for (let col = 0; col < 8; col++) exists[row * 8 + col] = water.coverage[row] & (1 << col) ? 1 : 0;
+			}
+			liquids.push({ chunk: id, type: water.kind, minHeight: water.height, maxHeight: water.height, x: 0, y: 0, width: 8, height: 8, exists, heights: null });
+		});
+		// Ocean would be skipped as the explorer's one sea plane; here it is just another surface.
+		const kindOf = (type: number): LiquidKind => {
+			const kind = liquidKind(type);
+			return kind === 'ocean' ? 'water' : kind;
+		};
+		for (const built of buildLiquidMeshes(liquids, kindOf)) {
+			const geometry = new THREE.BufferGeometry();
+			geometry.setAttribute('position', new THREE.BufferAttribute(built.positions, 3));
+			const normals = new Float32Array(built.positions.length);
+			for (let i = 1; i < normals.length; i += 3) normals[i] = 1;
+			geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+			geometry.setIndex(new THREE.BufferAttribute(built.indices, 1));
+			geometry.computeBoundingSphere();
+			const mesh = new THREE.Mesh(geometry, liquidMaterial(built.kind, built.type));
+			mesh.renderOrder = 1;
+			mesh.matrixAutoUpdate = false;
+			tm.group.add(mesh);
+			mesh.updateMatrixWorld(true);
+			tm.water.push(mesh);
+		}
+		this.hasWater = [...this.tileMeshes.values()].some((t) => t.water.length > 0);
 	}
 
 	private dropTile(index: number): void {
 		const mesh = this.tileMeshes.get(index);
 		if (!mesh) return;
 		this.tileMeshes.delete(index);
-		this.scene.remove(mesh.group);
+		this.terrain.remove(mesh.group);
 		mesh.geometry.dispose();
 		for (const m of mesh.materials) m.dispose();
 		mesh.alpha.dispose();
+		for (const w of mesh.water) {
+			w.geometry.dispose();
+			releaseLiquidMaterial(w.material as THREE.Material);
+		}
 		this.textures.release(mesh.textures);
 	}
 
@@ -498,6 +571,12 @@ export class SceneEditor {
 			if (this.model.dirtyTiles.has(index)) continue;
 			this.updateTileAlpha(index, chunks);
 		}
+		for (const index of this.model.dirtyWater) {
+			this.model.dirtyWater.delete(index);
+			if (this.model.dirtyTiles.has(index)) continue; // The rebuild brings the water too.
+			this.buildTileWater(index);
+		}
+		liquidTime.value += dt;
 		const now = performance.now();
 		for (let i = this.flags.length - 1; i >= 0; i--) {
 			if (now < this.flags[i].until) continue;
@@ -563,8 +642,10 @@ export class SceneEditor {
 		if (this.tool !== 'sculpt' || this.brush.mode !== 'ramp') this.rampStart = null;
 		const show = this.cursor !== null && !this.walker.active && !this.controls.locked;
 		this.ring.visible = show;
-		const radius = this.tool === 'paint'
-			? (this.paint.mode === 'paint' || this.paint.mode === 'erase' ? this.paint.radius : 2)
+		const radius =
+			this.tool === 'paint' ? (this.paint.mode === 'paint' || this.paint.mode === 'erase' ? this.paint.radius : 2)
+			: this.tool === 'holes' ? this.holes.radius
+			: this.tool === 'water' ? (this.water.mode === 'flood' ? 2 : this.water.radius)
 			: this.brush.radius;
 		if (show && this.cursor) this.layRing(this.ring, this.cursor.x, this.cursor.z, radius, this.cursor.height);
 		this.rampRing.visible = this.rampStart !== null;
@@ -604,6 +685,7 @@ export class SceneEditor {
 	}
 
 	private render(): void {
+		if (this.hasWater) this.groundPass.render(this.renderer, this.terrain, this.camera);
 		this.renderer.render(this.scene, this.camera);
 	}
 
@@ -612,6 +694,23 @@ export class SceneEditor {
 		if (!this.cursor || this.walker.active || this.controls.locked) return;
 		if (this.tool === 'paint') {
 			this.stroke = new PaintStroke(this.model, this.paint, this.effectFor);
+			return;
+		}
+		if (this.tool === 'holes') {
+			this.stroke = new HoleStroke(this.model, this.holes);
+			return;
+		}
+		if (this.tool === 'water') {
+			const stroke = new WaterStroke(this.model, this.water, this.cursor.height);
+			if (this.water.mode === 'flood') {
+				// Flood fills once per click, like the ramp.
+				const filled = stroke.applyFlood(this.cursor.x, this.cursor.z);
+				const command = stroke.finish();
+				if (command) this.commands.push(command);
+				else if (!filled) this.onNotice('Flood fill needs ground below the surface height; raise the height or click a hollow');
+				return;
+			}
+			this.stroke = stroke;
 			return;
 		}
 		if (this.tool !== 'sculpt') return;
@@ -658,6 +757,7 @@ export class SceneEditor {
 		const ringWas = this.ring.visible;
 		this.ring.visible = false;
 		this.rampRing.visible = false;
+		if (this.hasWater) this.groundPass.render(this.renderer, this.terrain, this.camera);
 		this.renderer.setRenderTarget(target);
 		this.renderer.render(this.scene, this.camera);
 		this.ring.visible = ringWas;

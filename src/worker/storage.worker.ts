@@ -62,6 +62,12 @@ const api: AsyncStorageApi = {
 	async loadTileObjects(wdtFdid, x, y) {
 		return requireWorld().loadTileObjects(wdtFdid, x, y);
 	},
+	async listCopyMaps() {
+		return requireWorld().listCopyMaps();
+	},
+	async loadCopyTile(wdtFdid, x, y) {
+		return requireWorld().loadCopyTile(wdtFdid, x, y);
+	},
 	async loadModels(models) {
 		return requireWorld().loadModels(models);
 	},

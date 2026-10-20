@@ -8,6 +8,7 @@ import type { WmoArea } from '../explorer/wmoArea';
 import type { Place } from '../explorer/places';
 import type { WorldMapInfo } from '../explorer/worldMap';
 import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
+import type { CopyMap, CopyTile } from '../explorer/copyWorld';
 import type { CharacterModel, FarTile, InstanceMap, LoadedTexture, MapListing, NearTile, TileTexture } from '../explorer/world';
 import type { CharacterOutfit, CharacterRace } from '../explorer/display';
 import type { Image } from '../formats/blp';
@@ -32,6 +33,10 @@ export interface StorageApi {
 	loadNearTile(wdtFdid: number, x: number, y: number, compressed: boolean): NearTile;
 	loadTextures(fdids: number[], compressed: boolean): LoadedTexture[];
 	loadTileObjects(wdtFdid: number, x: number, y: number): Placement[];
+	/** Maps a scene can copy from: a readable WDT with at least one ADT tile (spec 7.2). */
+	listCopyMaps(): CopyMap[];
+	/** One source tile's terrain, water and placements for Copy from world (spec 6.5). */
+	loadCopyTile(wdtFdid: number, x: number, y: number): CopyTile;
 	loadModels(models: { fdid: number; kind: ObjectKind }[]): (ModelData | null)[];
 	/** The walking character: the races it can be, and one dressed as a look with the clips given. */
 	characterRaces(): CharacterRace[];

@@ -19,6 +19,8 @@ export interface AdtChunk {
 	heights: Float32Array;
 	/** Vertex colour multipliers (1 = neutral), 145 x RGB in MCVT order, or null. */
 	colors: Float32Array | null;
+	/** The raw MCCV bytes as RGBA (0x7f neutral), for copying into scenes (spec 6.5), or null. */
+	shade?: Uint8Array | null;
 	/** Per cell (row * 8 + col): the texture layer that covers most of it, which picks its ground clutter. */
 	effectLayers: Uint8Array;
 	/** One byte per cell row; bit n set = no ground clutter in cell n. */
@@ -89,10 +91,15 @@ export function parseAdtRoot(bytes: Uint8Array): AdtRoot {
 			} else if (sub.id === 'MCCV') {
 				// BGRA bytes where 0x7f is neutral.
 				chunk.colors = new Float32Array(CHUNK_HEIGHTS * 3);
+				chunk.shade = new Uint8Array(CHUNK_HEIGHTS * 4);
 				for (let i = 0; i < CHUNK_HEIGHTS; i++) {
 					chunk.colors[i * 3] = bytes[sub.offset + i * 4 + 2] / 127;
 					chunk.colors[i * 3 + 1] = bytes[sub.offset + i * 4 + 1] / 127;
 					chunk.colors[i * 3 + 2] = bytes[sub.offset + i * 4] / 127;
+					chunk.shade[i * 4] = bytes[sub.offset + i * 4 + 2];
+					chunk.shade[i * 4 + 1] = bytes[sub.offset + i * 4 + 1];
+					chunk.shade[i * 4 + 2] = bytes[sub.offset + i * 4];
+					chunk.shade[i * 4 + 3] = bytes[sub.offset + i * 4 + 3];
 				}
 			}
 		}

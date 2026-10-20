@@ -17,6 +17,7 @@ import { loadPlaces, type Place } from './places';
 import { KNOWN_MAPS } from './maps';
 import { globalWmoPlacement, globalWmoTiles, loadM2, loadWmo, parsePlacements, type ModelData, type ObjectKind, type Placement } from './objects';
 import { GroundEffects, type ClutterSource } from './groundEffects';
+import { loadCopyTile, type CopyMap, type CopyTile } from './copyWorld';
 import { DisplayResolver, type CharacterOutfit, type CharacterRace } from './display';
 import { buildSplatTerrain, type SplatTerrain } from './splatMesh';
 import { buildTerrainMesh, type TerrainGeometry } from './terrainMesh';
@@ -179,6 +180,43 @@ export class WorldLoader {
 			});
 		}
 		return out.sort((a, b) => a.name.localeCompare(b.name));
+	}
+
+	private copyMapsPromise: Promise<CopyMap[]> | null = null;
+
+	/**
+	 * Maps a scene can copy from (spec 7.2): every Map.db2 row whose WDT is readable and holds at
+	 * least one ADT tile. Parsing each WDT takes a moment the first time; the list is kept.
+	 */
+	listCopyMaps(): Promise<CopyMap[]> {
+		this.copyMapsPromise ??= (async () => {
+			const table = await loadTable(this.storage, DB2_FILES.Map);
+			const out: CopyMap[] = [];
+			for (const id of table.ids()) {
+				const wdtFdid = this.mapWdt(table, id);
+				if (!wdtFdid || this.storage.status(wdtFdid) !== 'ok') continue;
+				try {
+					const wdt = await this.maps.wdt(wdtFdid);
+					if (wdt.tileCount === 0) continue;
+					out.push({
+						id,
+						name: KNOWN_MAPS.find((m) => m.mapId === id)?.name ?? table.getString(id, MAP_NAME) ?? `Map ${id}`,
+						directory: table.getString(id, MAP_DIRECTORY) ?? String(id),
+						wdt: wdtFdid,
+						tileCount: wdt.tileCount,
+					});
+				} catch {
+					// A WDT that can't be parsed can't be copied from.
+				}
+			}
+			return out.sort((a, b) => b.tileCount - a.tileCount || a.name.localeCompare(b.name));
+		})();
+		return this.copyMapsPromise;
+	}
+
+	/** One source tile's terrain, water and placements for Copy from world (spec 6.5). */
+	loadCopyTile(wdtFdid: number, x: number, y: number): Promise<CopyTile> {
+		return loadCopyTile(this.maps, wdtFdid, x, y);
 	}
 
 	async loadFarTiles(wdtFdid: number, wdlFdid: number): Promise<FarTile[]> {

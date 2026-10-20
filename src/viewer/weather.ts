@@ -1,7 +1,4 @@
 import * as THREE from 'three';
-import type { MusicPlayer } from './music';
-import { newAudio, setLevel, stopAudio } from './audioOut';
-import { volume } from './volume';
 
 /** What the weather setting asks for: the zone's own (as the server rolls it), the zone's own without rain or snow, none, or one kind. */
 export type WeatherSetting = 'auto' | 'dry' | 'off' | 'rain' | 'snow' | 'sandstorm';
@@ -19,15 +16,8 @@ export interface WeatherLook {
 	fogDensity: number;
 }
 
-/** The game's weather loops (sound/ambience/weather), light, medium and heavy. */
-const SOUNDS: Record<WeatherKind, [number, number, number]> = {
-	rain: [538983, 538981, 538982],
-	snow: [538985, 538989, 538984],
-	sandstorm: [538988, 538987, 538986],
-};
 /** textures/weather/snowflake01.blp */
 export const SNOWFLAKE_TEXTURE = 186228;
-const LOOP_VOLUME = 0.5;
 /** Seconds for weather to come and go. */
 const TRANSITION = 6;
 /** How often the server rolls each zone's weather again (ms). */
@@ -186,10 +176,6 @@ export class Weather {
 	private wanted: { kind: WeatherKind | null; intensity: number } = { kind: null, intensity: 0 };
 	private zoneName = '';
 	private chance = '';
-	private loop: { audio: HTMLAudioElement; file: number } | null = null;
-	private loopLevel = 0;
-	private loading = 0;
-	private music: MusicPlayer | null = null;
 	private readonly look: WeatherLook = { darken: 0, fogMix: 0, fogColor: new THREE.Color(), fogFar: Infinity, fogDensity: 1 };
 
 	constructor() {
@@ -201,11 +187,6 @@ export class Weather {
 	setSnowflake(texture: THREE.Texture): void {
 		this.snow.material.uniforms.uMap.value = texture;
 		this.snow.material.uniforms.uHasMap.value = 1;
-	}
-
-	/** Weather sounds play along with the music (M). */
-	setMusic(music: MusicPlayer): void {
-		this.music = music;
 	}
 
 	/** The weather for a zone now: rolled from its chances for the season, the same for everyone in each ten minutes. */
@@ -260,7 +241,6 @@ export class Weather {
 			l.object.geometry.setDrawRange(0, Math.round(l.count * shown) * verts);
 		}
 		this.updateLook();
-		this.updateSound(dt, open);
 	}
 
 	/** How the light changes for the weather now. */
@@ -299,36 +279,6 @@ export class Weather {
 				l.fogFar = Infinity;
 				l.fogDensity = 1;
 		}
-	}
-
-	private updateSound(dt: number, open: boolean): void {
-		const music = this.music;
-		const on = !!music?.enabled && !!this.kind && this.strength > 0.01;
-		const file = this.kind ? SOUNDS[this.kind][this.wanted.intensity < 0.45 ? 0 : this.wanted.intensity < 0.75 ? 1 : 2] : 0;
-		if (on && (!this.loop || this.loop.file !== file) && this.loading !== file) void this.startLoop(file);
-		if (!this.loop) return;
-		const target = on ? this.strength * (open ? 1 : 0.35) : 0;
-		this.loopLevel += (target - this.loopLevel) * Math.min(1, dt * 2);
-		setLevel(this.loop.audio, this.loopLevel * LOOP_VOLUME * volume('ambience'));
-		if (!on && this.loopLevel < 0.005) {
-			stopAudio(this.loop.audio);
-			this.loop = null;
-		}
-	}
-
-	private async startLoop(file: number): Promise<void> {
-		if (!this.music) return;
-		this.loading = file;
-		const url = await this.music.soundUrl(file, true).catch(() => null);
-		if (this.loading !== file) return;
-		this.loading = 0;
-		if (!url) return;
-		if (this.loop) stopAudio(this.loop.audio);
-		const audio = newAudio(url);
-		audio.loop = true;
-		this.loop = { audio, file };
-		this.loopLevel = 0;
-		void audio.play().catch(() => {});
 	}
 
 	/** The weather now, for the panel. */

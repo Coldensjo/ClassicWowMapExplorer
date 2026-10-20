@@ -86,14 +86,8 @@ const api: AsyncStorageApi = {
 	async loadLiquidLooks() {
 		return requireWorld().loadLiquidLooks();
 	},
-	async loadFootsteps() {
-		return requireWorld().loadFootsteps();
-	},
 	async loadPlaces() {
 		return requireWorld().loadPlaces();
-	},
-	async loadMusic() {
-		return requireWorld().loadMusic();
 	},
 	async wmoArea(wmoId, nameSet, groupId) {
 		return requireWorld().wmoArea(wmoId, nameSet, groupId);
@@ -103,9 +97,6 @@ const api: AsyncStorageApi = {
 	},
 	async loadInterfaceImages(paths) {
 		return requireWorld().loadInterfaceImages(paths);
-	},
-	async loadSound(fdid) {
-		return requireWorld().loadSound(fdid);
 	},
 	async loadImages(fdids) {
 		return requireWorld().loadImages(fdids);

@@ -5,20 +5,18 @@ import { KNOWN_MAPS } from '../explorer/maps';
 import type { FarTile, InstanceMap, MapCategory } from '../explorer/world';
 import type { AsyncStorageApi } from '../worker/protocol';
 import type { AreaInfo } from '../explorer/lighting';
-import type { WmoArea } from '../explorer/music';
+import type { WmoArea } from '../explorer/wmoArea';
 import type { Place } from '../explorer/places';
 import { Character, type CharacterLook } from './character';
 import { Portraits } from './portraits';
 import type { Emote } from './emotes';
 import type { CharacterRace } from '../explorer/display';
 import { FlyControls } from './flyControls';
-import { Footsteps } from './footsteps';
 import { SNOWFLAKE_TEXTURE, Weather, type WeatherSetting } from './weather';
 import type { WorldMapView } from './worldMap';
 import { mouseSpeed, setMouseSpeed } from './look';
 import { MapLabels } from './mapLabels';
 import { DAY, LightFade, Lighting, Sky, sunDirection } from './lighting';
-import { MusicPlayer, type MusicTarget } from './music';
 import { CLUTTER_RANGE_DEFAULT, ClutterManager } from './clutter';
 import { ObjectManager } from './objects';
 import { unlitView } from './modelMaterials';
@@ -31,8 +29,6 @@ import { PostPass, type FogSettings } from './post';
 import { commonShadowStandIns, installShadowGroups, setShadowLight, shadowStandIns } from './shadows';
 import { TerrainShadowPass } from './terrainShadow';
 import { animateFlipbooks, flipbooks, liquidBelowStandIns, liquidKindOf, liquidMaterials, liquidTime, seaMask, setLiquidLooks, setLiquidsFromBelow } from './terrainMaterials';
-import { UnderwaterAudio } from './underwater';
-import { BackgroundAudio, type BackgroundSounds } from './ambience';
 import type { LiquidKind } from '../formats/mh2o';
 import type { LiquidLooks } from '../explorer/clientDb';
 import { createTexture, supportsCompressedTextures } from './textures';
@@ -65,10 +61,6 @@ const EXPLORE_ALTITUDE = 150;
 /** Where the light of the open sea between the laid-out maps is taken from (see updateLighting). */
 const OPEN_SEA_LIGHT = { mapId: 0, x: 1e6, y: 1e6 };
 const CATEGORY_NAMES: Record<MapCategory, string> = { continent: 'Continent', dungeon: 'Dungeon', raid: 'Raid', battleground: 'Battleground', other: 'Other map' };
-/** Footsteps on a building's floor whose material names no ground sound like stone. */
-const STONE_GROUND = 3;
-/** A walking character smaller than this (its scale: gnomes) splashes in water with the small sounds. */
-const SMALL_SPLASH = 0.7;
 /** A hole in the ground is a way down for the walking character only with a building this near under it (yards). */
 const HOLE_DEPTH = 40;
 /**
@@ -154,7 +146,6 @@ export interface HudInfo {
 	/** Top-level zone and the subzone under the camera, when known. */
 	zone: string | null;
 	subzone: string | null;
-	music: string;
 	/** The weather now, or '' when it's off. */
 	weather: string;
 	/** Whether walls, floors and the ground stop the camera (G toggles). */
@@ -226,7 +217,7 @@ export const FIXED_SPEED_MAX = 14;
 export const FIXED_SPEED_DEFAULT = 64;
 
 /** A setting, or the time of day or the sound, changed by its key; or walking started or stopped. */
-export type ViewChange = keyof ViewSettings | 'time' | 'sound' | 'walking';
+export type ViewChange = keyof ViewSettings | 'time' | 'walking';
 
 /**
  * A point and a direction in one map's own frame, the same in every game version though each
@@ -346,6 +337,7 @@ export class Viewer {
 	private shadowMapsDrawn = false;
 	private readonly weather = new Weather();
 	private lastExploreCheck = 0;
+	private lastRoomCheck = 0;
 	private lastWeatherRoomCheck = 0;
 	private weatherIndoors = false;
 	/** Called with the area under the camera (and its parents) when the camera is down among it, for the world map. */
@@ -353,10 +345,6 @@ export class Viewer {
 	/** Names over the maps laid out in the sea. */
 	private readonly mapLabels: MapLabels | null;
 	private lastLabelCheck = 0;
-	/** Zone music (M toggles). */
-	private music: MusicPlayer | null = null;
-	private musicTarget: MusicTarget = { set: 0, intro: 0 };
-	private lastMusicCheck = 0;
 	/** WMOAreaTable rows by room, looked up in the worker as rooms are entered. */
 	private readonly rooms = new Map<string, WmoArea | null | 'pending'>();
 	/** The room the camera was last found in, if any. */
@@ -370,10 +358,6 @@ export class Viewer {
 	/** The liquid the camera is in, if any: its kind, LiquidType and surface height. */
 	private underwater: { kind: LiquidKind; type: number; surface: number } | null = null;
 	private liquidLooks: LiquidLooks | null = null;
-	private underwaterAudio: UnderwaterAudio | null = null;
-	/** The place's background loop (birds, wind, city bustle), and which ambience that is. */
-	private backgroundAudio: BackgroundAudio | null = null;
-	private background: BackgroundSounds | null = null;
 	private readonly liquidRay = new THREE.Raycaster();
 	private readonly liquidMeshes: THREE.Object3D[] = [];
 	/** How far the ground is under each pixel, for how deep the water there looks. */
@@ -676,38 +660,6 @@ export class Viewer {
 		return this.walker.active ? this.dressCharacter() : Promise.resolve(this.character?.looks ?? 0);
 	}
 
-	/**
-	 * Footsteps for the walking character and for creatures walking near the camera, on what's
-	 * under their feet: a building's floor (its material's ground), the terrain's texture, or
-	 * shallow water.
-	 */
-	private setUpFootsteps(footsteps: Footsteps): void {
-		const down = new THREE.Vector3(0, -1, 0);
-		const from = new THREE.Vector3();
-		// building: the TerrainType of the floor, known for the character; for creatures, found by casting down when they're off the terrain.
-		const step = (at: THREE.Vector3, kind: number, building: number | null | undefined) => {
-			if (building === undefined) {
-				building = null;
-				const terrain = this.terrain.heightAt(at.x, at.z);
-				if (!(Math.abs(terrain - at.y) < 1)) {
-					from.set(at.x, at.y + 0.5, at.z);
-					building = this.objects.castBuildings(from, down, 1.5)?.ground ?? null;
-				}
-			}
-			const group = building !== null ? footsteps.groupOf(building) || STONE_GROUND : this.terrain.groundAt(at.x, at.z);
-			const water = this.liquidOver(at);
-			footsteps.step(at, this.camera.position, kind, group, water !== null && water.surface > at.y + 0.05);
-		};
-		if (this.character) {
-			this.character.onStep = (kind) => {
-				if (this.walker.state === 'ground') step(this.walker.position, kind, this.walker.ground);
-			};
-		}
-	}
-
-	/** The walking character's state last frame (or '' not walking), for its splashes into and out of water. */
-	private lastWalkerState = '';
-
 	/** What the walking character collides with, stands on and swims in. */
 	private setUpWalker(): void {
 		const objects = this.objects;
@@ -814,15 +766,6 @@ export class Viewer {
 		}
 	}
 
-	/** Music and sound on, or null until the music tables are read. */
-	get soundOn(): boolean | null {
-		return this.music?.enabled ?? null;
-	}
-
-	set soundOn(on: boolean) {
-		if (this.music) this.music.enabled = on;
-	}
-
 	/** Game time of day in minutes (0-1439). */
 	get timeMinutes(): number {
 		return this.timeOfDay() / 2;
@@ -923,18 +866,6 @@ export class Viewer {
 			this.liquidLooks = looks;
 			setLiquidLooks(looks);
 		}, (e) => console.warn('Liquid types unavailable:', e));
-		// Music starts once its tables are read; the world needn't wait for it.
-		void this.firstView.then(() => this.storage.loadMusic()).then(
-			(data) => {
-				this.music = new MusicPlayer(this.storage, data);
-				this.underwaterAudio = new UnderwaterAudio(this.music);
-				this.backgroundAudio = new BackgroundAudio(this.music);
-				this.weather.setMusic(this.music);
-				const music = this.music;
-				this.storage.loadFootsteps().then((sounds) => this.setUpFootsteps(new Footsteps(music, sounds)), (e) => console.warn('Footstep sounds unavailable:', e));
-			},
-			(e) => console.warn('Music unavailable:', e),
-		);
 		// Not waited for long if the ground takes its time (a slow disk, a map with none).
 		setTimeout(this.showFirstView, FIRST_VIEW_WAIT);
 
@@ -1219,9 +1150,6 @@ export class Viewer {
 		} else if (e.code === 'KeyN') {
 			this.resetTime();
 			this.onChange('time');
-		} else if (e.code === 'KeyM' && this.music) {
-			this.music.enabled = !this.music.enabled;
-			this.onChange('sound');
 		} else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
 			const s = this.settings;
 			const toggles: Record<string, Partial<ViewSettings>> = {
@@ -1471,24 +1399,9 @@ export class Viewer {
 			this.lastExploreCheck = now;
 			this.explore();
 		}
-		if (this.music) {
-			if (now - this.lastMusicCheck > 250) {
-				this.lastMusicCheck = now;
-				this.musicTarget = this.musicHere();
-				this.background = this.backgroundHere();
-			}
-			const night = sunDirection(this.timeOfDay()).y < 0;
-			this.music.update(dt, now, this.musicTarget, night);
-			const height = pos.y - Math.max(0, this.terrain.heightAt(pos.x, pos.z));
-			this.backgroundAudio?.update(dt, now, this.background, night, height, this.underwater !== null);
-			this.underwaterAudio?.update(dt, this.underwater !== null, this.underwaterSounds(), !this.walker.active && this.underwater !== null);
-			// The character splashes going into water (falling, jumping or wading in until it swims) and coming out.
-			const state = this.walker.active ? this.walker.state : '';
-			const swam = this.lastWalkerState === 'swim';
-			if (this.lastWalkerState && this.lastWalkerState !== 'settling' && state && (state === 'swim') !== swam) {
-				this.underwaterAudio?.splash(state === 'swim', this.walker.scale < SMALL_SPLASH);
-			}
-			this.lastWalkerState = state;
+		if (now - this.lastRoomCheck > 250) {
+			this.lastRoomCheck = now;
+			this.updateRoom();
 		}
 		perf.record('drawCalls', this.renderer.info.render.calls);
 		perf.record('triangles', this.renderer.info.render.triangles);
@@ -1826,14 +1739,6 @@ export class Viewer {
 		return null;
 	}
 
-	/** The underwater ambience for where the camera is (nearly everywhere the same). */
-	private underwaterSounds() {
-		const data = this.music?.data;
-		if (!data) return null;
-		const area = this.areaHere();
-		return data.ambiences[(area && data.underwater[area]) || data.underwaterDefault] ?? null;
-	}
-
 	/**
 	 * The indoor room around the camera (inns, Ironforge, Undercity), from WMOAreaTable. Rows are
 	 * fetched from the worker on first entry; until then the previous answer stands.
@@ -1862,34 +1767,6 @@ export class Viewer {
 	private areaHere(): number | null {
 		const pos = this.camera.position;
 		return this.room?.area || this.terrain.areaAt(pos.x, pos.z);
-	}
-
-	/** The music for where the camera is: the room's, else the area's or its parent zone's. */
-	private musicHere(): MusicTarget {
-		this.updateRoom();
-		const music = this.music!.data;
-		let id = this.areaHere();
-		const intro = this.room?.intro || (id ? music.areas[id]?.intro ?? 0 : 0);
-		let set = this.room?.music ?? 0;
-		for (let i = 0; i < 8 && !set && id; i++) {
-			set = music.areas[id]?.music ?? 0;
-			id = this.areas.get(id)?.parent ?? 0;
-		}
-		return { set, intro };
-	}
-
-	/** The background loops for where the camera is: the room's, else the area's or its parent zone's. */
-	private backgroundHere(): BackgroundSounds | null {
-		const music = this.music!.data;
-		const room = this.room?.ambience ? music.backgrounds[this.room.ambience] : undefined;
-		if (room) return room;
-		let id = this.areaHere();
-		for (let i = 0; i < 8 && id; i++) {
-			const sounds = music.backgrounds[music.areaAmbience[id] ?? 0];
-			if (sounds) return sounds;
-			id = this.areas.get(id)?.parent ?? 0;
-		}
-		return null;
 	}
 
 	/** Zone and subzone names for the AreaTable ID under the camera; indoors, the room's name. */
@@ -1943,7 +1820,6 @@ export class Viewer {
 			loading: this.loadingText(),
 			time: (() => { const t = this.timeOfDay(); return `${String(Math.floor(t / 120)).padStart(2, '0')}:${String(Math.floor(t / 2) % 60).padStart(2, '0')}`; })(),
 			...this.zoneNames(),
-			music: this.music?.status ?? 'unavailable',
 			weather: this.weather.status,
 			collision: this.controls.ghost ? 'Off: through walls' : 'On',
 		};

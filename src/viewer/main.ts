@@ -17,10 +17,7 @@ import { FormPicker } from './formPicker';
 import { DEFAULT_EMOTE_KEYS, EMOTES, type Emote } from './emotes';
 import { CHARACTER_OUTFITS, type CharacterOutfit, type CharacterRace } from '../explorer/display';
 
-import { setVolume, volumeSetting, type VolumeChannel } from './volume';
 import { WorldMap } from './worldMap';
-import { setHeard } from './audioOut';
-import { readEnabled as soundSaved } from './music';
 import { keptVersions, productName, sessionHost, setKeptVersions, setQuickSwitching, quickSwitching, type SwitchState, type ViewerSession } from './session';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -32,8 +29,6 @@ const storage = createStorageClient((message) => showProgress(message), () => ($
 const host = sessionHost();
 /** What the host made this viewer for: a version to open, and what to show. */
 const requested = host?.request(window);
-// Opened out of sight for a switch: silent until shown.
-if (requested) setHeard(false);
 /** The folder in use, for a viewer opening another version of it. */
 let source: SourceInit | null = null;
 $('game-updated-reload').addEventListener('click', () => location.reload());
@@ -508,7 +503,6 @@ async function explore(): Promise<void> {
 		setUpTravel(viewer, minimapArrow);
 		setUpWalking(viewer);
 		setUpEmotes(viewer);
-		setUpSound(viewer);
 		setUpHelp();
 		// And on foot, the character where it stood, once its look is set.
 		if (carried.view?.walker) void viewer.walkAt(carried.view.walker).then((problem) => problem && notify(problem));
@@ -564,11 +558,9 @@ function viewerSession(viewer: Viewer): ViewerSession {
 				})
 				: Promise.resolve();
 			viewer.pause();
-			setHeard(false);
 			return released;
 		},
 		activate(keys, captured) {
-			setHeard(true);
 			viewer.start();
 			pressKeys(keys);
 			// Allowed by the key press that asked for the switch, if that was only moments ago.
@@ -869,7 +861,6 @@ function setUpView(viewer: Viewer): void {
 		syncClutterRange();
 		syncDetailRange();
 		syncMouseSpeed();
-		syncSound(viewer);
 		remember();
 		notify({
 			torch: () => `Torch ${onOff(s.torch)}`,
@@ -893,7 +884,6 @@ function setUpView(viewer: Viewer): void {
 			weather: () => ({ auto: 'Weather: each zone\'s own', dry: 'Weather: no rain or snow', off: 'Weather: always clear', rain: 'Weather: rain', snow: 'Weather: snow', sandstorm: 'Weather: sandstorm' }[s.weather]),
 			walking: () => (viewer.walking ? `Walking: ${walkKey} to fly again` : 'Flying'),
 			time: () => (viewer.timeIsLocal ? `Local time, ${clock(viewer.timeMinutes)}` : `Time of day ${clock(viewer.timeMinutes)}`),
-			sound: () => `Music and sound ${onOff(viewer.soundOn ?? false)}`,
 		}[change]());
 	};
 
@@ -1387,39 +1377,6 @@ async function setUpGoTo(viewer: Viewer): Promise<void> {
 	});
 }
 
-// --- Sound ---
-
-/** The Sound panel's on/off box, which is greyed out until the music is read. */
-function syncSound(viewer: Viewer): void {
-	const box = $<HTMLInputElement>('sound-on');
-	box.checked = viewer.soundOn ?? false;
-	box.disabled = viewer.soundOn === null;
-}
-
-/** The Sound panel: music and sound on or off, and a slider per kind of sound, applied as they move. */
-function setUpSound(viewer: Viewer): void {
-	const panel = $('sound');
-	for (const slider of panel.querySelectorAll<HTMLInputElement>('input[type=range]')) {
-		const channel = slider.dataset.channel as VolumeChannel;
-		const shown = slider.nextElementSibling as HTMLOutputElement;
-		slider.value = String(Math.round(volumeSetting(channel) * 100));
-		shown.value = `${slider.value}%`;
-		slider.addEventListener('input', () => {
-			setVolume(channel, Number(slider.value) / 100);
-			shown.value = `${slider.value}%`;
-		});
-	}
-	rereads.push(() => {
-		if (viewer.soundOn !== null && viewer.soundOn !== soundSaved()) viewer.soundOn = soundSaved();
-		syncSound(viewer);
-	});
-	$('sound-on').addEventListener('change', (e) => {
-		viewer.soundOn = (e.target as HTMLInputElement).checked;
-	});
-	// The music is read after the world opens.
-	hudFollowers.push(() => syncSound(viewer));
-}
-
 // --- Help ---
 
 const HELP_KEY = 'mapExplorer.helpSeen';
@@ -1533,7 +1490,6 @@ function showHud(info: HudInfo): void {
 	fillList('hud-view', [
 		['Time', info.time],
 		['Altitude', `${info.altitude.toFixed(0)} yd above ground`],
-		['Music', info.music],
 		...(info.weather ? [['Weather', info.weather] as [string, string]] : []),
 	]);
 	const loading = $('loading-status');

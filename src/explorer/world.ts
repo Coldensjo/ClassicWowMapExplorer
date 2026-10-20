@@ -4,10 +4,10 @@ import { blpTexture, decodeBlp, mipmapped, type Image, type TextureData } from '
 import type { Db2 } from '../formats/db2';
 import type { LiquidKind } from '../formats/mh2o';
 import { parseWdl, WDL_CELLS } from '../formats/wdl';
-import { DB2_FILES, footstepSounds, liquidKinds, liquidLooks, loadTable, type FootstepSounds, type LiquidLooks } from './clientDb';
+import { DB2_FILES, liquidKinds, liquidLooks, loadTable, type LiquidLooks } from './clientDb';
 import { loadAreas, loadLighting, type AreaInfo, type LightingData } from './lighting';
 import { buildLiquidMeshes, type LiquidMesh } from './liquidMesh';
-import { MusicTables, type MusicData, type WmoArea } from './music';
+import { WmoAreas, type WmoArea } from './wmoArea';
 import type { MapExplorer } from './maps';
 import { loadWorldMaps, type WorldMapInfo } from './worldMap';
 import { loadPlaces, type Place } from './places';
@@ -323,12 +323,7 @@ export class WorldLoader {
 		return loadAreas(this.storage);
 	}
 
-	private musicTables: MusicTables | null = null;
-
-	private get music(): MusicTables {
-		this.musicTables ??= new MusicTables(this.storage);
-		return this.musicTables;
-	}
+	private wmoAreas: WmoAreas | null = null;
 
 	loadLiquidLooks(): Promise<LiquidLooks> {
 		return liquidLooks(this.storage);
@@ -338,16 +333,9 @@ export class WorldLoader {
 		return loadPlaces(this.storage);
 	}
 
-	loadFootsteps(): Promise<FootstepSounds> {
-		return footstepSounds(this.storage);
-	}
-
-	loadMusic(): Promise<MusicData> {
-		return this.music.load();
-	}
-
 	wmoArea(wmoId: number, nameSet: number, groupId: number): Promise<WmoArea | null> {
-		return this.music.wmoArea(wmoId, nameSet, groupId);
+		this.wmoAreas ??= new WmoAreas(this.storage);
+		return this.wmoAreas.wmoArea(wmoId, nameSet, groupId);
 	}
 
 	/** A font file from the game (Fonts\*.ttf), as it is. */
@@ -401,12 +389,6 @@ export class WorldLoader {
 				return 255;
 			}
 		}));
-	}
-
-	/** A sound file's bytes (the music tracks are MP3s). */
-	async loadSound(fdid: number): Promise<Uint8Array> {
-		// A copy: the result is transferred to the main thread, and the storage may cache what it read.
-		return (await this.storage.readFile(fdid)).slice();
 	}
 
 	/** Terrain layer textures at full resolution. */

@@ -2,7 +2,7 @@ import type { Image } from '../formats/blp';
 import type { FileStatus } from '../casc/storage';
 import type { AsyncStorageApi } from '../worker/protocol';
 import { listfileDate, refreshListfile, tilesetListfile } from './listfile';
-import { textureName } from './baseTextures';
+import { BASE_TEXTURES, textureName } from './baseTextures';
 
 /**
  * The texture asset browser (spec 7.3, Phase 2's texture-only cut): the tileset textures of the
@@ -205,5 +205,5 @@ export class TextureBrowser {
 
 /** The starter textures, for the fallback list when there is no listfile. */
 function fallbackFdids(): number[] {
-	return [187138, 187127, 188990, 188576, 187018, 186901, 188824, 189020];
+	return BASE_TEXTURES.map((t) => t.fdid);
 }

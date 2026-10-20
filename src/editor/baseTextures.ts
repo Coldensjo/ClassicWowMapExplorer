@@ -4,14 +4,14 @@
  * asset browser lets any tileset texture be picked.
  */
 export const BASE_TEXTURES = [
-	{ name: 'Grass (Elwynn Forest)', fdid: 187138 },
-	{ name: 'Forest floor (Elwynn Forest)', fdid: 187127 },
-	{ name: 'Grass (Westfall)', fdid: 188990 },
-	{ name: 'Snow (Dun Morogh)', fdid: 188576 },
-	{ name: 'Dirt (Durotar)', fdid: 187018 },
-	{ name: 'Savanna (the Barrens)', fdid: 186901 },
-	{ name: 'Jungle grass (Stranglethorn)', fdid: 188824 },
-	{ name: 'Sand (the coast)', fdid: 189020 },
+	{ name: 'Grass (Elwynn Forest)', fdid: 187126 }, // tileset/elwynn/elwynngrassbase
+	{ name: 'Dirt (Elwynn Forest)', fdid: 187113 }, // tileset/elwynn/elwynndirtbase
+	{ name: 'Grass (Westfall)', fdid: 188991 }, // tileset/westwood/westfallgrassbase
+	{ name: 'Snow (Dun Morogh)', fdid: 188575 }, // tileset/ironforge/ironforgesnow03ripple
+	{ name: 'Dirt (Durotar)', fdid: 187017 }, // tileset/durotar/durotardirt
+	{ name: 'Savanna (the Barrens)', fdid: 186899 }, // tileset/barrens/barrensbasedirt
+	{ name: 'Jungle grass (Stranglethorn)', fdid: 188821 }, // tileset/stranglethorn/stranglethorngrass
+	{ name: 'Sand (the coast)', fdid: 189003 }, // tileset/westwood/westfallsandbase
 ];
 
 /** A texture's label where one is known; the asset browser (spec 7.3) brings real names. */

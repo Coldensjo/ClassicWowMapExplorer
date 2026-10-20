@@ -184,11 +184,13 @@ export class SceneEditor {
 			terrain: (x, z) => this.model.heightAt(x, z) ?? -Infinity,
 			surface: (x, z) => this.model.surfaceAt(x, z) ?? -Infinity,
 			ready: () => true,
-			// Phase 1: terrain-only collision, no buildings, no liquids.
-			nearBuilding: () => false,
-			cast: () => null,
-			sweep: (_from, move) => move,
-			pushOut: () => new THREE.Vector3(),
+			// Placed buildings and solid doodads block and carry the walker (Phase 3); the manager
+			// is read through `this.objects`, which the constructor makes a few lines below.
+			nearBuilding: (at, margin) => this.objects.manager.nearBuilding(at, margin),
+			cast: (from, direction, far) => this.objects.manager.castBuildings(from, direction, far),
+			sweep: (from, move, radius) => this.objects.manager.sweep(from, move, radius, true),
+			pushOut: (at, radius) => this.objects.manager.pushOut(at, radius, true),
+			// Swimming in scene water arrives with play mode (Phase 6).
 			liquid: () => null,
 		};
 

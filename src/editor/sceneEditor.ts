@@ -33,6 +33,15 @@ const THUMBNAIL_HEIGHT = 288;
 const CURSOR_REACH = 6000;
 /** Outer lattice spacing in yards. */
 const CELL = CHUNK_SIZE / 8;
+/** Scenes with more tiles than a 3x3 stream their terrain meshes around the camera (Phase 4). */
+const STREAM_ABOVE_TILES = 9;
+/** Tiles closer than this (yards, from the camera to the tile's square) are built... */
+const STREAM_IN = 1.25 * TILE_SIZE;
+/** ...and those farther than this are dropped, so a tile at the edge doesn't flicker. */
+const STREAM_OUT = 1.75 * TILE_SIZE;
+/** How often the wanted set is recomputed (ms), and how many tiles may build at once. */
+const STREAM_INTERVAL = 250;
+const STREAM_BUILDS = 2;
 
 interface TileMesh {
 	group: THREE.Group;
@@ -247,9 +256,57 @@ export class SceneEditor {
 	async load(): Promise<void> {
 		// Water colours come from LiquidType.db2; the materials update when they arrive.
 		void this.storage.loadLiquidLooks().then(setLiquidLooks).catch(() => {});
-		for (const tile of this.model.tiles) await this.buildTile(tile);
+		// Large scenes build the tiles around the camera now and stream the rest as it moves.
+		const first = this.streaming ? this.wantedTiles(STREAM_IN) : this.model.tiles.map((_, i) => i);
+		await Promise.all(first.map((index) => this.buildTile(this.model.tiles[index])));
 		this.objects.load();
 		this.render();
+	}
+
+	/** Whether this scene streams its terrain meshes (more than 3x3 tiles). */
+	get streaming(): boolean {
+		return this.model.tilesX * this.model.tilesY > STREAM_ABOVE_TILES;
+	}
+
+	/** Tile meshes being built now, by streaming. */
+	private readonly streamBuilding = new Set<number>();
+	private lastStream = 0;
+
+	/** Tile indices within reach of the camera (yards to the tile's square), nearest first. */
+	private wantedTiles(reach: number): number[] {
+		const { x, z } = this.camera.position;
+		const out: { index: number; d: number }[] = [];
+		this.model.tiles.forEach((tile, index) => {
+			const nx = Math.max(tile.x * TILE_SIZE, Math.min(x, (tile.x + 1) * TILE_SIZE));
+			const nz = Math.max(tile.y * TILE_SIZE, Math.min(z, (tile.y + 1) * TILE_SIZE));
+			const d = Math.hypot(nx - x, nz - z);
+			if (d <= reach) out.push({ index, d });
+		});
+		return out.sort((a, b) => a.d - b.d).map((t) => t.index);
+	}
+
+	/** Builds the nearest missing tiles and drops far ones (Phase 4 tile streaming). */
+	private stream(now: number): void {
+		if (!this.streaming || now - this.lastStream < STREAM_INTERVAL) return;
+		this.lastStream = now;
+		const keep = new Set(this.wantedTiles(STREAM_OUT));
+		for (const index of [...this.tileMeshes.keys()]) {
+			if (keep.has(index)) continue;
+			// A newer build serial cancels any build of it still in flight.
+			this.buildSerial.set(index, (this.buildSerial.get(index) ?? 0) + 1);
+			this.dropTile(index);
+		}
+		for (const index of this.wantedTiles(STREAM_IN)) {
+			if (this.streamBuilding.size >= STREAM_BUILDS) break;
+			if (this.tileMeshes.has(index) || this.streamBuilding.has(index)) continue;
+			this.streamBuilding.add(index);
+			void this.buildTile(this.model.tiles[index]).finally(() => this.streamBuilding.delete(index));
+		}
+	}
+
+	/** Whether a tile's mesh should exist: always for small scenes, near the camera when streaming. */
+	private tileWanted(index: number): boolean {
+		return !this.streaming || this.tileMeshes.has(index) || this.streamBuilding.has(index);
 	}
 
 	private async buildTile(tile: SceneTile): Promise<void> {
@@ -794,8 +851,10 @@ export class SceneEditor {
 		}
 		for (const index of this.model.dirtyTiles) {
 			this.model.dirtyTiles.delete(index);
-			void this.buildTile(this.model.tiles[index]);
+			// A streamed-out tile picks the change up from the model when it streams back in.
+			if (this.tileWanted(index)) void this.buildTile(this.model.tiles[index]);
 		}
+		this.stream(now);
 		if (this.walker.active) this.walker.update(dt);
 		else this.controls.update(dt, (x, z) => this.model.heightAt(x, z) ?? -Infinity, (x, z) => this.model.surfaceAt(x, z) ?? -Infinity);
 		this.updateRings();

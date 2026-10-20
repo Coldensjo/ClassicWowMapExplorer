@@ -341,6 +341,12 @@ export class SceneModel {
 		this.meta.modified = new Date().toISOString();
 	}
 
+	/** Puts back a chunk's vertex shading whole (revert, undo); shading is baked into the mesh, so the tile rebuilds. */
+	restoreShade(tileIndex: number, chunkId: number, shade: Uint8Array | null): void {
+		this.tiles[tileIndex].chunks[chunkId].vertexShade = shade ? shade.slice() : null;
+		this.markDirty(this.tiles[tileIndex]);
+	}
+
 	/** Puts back a chunk's hole mask whole (undo/redo); holes change the mesh, so the tile rebuilds. */
 	restoreHoles(tileIndex: number, chunkId: number, holes: Uint8Array): void {
 		this.tiles[tileIndex].chunks[chunkId].holes.set(holes);

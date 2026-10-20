@@ -2,6 +2,7 @@ import type { AsyncStorageApi } from '../worker/protocol';
 import { textureName } from './baseTextures';
 import type { HoleMode, WaterMode } from './cells';
 import type { PaintMode } from './paint';
+import type { RevertChannel } from './revert';
 import type { SceneEditor } from './sceneEditor';
 import type { Falloff, SculptMode } from './sculpt';
 import { ModelBrowser } from './modelBrowser';
@@ -17,6 +18,7 @@ const TOOLS: { id: string; key: string; ready: boolean }[] = [
 	{ id: 'water', key: 'Digit4', ready: true },
 	{ id: 'place', key: 'Digit5', ready: true },
 	{ id: 'npcs', key: 'Digit6', ready: false },
+	{ id: 'revert', key: 'Digit7', ready: true },
 ];
 
 const HOLE_HINTS: Record<HoleMode, string> = {
@@ -74,6 +76,7 @@ export class EditorPanels {
 		this.wireHoles();
 		this.wireWater();
 		this.wirePlace();
+		this.wireRevert();
 		this.wireClutter();
 		this.wireUndo();
 		this.wireKeys();
@@ -114,8 +117,14 @@ export class EditorPanels {
 		this.setTool(this.editor.tool);
 	}
 
+	/** Revert to base only applies to copied scenes (spec 7.11). */
+	private get copied(): boolean {
+		return this.editor.model.baseData !== null;
+	}
+
 	private setTool(id: string): void {
 		if (!TOOLS.find((t) => t.id === id)?.ready) return;
+		if (id === 'revert' && !this.copied) return;
 		this.editor.tool = id as SceneEditor['tool'];
 		for (const tool of TOOLS) $(`tool-${tool.id}`).classList.toggle('active', tool.id === id);
 		$('sculpt-props').hidden = id !== 'sculpt';
@@ -123,6 +132,7 @@ export class EditorPanels {
 		$('holes-props').hidden = id !== 'holes';
 		$('water-props').hidden = id !== 'water';
 		$('place-props').hidden = id !== 'place';
+		$('revert-props').hidden = id !== 'revert';
 		if (id === 'place' && !this.models) {
 			this.models = new ModelBrowser(this.storage, this.editor.model.meta.client.build, (asset) => {
 				this.editor.objects.place.asset = asset;
@@ -326,6 +336,9 @@ export class EditorPanels {
 		const objects = this.editor.objects;
 		const selected = objects.selectedObjects();
 		$('place-selection').hidden = selected.length === 0;
+		const deleted = objects.deletedBaseCount;
+		$('place-restore').hidden = deleted === 0;
+		$('place-restore').textContent = `Restore ${deleted} deleted copied object${deleted === 1 ? '' : 's'}`;
 		for (const mode of ['translate', 'rotate', 'scale'] as const) {
 			$(`gizmo-${mode}`).classList.toggle('active', objects.gizmoMode === mode);
 		}
@@ -344,6 +357,7 @@ export class EditorPanels {
 			select.disabled = !sets;
 			$<HTMLInputElement>('sel-nameset').value = String(wmo.nameSet ?? 0);
 		}
+		$('sel-revert').hidden = objects.revertableCount === 0;
 		const lock = $<HTMLInputElement>('sel-lock');
 		lock.checked = selected.every((o) => o.locked);
 		lock.indeterminate = !lock.checked && selected.some((o) => o.locked);
@@ -365,6 +379,34 @@ export class EditorPanels {
 		$<HTMLSelectElement>('place-snap').value = String(place.gridSnap);
 		$('model-picked').textContent = place.asset ? `Placing ${place.asset.label}` : 'Nothing picked yet';
 		$('place-hint').textContent = PLACE_HINTS[place.mode];
+	}
+
+	// ---- Revert to base (spec 7.11) ----
+
+	private wireRevert(): void {
+		$('tool-revert').hidden = !this.copied;
+		this.cleanups.push(() => ($('tool-revert').hidden = true));
+		const revert = this.editor.revert;
+		for (const channel of Object.keys(revert.channels) as RevertChannel[]) {
+			const box = $<HTMLInputElement>(`revert-${channel}`);
+			box.checked = revert.channels[channel];
+			this.listen(box, 'change', () => {
+				revert.channels[channel] = box.checked;
+			});
+		}
+		this.listen($('revert-radius'), 'input', () => {
+			revert.radius = Number($<HTMLInputElement>('revert-radius').value);
+			this.syncRevert();
+		});
+		this.listen($('sel-revert'), 'click', () => this.editor.objects.revertSelectionToBase());
+		this.listen($('place-restore'), 'click', () => this.editor.objects.restoreDeleted());
+		this.syncRevert();
+	}
+
+	private syncRevert(): void {
+		const revert = this.editor.revert;
+		$<HTMLInputElement>('revert-radius').value = String(revert.radius);
+		$('revert-radius-out').textContent = `${revert.radius} yd`;
 	}
 
 	// ---- Ground clutter (spec 7.7) ----
@@ -430,7 +472,7 @@ export class EditorPanels {
 				// [ and ] size the active tool's brush; with Shift, its strength (spec 8).
 				const up = e.code === 'BracketRight';
 				const tool = this.editor.tool;
-				const brush = tool === 'paint' ? this.editor.paint : tool === 'holes' ? this.editor.holes : tool === 'water' ? this.editor.water : this.editor.brush;
+				const brush = tool === 'paint' ? this.editor.paint : tool === 'holes' ? this.editor.holes : tool === 'water' ? this.editor.water : tool === 'revert' ? this.editor.revert : this.editor.brush;
 				if (e.shiftKey) {
 					if ('strength' in brush) brush.strength = Math.min(1, Math.max(0, Math.round((brush.strength + (up ? 0.05 : -0.05)) * 100) / 100));
 				} else {
@@ -442,6 +484,7 @@ export class EditorPanels {
 				this.syncPaint();
 				this.syncHoles();
 				this.syncWater();
+				this.syncRevert();
 			}
 		});
 	}

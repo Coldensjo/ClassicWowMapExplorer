@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { materialize } from '../scene/copyScene';
 import type { SceneModel } from '../scene/sceneModel';
 import type { PlacedObject, Vec3 } from '../scene/types';
 import { ObjectManager } from '../viewer/objects';
@@ -606,6 +607,43 @@ export class SceneObjects {
 			after.push(now);
 		}
 		if (before.length) this.pushEdit(label, before, after);
+	}
+
+	// ---- Revert to base (spec 7.11, copied scenes) ----
+
+	/** How many selected objects are copied ones that can go back to their source placement. */
+	get revertableCount(): number {
+		return this.selectedObjects().filter((o) => o.baseKey).length;
+	}
+
+	/** Puts the selected copied objects back where the source map has them, as one command. */
+	revertSelectionToBase(): void {
+		const templates = new Map((this.model.baseData?.objects ?? []).map((t) => [t.baseKey, t]));
+		this.editSelection('Revert objects to base', (after, o) => {
+			const t = o.baseKey ? templates.get(o.baseKey) : undefined;
+			if (!t) return;
+			after.position = [...t.position] as Vec3;
+			after.rotation = [...t.rotation] as Vec3;
+			after.scale = t.scale;
+			after.doodadSet = t.kind === 'wmo' ? t.doodadSet ?? 0 : undefined;
+			after.nameSet = t.kind === 'wmo' ? t.nameSet ?? 0 : undefined;
+			after.locked = undefined;
+			after.group = undefined;
+		}, true);
+	}
+
+	/** Copied objects the user deleted, which restoreDeleted would bring back. */
+	get deletedBaseCount(): number {
+		const present = new Set(this.model.objects.map((o) => o.baseKey));
+		return (this.model.baseData?.objects ?? []).filter((t) => !present.has(t.baseKey)).length;
+	}
+
+	/** Brings back every deleted copied object at its source placement, as one command. */
+	restoreDeleted(): void {
+		const present = new Set(this.model.objects.map((o) => o.baseKey));
+		const back = (this.model.baseData?.objects ?? []).filter((t) => !present.has(t.baseKey)).map(materialize);
+		if (!back.length) return;
+		this.commandAdd(back, `Restore ${back.length} deleted object${back.length === 1 ? '' : 's'}`);
 	}
 
 	/** Writes snapshots back to the objects and pushes the command; applyNow first applies after. */

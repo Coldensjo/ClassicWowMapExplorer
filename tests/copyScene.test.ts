@@ -12,7 +12,14 @@ const MAP = { id: 0, directory: 'Azeroth' };
 /** A deterministic fake source tile at map tile (x, y), with layers, water and placements. */
 function fakeTile(x: number, y: number): CopyTile {
 	const chunks = Array.from({ length: 256 }, (_, i) => ({
-		heights: new Float32Array(145).map((_, j) => Math.fround(Math.sin(i * 7 + j) * 20)),
+		// Seamless like real ADTs: a height is a function of its lattice position, so chunks agree on edges.
+		heights: new Float32Array(145).map((_, j) => {
+			const row = Math.floor(j / 17);
+			const inner = j % 17 >= 9;
+			const gx = (i % 16) * 8 + (inner ? j % 17 - 9 + 0.5 : j % 17);
+			const gz = Math.floor(i / 16) * 8 + row + (inner ? 0.5 : 0);
+			return Math.fround(Math.sin(gx * 0.37 + x) * 20 + Math.cos(gz * 0.21 + y) * 15);
+		}),
 		shade: i === 5 ? new Uint8Array(145 * 4).map((_, j) => (j * 3) % 256) : null,
 		layers: [
 			{ fdid: 111, effect: 0 },
@@ -222,4 +229,35 @@ test('a copied scene refuses to decode without its source tiles', () => {
 	const bytes = encodeScene(model);
 	expect(() => decodeScene(bytes)).toThrow(/source tiles/);
 	expect(() => decodeScene(bytes, [fakeTile(30, 48)])).toThrow(/2 tiles/);
+});
+
+test('Revert to base restores chunks per channel, keeps seams closed, and undoes', async () => {
+	const { RevertStroke } = await import('../src/editor/revert');
+	const { model } = makeScene();
+	// Raise the whole edge column shared by chunks 0 and 1 of tile 0 (lattice column 8), and paint chunk 0.
+	for (let gz = 0; gz <= 8; gz++) model.setOuterHeight(8, gz, 500);
+	model.restorePaint(0, 0, [{ texture: 0 }], null);
+	expect(model.tiles[0].chunks[1].heights[0]).toBe(500);
+
+	// Revert only chunk 0's heights: its edge goes back to base, and so does chunk 1's copy of it.
+	const settings = { radius: 1, channels: { heights: true, vertexShade: false, paint: false, holes: false, water: false } };
+	const stroke = new RevertStroke(model, settings);
+	stroke.revertChunk(0, 0);
+	const command = stroke.finish()!;
+	expect(command).not.toBeNull();
+	expect(model.tiles[0].chunks[0].heights).toEqual(model.baseData!.tiles[0].chunks[0].heights);
+	expect(model.tiles[0].chunks[1].heights).toEqual(model.baseData!.tiles[0].chunks[1].heights);
+	// Paint was not a chosen channel: it stays edited.
+	expect(model.tiles[0].chunks[0].layers).toEqual([{ texture: 0 }]);
+
+	command.undo();
+	expect(model.tiles[0].chunks[1].heights[0]).toBe(500);
+	command.redo();
+
+	// Revert paint too; nothing is left to save.
+	const all = new RevertStroke(model, { radius: 1, channels: { heights: true, vertexShade: true, paint: true, holes: true, water: true } });
+	all.revertChunk(0, 0);
+	all.finish();
+	const scene = sceneJson(encodeScene(model));
+	expect(scene.tiles.every((t) => !t.overrides)).toBe(true);
 });

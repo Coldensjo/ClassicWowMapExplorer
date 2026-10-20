@@ -131,7 +131,7 @@ export function baseObjectsFromCopy(copyTiles: CopyTile[], base: WorldBase): Bas
 }
 
 /** A base object as a placed object the editor works on; unedited ones are never saved. */
-function materialize(t: BaseObjectTemplate): PlacedObject {
+export function materialize(t: BaseObjectTemplate): PlacedObject {
 	return {
 		id: crypto.randomUUID(),
 		baseKey: t.baseKey,

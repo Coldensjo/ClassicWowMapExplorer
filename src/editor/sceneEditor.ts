@@ -13,6 +13,7 @@ import { HoleStroke, WaterStroke, type HoleSettings, type WaterSettings } from '
 import { PaintStroke, type PaintSettings } from './paint';
 import { SculptStroke, type BrushSettings } from './sculpt';
 import { SceneObjects } from './objects';
+import { RevertStroke, type RevertSettings } from './revert';
 import { ALPHA_SIZE } from '../formats/adtTex';
 import { liquidKind, type LiquidInstance, type LiquidKind } from '../formats/mh2o';
 import { buildLiquidMeshes } from '../explorer/liquidMesh';
@@ -115,15 +116,15 @@ export class SceneEditor {
 	/** The editor core (spec 7.11): every change goes through a command. */
 	readonly commands = new CommandStack();
 	/** Which tool the left mouse button drives. */
-	private activeTool: 'sculpt' | 'paint' | 'holes' | 'water' | 'place' = 'sculpt';
+	private activeTool: 'sculpt' | 'paint' | 'holes' | 'water' | 'place' | 'revert' = 'sculpt';
 	/** The placed doodads and buildings (spec 7.8). */
 	readonly objects: SceneObjects;
 
-	get tool(): 'sculpt' | 'paint' | 'holes' | 'water' | 'place' {
+	get tool(): 'sculpt' | 'paint' | 'holes' | 'water' | 'place' | 'revert' {
 		return this.activeTool;
 	}
 
-	set tool(tool: 'sculpt' | 'paint' | 'holes' | 'water' | 'place') {
+	set tool(tool: 'sculpt' | 'paint' | 'holes' | 'water' | 'place' | 'revert') {
 		this.activeTool = tool;
 		this.objects?.setActive(tool === 'place');
 	}
@@ -131,6 +132,8 @@ export class SceneEditor {
 	readonly holes: HoleSettings = { radius: 4, mode: 'cut' };
 	/** The water brush (spec 7.6), edited by the properties panel. */
 	readonly water: WaterSettings = { radius: 8, mode: 'add', kind: 1, height: null };
+	/** The Revert to base brush (spec 7.11, copied scenes), edited by the properties panel. */
+	readonly revert: RevertSettings = { radius: 15, channels: { heights: true, vertexShade: true, paint: true, holes: true, water: true } };
 	/** The sculpt brush, edited by the properties panel. */
 	readonly brush: BrushSettings = { radius: 15, strength: 0.5, falloff: 'smooth', mode: 'raise', flattenTo: null };
 	/** The paint brush (spec 7.5), edited by the properties panel. */
@@ -151,7 +154,7 @@ export class SceneEditor {
 	private readonly raycaster = new THREE.Raycaster();
 	/** The ground under the mouse this frame. */
 	private cursor: { x: number; z: number; height: number } | null = null;
-	private stroke: SculptStroke | PaintStroke | HoleStroke | WaterStroke | null = null;
+	private stroke: SculptStroke | PaintStroke | HoleStroke | WaterStroke | RevertStroke | null = null;
 	/** Build number per tile, so a stale structural rebuild never replaces a newer one. */
 	private readonly buildSerial = new Map<number, number>();
 	/** Chunks flashed red because they could not take another texture (spec 7.5). */
@@ -850,6 +853,7 @@ export class SceneEditor {
 			this.tool === 'paint' ? (this.paint.mode === 'paint' || this.paint.mode === 'erase' ? this.paint.radius : 2)
 			: this.tool === 'holes' ? this.holes.radius
 			: this.tool === 'water' ? (this.water.mode === 'flood' ? 2 : this.water.radius)
+			: this.tool === 'revert' ? this.revert.radius
 			: this.brush.radius;
 		if (show && this.cursor) this.layRing(this.ring, this.cursor.x, this.cursor.z, radius, this.cursor.height);
 		this.rampRing.visible = this.rampStart !== null;
@@ -905,6 +909,11 @@ export class SceneEditor {
 			return;
 		}
 		if (!this.cursor) return;
+		if (this.tool === 'revert') {
+			if (!this.model.baseData) return;
+			this.stroke = new RevertStroke(this.model, this.revert);
+			return;
+		}
 		if (this.tool === 'paint') {
 			this.stroke = new PaintStroke(this.model, this.paint, this.effectFor);
 			return;

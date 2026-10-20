@@ -181,6 +181,8 @@ async function openEditor(model: SceneModel, isNew = false): Promise<void> {
 	$('editor-name').textContent = model.meta.name;
 	setSaveState('');
 	editor = new SceneEditor($<HTMLCanvasElement>('view'), storage, model);
+	// A console handle on the open editor, for poking at the model and managers while testing.
+	(window as { editor?: SceneEditor }).editor = editor;
 	editor.onNotice = notice;
 	// Newly painted layers take the effect their texture usually carries (spec 7.7.2).
 	editor.effectFor = (fdid) => scan?.effectFor(fdid) ?? 0;
@@ -230,6 +232,7 @@ async function closeEditor(): Promise<void> {
 	panels = null;
 	editor.dispose();
 	editor = null;
+	delete (window as { editor?: SceneEditor }).editor;
 	$('editor-bar').hidden = true;
 	$('scenes').hidden = false;
 	await refreshList();

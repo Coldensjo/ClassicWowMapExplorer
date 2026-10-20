@@ -1,6 +1,8 @@
 import type { FileStatus } from '../casc/storage';
 import { parseAdtRoot, TILE_CELLS, TILE_SIZE, tileGrids } from '../formats/adt';
-import { parseAdtTex } from '../formats/adtTex';
+import { parseAdtTex, scanTexEffects } from '../formats/adtTex';
+import { parseWdt } from '../formats/wdt';
+import type { ClutterEffect } from './groundEffects';
 import { blpTexture, decodeBlp, mipmapped, type Image, type TextureData } from '../formats/blp';
 import type { Db2 } from '../formats/db2';
 import type { LiquidKind } from '../formats/mh2o';
@@ -361,6 +363,52 @@ export class WorldLoader {
 	/** The world map's continents and zones on the continents (see worldMap.ts). */
 	loadWorldMaps(mapIds: number[]): Promise<WorldMapInfo[]> {
 		return loadWorldMaps(this.storage, mapIds);
+	}
+
+	/**
+	 * Every map with a readable WDT, for the ground effect scan (spec 7.7.2): ADTs are enumerated
+	 * through each map's WDT, so the scan covers dungeons too and needs no listfile.
+	 */
+	async scanMaps(): Promise<{ id: number; name: string; wdt: number }[]> {
+		const table = await loadTable(this.storage, DB2_FILES.Map);
+		const out: { id: number; name: string; wdt: number }[] = [];
+		for (const id of table.ids()) {
+			const wdt = this.mapWdt(table, id);
+			if (!wdt || this.storage.status(wdt) !== 'ok') continue;
+			out.push({ id, name: table.getString(id, MAP_NAME) ?? `Map ${id}`, wdt });
+		}
+		return out;
+	}
+
+	/**
+	 * Scans a slice of one map's _tex0 ADTs for (texture FDID, effect ID) counts (spec 7.7.2).
+	 * Batched by tile offset so the worker stays responsive between calls; next is null when the
+	 * map is finished.
+	 */
+	async scanMapGroundEffects(wdtFdid: number, offset: number, count: number): Promise<{ pairs: [number, number, number][]; next: number | null }> {
+		const wdt = parseWdt(await this.storage.readFile(wdtFdid));
+		const counts = new Map<number, Map<number, number>>();
+		const end = Math.min(wdt.tiles.length, offset + count);
+		for (let i = offset; i < end; i++) {
+			const fdid = wdt.tiles[i]?.files.tex0;
+			if (!fdid || this.storage.status(fdid) !== 'ok') continue;
+			try {
+				scanTexEffects(await this.storage.readFile(fdid), counts);
+			} catch {
+				// A tile that can't be read teaches nothing; the rest still count.
+			}
+		}
+		const pairs: [number, number, number][] = [];
+		for (const [fdid, effects] of counts) {
+			for (const [effect, n] of effects) pairs.push([fdid, effect, n]);
+		}
+		return { pairs, next: end < wdt.tiles.length ? end : null };
+	}
+
+	/** What each GroundEffectTexture scatters, for the editor's clutter (spec 7.7.1). */
+	async clutterEffects(ids: number[]): Promise<(ClutterEffect | null)[]> {
+		const effects = await this.groundEffects();
+		return ids.map((id) => effects?.effect(id) ?? null);
 	}
 
 	/** Thumbnails for the asset browser (spec 7.3): the mip closest to maxSize, decoded here. */

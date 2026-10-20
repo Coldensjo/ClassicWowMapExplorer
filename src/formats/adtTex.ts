@@ -109,6 +109,34 @@ function parseChunk(bytes: Uint8Array, view: DataView, start: number, end: numbe
 	return chunk;
 }
 
+/**
+ * Collects each layer's (diffuse texture FDID, GroundEffectTexture ID) pair of a split _tex0
+ * into counts, without decoding alpha: the ground effect scan (spec 7.7.2) learns from these
+ * which effect a texture usually carries.
+ */
+export function scanTexEffects(bytes: Uint8Array, out: Map<number, Map<number, number>>): void {
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	let diffuse: number[] = [];
+	for (const c of chunks(bytes)) {
+		if (c.id === 'MDID') {
+			diffuse = Array.from({ length: c.size / 4 }, (_, i) => view.getUint32(c.offset + i * 4, true));
+		} else if (c.id === 'MCNK') {
+			for (const sub of chunks(bytes, c.offset, c.offset + c.size)) {
+				if (sub.id !== 'MCLY') continue;
+				for (let l = 0; l < sub.size / 16; l++) {
+					const o = sub.offset + l * 16;
+					const fdid = diffuse[view.getUint32(o, true)];
+					if (!fdid) continue;
+					const effect = view.getUint32(o + 12, true);
+					let counts = out.get(fdid);
+					if (!counts) out.set(fdid, (counts = new Map()));
+					counts.set(effect, (counts.get(effect) ?? 0) + 1);
+				}
+			}
+		}
+	}
+}
+
 /** Run-length alpha: high bit set = repeat the next byte, clear = copy the next bytes. */
 function decodeRle(data: Uint8Array, out: Uint8Array): void {
 	let i = 0;

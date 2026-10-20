@@ -65,6 +65,7 @@ export class EditorPanels {
 		this.wirePaint();
 		this.wireHoles();
 		this.wireWater();
+		this.wireClutter();
 		this.wireUndo();
 		this.wireKeys();
 		this.wireStatus();
@@ -255,6 +256,32 @@ export class EditorPanels {
 		$<HTMLInputElement>('water-radius').value = String(water.radius);
 		$('water-radius-out').textContent = `${water.radius} yd`;
 		$('water-hint').textContent = WATER_HINTS[water.mode];
+	}
+
+	// ---- Ground clutter (spec 7.7) ----
+
+	private wireClutter(): void {
+		const settings = this.editor.clutterSettings;
+		const sync = () => {
+			$<HTMLInputElement>('clutter-on').checked = settings.enabled;
+			$<HTMLInputElement>('clutter-density').value = String(settings.density);
+			$('clutter-density-out').textContent = `${Math.round(settings.density * 100)}%`;
+		};
+		this.listen($('clutter-on'), 'change', () => {
+			settings.enabled = $<HTMLInputElement>('clutter-on').checked;
+			this.editor.refreshClutter();
+			sync();
+		});
+		this.listen($('clutter-density'), 'input', () => {
+			settings.density = Number($<HTMLInputElement>('clutter-density').value);
+			this.editor.refreshClutter();
+			sync();
+		});
+		this.listen($('clutter-apply'), 'click', () => {
+			const changed = this.editor.applyGroundEffects();
+			this.editor.onNotice(changed ? `Ground effects applied to ${changed} chunk${changed === 1 ? '' : 's'}` : 'Every painted layer already has its ground effect');
+		});
+		sync();
 	}
 
 	// ---- Undo and redo ----

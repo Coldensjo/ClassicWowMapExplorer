@@ -94,6 +94,11 @@ export class GroundEffects {
 		return new GroundEffects(effects, sounds);
 	}
 
+	/** One effect's clutter, for the editor's own cell mapping; null when it grows nothing. */
+	effect(id: number): ClutterEffect | null {
+		return this.effects.get(id) ?? null;
+	}
+
 	/**
 	 * What each of a tile's cells sounds like underfoot (128x128 footstep sound groups), from the
 	 * texture layer covering most of it, as its clutter is.

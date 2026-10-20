@@ -4,6 +4,7 @@ import { SceneLibrary, type SceneSummary } from '../scene/library';
 import { SceneModel } from '../scene/sceneModel';
 import { MAX_BLANK_TILES } from '../scene/types';
 import { EditorPanels } from './editorPanels';
+import { groundEffectScan, type GroundEffectScan } from './groundEffectScan';
 import { SceneEditor } from './sceneEditor';
 
 import { BASE_TEXTURES } from './baseTextures';
@@ -20,6 +21,7 @@ let onExplore: () => void;
 
 let editor: SceneEditor | null = null;
 let panels: EditorPanels | null = null;
+let scan: GroundEffectScan | null = null;
 let lastSaved = '';
 let autosaveTimer = 0;
 
@@ -28,6 +30,14 @@ export function showScenes(openedStorage: AsyncStorageApi, openedStats: StorageS
 	storage = openedStorage;
 	stats = openedStats;
 	onExplore = explore;
+	// The ground effect scan (spec 3.1) starts in the background; editing does not wait for it.
+	scan = groundEffectScan(storage, stats.buildName);
+	scan.onStatus = (text, paused) => {
+		const element = $('status-scan');
+		element.textContent = text;
+		element.hidden = !text;
+		if (paused) element.textContent += ' — click to resume';
+	};
 	wireOnce();
 	$('scenes-build').textContent = `${stats.product} ${stats.version}`;
 	$('scenes').hidden = false;
@@ -43,6 +53,8 @@ function wireOnce(): void {
 		$('scenes').hidden = true;
 		onExplore();
 	});
+
+	$('status-scan').addEventListener('click', () => scan?.setPaused(!scan.paused));
 
 	// New scene: a name, a grid of 1x1 to 3x3 tiles and a base texture (spec 3.2).
 	const sizes = (select: HTMLSelectElement) => {
@@ -164,6 +176,8 @@ async function openEditor(model: SceneModel, isNew = false): Promise<void> {
 	setSaveState('');
 	editor = new SceneEditor($<HTMLCanvasElement>('view'), storage, model);
 	editor.onNotice = notice;
+	// Newly painted layers take the effect their texture usually carries (spec 7.7.2).
+	editor.effectFor = (fdid) => scan?.effectFor(fdid) ?? 0;
 	panels = new EditorPanels(editor, storage);
 	try {
 		await editor.load();

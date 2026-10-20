@@ -17,6 +17,8 @@ import { liquidKind, type LiquidInstance, type LiquidKind } from '../formats/mh2
 import { buildLiquidMeshes } from '../explorer/liquidMesh';
 import { liquidMaterial, liquidTime, releaseLiquidMaterial, setLiquidLooks } from '../viewer/terrainMaterials';
 import { GroundDistancePass } from '../viewer/groundDistance';
+import { ClutterManager } from '../viewer/clutter';
+import type { ClutterEffect, ClutterSource } from '../explorer/groundEffects';
 
 const SKY = new THREE.Color(0x9ec4e4);
 /** Camera distance limits for small scenes. */
@@ -123,6 +125,14 @@ export class SceneEditor {
 	readonly paint: PaintSettings;
 	/** The ground effect a texture usually carries, wired to the scan table (spec 7.7.2). */
 	effectFor: (fdid: number) => number = () => 0;
+	/** Ground clutter (spec 7.7): on/off and a density multiplier, edited by the panel. */
+	readonly clutterSettings = { enabled: true, density: 1 };
+	private readonly clutter: ClutterManager;
+	/** What each effect scatters, fetched from the worker once and kept. */
+	private readonly effectCache = new Map<number, ClutterEffect | null>();
+	private fetchingEffects = false;
+	/** Tiles whose clutter cells need recomputing (heights, paint, holes or water changed). */
+	private readonly clutterDirty = new Set<number>();
 
 	/** Where the mouse last was, in normalized device coordinates. */
 	private readonly mouse = new THREE.Vector2(NaN, NaN);
@@ -178,6 +188,10 @@ export class SceneEditor {
 		const ambient = new THREE.HemisphereLight(0x8899aa, 0x8899aa, Math.PI);
 		this.scene.add(sun, ambient, this.terrain, this.ring, this.rampRing);
 		this.groundPass = new GroundDistancePass(this.renderer);
+		this.clutter = new ClutterManager(storage, supportsCompressedTextures(this.renderer), this.renderer.capabilities.getMaxAnisotropy(), async (object) => {
+			await this.renderer.compileAsync(object, this.camera, this.scene);
+		});
+		this.scene.add(this.clutter.group);
 		// The explorer's sea mask tints terrain below sea level; a scene has no sea.
 		seaMask.uSeaBounds.value.set(1e9, 1e9, 1, 1);
 
@@ -289,12 +303,14 @@ export class SceneEditor {
 			tm.water.push(mesh);
 		}
 		this.hasWater = [...this.tileMeshes.values()].some((t) => t.water.length > 0);
+		this.clutterDirty.add(index);
 	}
 
 	private dropTile(index: number): void {
 		const mesh = this.tileMeshes.get(index);
 		if (!mesh) return;
 		this.tileMeshes.delete(index);
+		this.clutter.removeTile(String(index));
 		this.terrain.remove(mesh.group);
 		mesh.geometry.dispose();
 		for (const m of mesh.materials) m.dispose();
@@ -388,6 +404,140 @@ export class SceneEditor {
 		}
 		positions.needsUpdate = true;
 		normals.needsUpdate = true;
+	}
+
+	/**
+	 * Recomputes a tile's clutter cells (spec 7.7.1): like the client, each terrain cell takes its
+	 * clutter from the texture layer that covers most of it, skipping holes and cells under water.
+	 * Effects the worker hasn't described yet are fetched once, and the tile revisited.
+	 */
+	private rebuildClutter(index: number): void {
+		const tm = this.tileMeshes.get(index);
+		if (!tm) return;
+		const key = String(index);
+		const tile = this.model.tiles[index];
+		const originX = tile.x * TILE_SIZE;
+		const originZ = tile.y * TILE_SIZE;
+		if (!this.clutterSettings.enabled || this.clutterSettings.density <= 0) {
+			this.clutter.addTile(key, originX, originZ, null);
+			return;
+		}
+		// Which effects the tile needs; ask the worker about any not yet described.
+		const missing = new Set<number>();
+		for (const chunk of tile.chunks) {
+			for (const layer of chunk.layers) {
+				if (layer.effectId && !this.effectCache.has(layer.effectId)) missing.add(layer.effectId);
+			}
+		}
+		if (missing.size) {
+			this.clutterDirty.add(index);
+			if (!this.fetchingEffects) {
+				this.fetchingEffects = true;
+				const ids = [...missing];
+				this.storage.clutterEffects(ids)
+					.then((effects) => ids.forEach((id, i) => this.effectCache.set(id, effects[i])))
+					.catch(() => ids.forEach((id) => this.effectCache.set(id, null)))
+					.finally(() => {
+						this.fetchingEffects = false;
+					});
+			}
+			return;
+		}
+
+		const n = TILE_CELLS;
+		const texels = ALPHA_SIZE * ALPHA_SIZE;
+		const cells = new Uint8Array(n * n);
+		const effects: ClutterEffect[] = [];
+		const indexOf = new Map<number, number>();
+		tile.chunks.forEach((chunk, id) => {
+			const cx = id % CHUNKS_PER_TILE;
+			const cy = Math.floor(id / CHUNKS_PER_TILE);
+			for (let row = 0; row < 8; row++) {
+				for (let col = 0; col < 8; col++) {
+					if (chunk.holes[row] & (1 << col)) continue;
+					const gx = cx * 8 + col;
+					const gz = cy * 8 + row;
+					// Nothing grows under water.
+					if (chunk.water && chunk.water.coverage[row] & (1 << col) && chunk.water.height > tm.inner[gz * n + gx]) continue;
+					// The layer covering most of the cell, by its alpha over the cell's texels.
+					let dominant = 0;
+					if (chunk.layers.length > 1 && chunk.alpha) {
+						let others = 0;
+						let best = -1;
+						let bestSum = 0;
+						for (let l = 1; l < chunk.layers.length; l++) {
+							let sum = 0;
+							for (let ty = row * 8; ty < row * 8 + 8; ty++) {
+								for (let tx = col * 8; tx < col * 8 + 8; tx++) sum += chunk.alpha[(l - 1) * texels + ty * ALPHA_SIZE + tx];
+							}
+							others += sum;
+							if (sum > bestSum) {
+								bestSum = sum;
+								best = l;
+							}
+						}
+						if (best > 0 && bestSum > 64 * 255 - others) dominant = best;
+					}
+					const effectId = chunk.layers[dominant]?.effectId ?? 0;
+					if (!effectId) continue;
+					const effect = this.effectCache.get(effectId);
+					if (!effect) continue;
+					let effectIndex = indexOf.get(effectId);
+					if (effectIndex === undefined) {
+						if (effects.length >= 255) continue;
+						const density = Math.round(effect.density * this.clutterSettings.density);
+						if (!density) continue;
+						effectIndex = effects.length;
+						effects.push({ density, doodads: effect.doodads });
+						indexOf.set(effectId, effectIndex);
+					}
+					cells[gz * n + gx] = effectIndex + 1;
+				}
+			}
+		});
+		const source: ClutterSource | null = effects.length ? { effects, cells, outer: tm.outer, inner: tm.inner } : null;
+		this.clutter.addTile(key, originX, originZ, source);
+	}
+
+	/** Clutter settings changed: regenerate every tile's clutter. */
+	refreshClutter(): void {
+		this.clutter.enabled = this.clutterSettings.enabled;
+		for (const index of this.tileMeshes.keys()) this.clutterDirty.add(index);
+	}
+
+	/**
+	 * Gives layers painted before the scan finished their texture's usual effect (spec 7.7.2
+	 * "Apply ground effects to scene"), as one undoable command; returns how many chunks changed.
+	 */
+	applyGroundEffects(): number {
+		const model = this.model;
+		const changes: { tileIndex: number; chunkId: number; before: { layers: typeof model.tiles[0]['chunks'][0]['layers']; alpha: Uint8Array | null }; after: { layers: typeof model.tiles[0]['chunks'][0]['layers']; alpha: Uint8Array | null } }[] = [];
+		let bytes = 0;
+		model.tiles.forEach((tile, tileIndex) => {
+			tile.chunks.forEach((chunk, chunkId) => {
+				const missing = chunk.layers.filter((l) => l.effectId === undefined && this.effectFor(model.textures[l.texture]));
+				if (!missing.length) return;
+				const snapshot = () => ({ layers: chunk.layers.map((l) => ({ ...l })), alpha: chunk.alpha ? chunk.alpha.slice() : null });
+				const before = snapshot();
+				for (const layer of missing) layer.effectId = this.effectFor(model.textures[layer.texture]);
+				changes.push({ tileIndex, chunkId, before, after: snapshot() });
+				bytes += (chunk.alpha?.length ?? 0) * 2 + 256;
+				model.markDirty(tile);
+			});
+		});
+		if (changes.length) {
+			this.commands.push({
+				label: 'Apply ground effects',
+				bytes,
+				undo: () => {
+					for (const c of changes) model.restorePaint(c.tileIndex, c.chunkId, c.before.layers, c.before.alpha);
+				},
+				redo: () => {
+					for (const c of changes) model.restorePaint(c.tileIndex, c.chunkId, c.after.layers, c.after.alpha);
+				},
+			});
+		}
+		return changes.length;
 	}
 
 	/**
@@ -561,6 +711,7 @@ export class SceneEditor {
 		for (const [index, chunks] of this.model.dirtyHeights) {
 			this.model.dirtyHeights.delete(index);
 			this.strokeTiles.add(index);
+			this.clutterDirty.add(index);
 			if (this.model.dirtyTiles.has(index)) continue;
 			this.updateTileHeights(index, chunks);
 		}
@@ -568,15 +719,26 @@ export class SceneEditor {
 		if (!this.stroke && this.strokeTiles.size) this.refreshBounds();
 		for (const [index, chunks] of this.model.dirtyAlpha) {
 			this.model.dirtyAlpha.delete(index);
+			this.clutterDirty.add(index);
 			if (this.model.dirtyTiles.has(index)) continue;
 			this.updateTileAlpha(index, chunks);
 		}
 		for (const index of this.model.dirtyWater) {
 			this.model.dirtyWater.delete(index);
+			this.clutterDirty.add(index);
 			if (this.model.dirtyTiles.has(index)) continue; // The rebuild brings the water too.
 			this.buildTileWater(index);
 		}
 		liquidTime.value += dt;
+		// Clutter regenerates once the edit is over, not per stroke frame (spec 7.7.1).
+		if (!this.stroke && this.clutterDirty.size) {
+			for (const index of [...this.clutterDirty]) {
+				this.clutterDirty.delete(index);
+				this.rebuildClutter(index);
+			}
+		}
+		const ground = this.model.surfaceAt(this.camera.position.x, this.camera.position.z);
+		this.clutter.update(performance.now(), this.camera.position, ground ?? -Infinity);
 		const now = performance.now();
 		for (let i = this.flags.length - 1; i >= 0; i--) {
 			if (now < this.flags[i].until) continue;

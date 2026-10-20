@@ -104,6 +104,15 @@ const api: AsyncStorageApi = {
 	async loadThumbnails(fdids, maxSize) {
 		return requireWorld().loadThumbnails(fdids, maxSize);
 	},
+	async scanMaps() {
+		return requireWorld().scanMaps();
+	},
+	async scanMapGroundEffects(wdtFdid, offset, count) {
+		return requireWorld().scanMapGroundEffects(wdtFdid, offset, count);
+	},
+	async clutterEffects(ids) {
+		return requireWorld().clutterEffects(ids);
+	},
 	async fileStatus(fdids) {
 		return requireWorld().fileStatus(fdids);
 	},

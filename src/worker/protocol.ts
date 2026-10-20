@@ -1,5 +1,6 @@
 import type { ProductInfo } from '../casc/config';
 import type { FileStatus, StorageStats } from '../casc/storage';
+import type { ClutterEffect } from '../explorer/groundEffects';
 import type { AreaInfo, LightingData } from '../explorer/lighting';
 import type { MapSummary } from '../explorer/maps';
 import type { LiquidLooks } from '../explorer/clientDb';
@@ -43,6 +44,12 @@ export interface StorageApi {
 	loadFont(fdid: number): Uint8Array;
 	loadInterfaceImages(paths: string[]): (Image | null)[];
 	loadImages(fdids: number[]): (Image | null)[];
+	/** Every map with a readable WDT, for the ground effect scan (spec 7.7.2). */
+	scanMaps(): { id: number; name: string; wdt: number }[];
+	/** Scans a slice of one map's _tex0 ADTs for (texture, effect, count) triples (spec 7.7.2). */
+	scanMapGroundEffects(wdtFdid: number, offset: number, count: number): { pairs: [number, number, number][]; next: number | null };
+	/** What each GroundEffectTexture scatters, for the editor's clutter (spec 7.7.1). */
+	clutterEffects(ids: number[]): (ClutterEffect | null)[];
 	/** Images decoded at the mip closest to maxSize, for asset-browser thumbnails (spec 7.3). */
 	loadThumbnails(fdids: number[], maxSize: number): (Image | null)[];
 	/** Whether each file's data is really in the local install ('not-local' shows greyed, spec 7.1). */

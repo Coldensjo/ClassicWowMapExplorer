@@ -9,8 +9,6 @@
 		"typecheck": "tsc --noEmit",
 		"test": "bun test",
 		"probe": "bun tools/probe.ts",
-		"spawns": "bun tools/buildSpawns.ts",
-		"regions": "bun tools/buildRegions.ts",
 		"portable": "bun tools/buildPortable.ts"
 	},
 	"dependencies": {

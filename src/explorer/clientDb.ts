@@ -14,7 +14,6 @@ export const DB2_FILES = {
 	LightData: 1375580,
 	LightParams: 1334669,
 	LiquidType: 1371380,
-	Lock: 1343608,
 	Map: 1349477,
 	SoundAmbience: 1310628,
 	SoundKitEntry: 1237435,
@@ -103,36 +102,6 @@ export async function liquidLooks(storage: CascStorage): Promise<LiquidLooks> {
 		};
 	}
 	return { types, ocean };
-}
-
-/** What opening a lock takes: a gathering skill, or picking it. */
-export type LockKind = 'herb' | 'ore' | 'lockbox';
-
-/** Lock fields: [8] arrays of index, required skill and key type. */
-const LOCK_INDEX = 1;
-const LOCK_SKILL = 2;
-const LOCK_TYPE = 3;
-/** Key type 2 is a lock type (LockType.db2), whose ID is in the index field. */
-const KEY_LOCK_TYPE = 2;
-const LOCK_KINDS: Record<number, LockKind> = { 1: 'lockbox', 2: 'herb', 3: 'ore' };
-
-/**
- * Locks that take Herbalism, Mining or Lockpicking, by Lock ID (game object data0 for chests,
- * which is what herbs and ore veins are). Quest objects gathered without the skill need none.
- */
-export async function lockKinds(storage: CascStorage): Promise<Record<number, LockKind>> {
-	const table = await loadTable(storage, DB2_FILES.Lock);
-	const kinds: Record<number, LockKind> = {};
-	for (const id of table.ids()) {
-		for (let k = 0; k < 8; k++) {
-			const kind = LOCK_KINDS[table.getInt(id, LOCK_INDEX, k) ?? 0];
-			if (kind && table.getInt(id, LOCK_TYPE, k) === KEY_LOCK_TYPE && (table.getInt(id, LOCK_SKILL, k) ?? 0) > 0) {
-				kinds[id] = kind;
-				break;
-			}
-		}
-	}
-	return kinds;
 }
 
 /** Classifies liquid types by name ("Ocean", "Magma", "PBRWater - Generic - Lake", ...). */

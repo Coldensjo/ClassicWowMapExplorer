@@ -6,9 +6,6 @@
 	<title>Map Explorer</title>
 	<link rel="icon" href="/icon.svg" type="image/svg+xml">
 	<link rel="stylesheet" href="/src/viewer/viewer.css">
-	<!-- Wowhead's official tooltip embed: hovering a Wowhead link in the info panel shows its tooltip. -->
-	<script>const whTooltips = { colorLinks: true, iconizeLinks: false, renameLinks: false };</script>
-	<script src="https://wow.zamimg.com/js/tooltips.js" async></script>
 </head>
 <body>
 	<canvas id="view"></canvas>
@@ -61,9 +58,6 @@
 				<label title="The zone, coordinates, time, altitude and music, at the top left"><input type="checkbox" id="area-on"> Area info</label>
 				<label><input type="checkbox" data-setting="minimap"> Show minimap</label>
 				<label><input type="checkbox" data-setting="torch"> Torch <kbd>L</kbd></label>
-				<label><input type="checkbox" data-setting="creatures"> NPCs and monsters</label>
-				<label><input type="checkbox" data-setting="spiritHealers"> Spirit healers</label>
-				<label><input type="checkbox" data-setting="gameObjects"> Objects (chests, herbs, ore, doors…)</label>
 				<label><input type="checkbox" data-setting="mapNames"> Dungeon and raid names <kbd>I</kbd></label>
 				<label>Name colours for <select data-setting="side"><option value="alliance">Alliance</option><option value="horde">Horde</option></select> <kbd>F</kbd></label>
 			</div>
@@ -164,9 +158,6 @@
 				</div>
 
 				<button id="worldmap-open">World map <kbd>Tab</kbd></button>
-				<h3 class="travel-heading">Meeting stones</h3>
-				<select id="stone" aria-label="Meeting stone"></select>
-				<div class="flight-buttons"><button id="stone-goto" title="In front of the stone, as being summoned to it puts you">Go to stone</button> <button id="stone-enter" class="primary" title="Inside, where its entrance leads">Enter dungeon</button></div>
 			</div>
 		</details>
 
@@ -194,36 +185,6 @@
 			</div>
 		</details>
 
-		<details id="highlight" name="menu">
-			<summary>Highlight</summary>
-			<div class="menu-body panel">
-				<label class="highlight-on"><input type="checkbox" id="highlight-on"> Highlight <kbd>H</kbd></label>
-				<div id="highlight-groups">
-					<label data-group="chest"><input type="checkbox" value="chest"> Chests</label>
-					<label data-group="herb"><input type="checkbox" value="herb"> Herbs</label>
-					<label data-group="ore"><input type="checkbox" value="ore"> Ore</label>
-					<label data-group="fishing"><input type="checkbox" value="fishing"> Fishing</label>
-					<label data-group="stone"><input type="checkbox" value="stone"> Meeting stones</label>
-				</div>
-				<label><input type="checkbox" id="highlight-walkable"> Walkable slopes</label>
-				<div id="walkable-key" class="muted small"><span data-slope="flat">Walkable</span> <span data-slope="near">Near the limit</span> <span data-slope="steep">Too steep</span></div>
-				<label title="Collision in buildings, doodads and objects that has nothing drawn on it, and ground the map marks as impassable"><input type="checkbox" id="highlight-walls"> Invisible walls</label>
-				<div id="walls-key" class="muted small"><span>Unseen collision and impassable ground</span></div>
-				<label title="Ground tinted by region; graveyards, territory and levels are for the side chosen under Name colours (F)">Ground <select id="highlight-tint">
-					<option value="">No tint</option>
-					<option value="graveyards">Graveyards</option>
-					<option value="territory">Territory</option>
-					<option value="levels">Creature levels</option>
-					<option value="subzones">Subzones and exploration</option>
-					<option value="fishing">Fishing skill</option>
-				</select></label>
-				<label id="tint-level-row">Your level <input type="range" id="tint-level" min="1" max="60" step="1"> <output id="tint-level-out"></output></label>
-				<div id="tint-key" class="muted small"></div>
-				<label><input type="checkbox" id="highlight-rested"> Rested areas (inns and cities)</label>
-				<input id="highlight-query" type="search" placeholder="Find anything by name…" autocomplete="off" spellcheck="false" aria-label="Highlight by name">
-				<div id="highlight-status" class="muted small" aria-live="polite"></div>
-			</div>
-		</details>
 		<details id="version" name="menu" hidden>
 			<summary title="Which of the installed games is shown">Game version</summary>
 			<div class="menu-body panel">
@@ -275,18 +236,6 @@
 				<button id="minimap-out" title="Zoom out" aria-label="Zoom the minimap out">−</button>
 			</div>
 		</div>
-
-		<aside id="info" hidden aria-live="polite">
-			<button id="info-close" title="Close" aria-label="Close">×</button>
-			<div id="info-kind" class="muted small"></div>
-			<h2 id="info-name"></h2>
-			<div id="info-sub"></div>
-			<dl id="info-facts"></dl>
-			<div id="info-pages"></div>
-			<div id="info-actions" class="flight-buttons"></div>
-			<div id="info-links"></div>
-			<p class="small muted">Spawns: VMaNGOS world database (patch 1.12)</p>
-		</aside>
 
 	</div>
 
@@ -377,14 +326,12 @@
 					<div><kbd>T</kbd> / <kbd>Shift</kbd>+<kbd>T</kbd> later / earlier · <kbd>N</kbd> local time</div>
 					<div><kbd>L</kbd> torch · <kbd>V</kbd> grass and flowers</div>
 					<div><kbd>B</kbd> colour grading · <kbd>X</kbd> shadows (when flying) · <kbd>Z</kbd> fog</div>
-					<div><kbd>F</kbd> name colours for Alliance or Horde</div>
+					<div><kbd>F</kbd> territory colours for Alliance or Horde</div>
 					<div><kbd>I</kbd> dungeon and raid names · <kbd>M</kbd> music and sound</div>
-					<div><kbd>H</kbd> highlight chests, herbs, ore, fishing pools or anything by name</div>
 					<div><kbd>Tab</kbd> world map, filled in where you've explored</div>
 				</section>
 				<section>
 					<h3>Screen</h3>
-					<div>Click creatures and objects for their details</div>
 					<div><kbd>P</kbd> screenshot, everything in view in full detail</div>
 					<div><kbd>Ctrl</kbd> + <kbd>1</kbd> to <kbd>9</kbd>, then <kbd>0</kbd>: switch game version, in the Game version menu's order</div>
 					<div><kbd>U</kbd> hide the interface · <kbd>K</kbd> performance stats · <kbd>F9</kbd> save a debug log</div>

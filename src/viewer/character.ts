@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { CharacterOutfit } from '../explorer/spawns';
+import type { CharacterOutfit } from '../explorer/display';
 import type { CharacterModel } from '../explorer/world';
 import type { AnimationClip } from '../formats/m2Pose';
 import { ANIM } from '../formats/m2Pose';

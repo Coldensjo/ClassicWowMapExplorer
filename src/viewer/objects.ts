@@ -1,33 +1,18 @@
 import * as THREE from 'three';
 import { acceleratedRaycast, MeshBVH } from 'three-mesh-bvh';
 import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
-import type { SpawnInfo } from '../explorer/spawns';
 import type { AsyncStorageApi } from '../worker/protocol';
 import { createModelMaterial, createSkinnedDepthMaterial, type SkinUniforms } from './modelMaterials';
 import { applyWalkable } from './walkable';
 import { UNSEEN_OPACITY, WALL_MATERIAL, WMO_NEAR, bareTriangles, doodadNear, surfaceTree, type IndexRange } from './invisibleWalls';
 import { Blend } from '../formats/m2';
-import { Mover, type GroundAt } from './movers';
 import { perf } from './perf';
 import { PARTICLE_RANGE, SHOT_PARTICLE_RANGE, ParticleSystem, type EmitterSource, type LoadedEmitter } from './particles';
 import { useShadows, type ShadowRole } from './shadows';
-import { liquidMaterial, liquidTime } from './terrainMaterials';
-import { FOOTSTEP_RANGE } from './footsteps';
+import { liquidMaterial } from './terrainMaterials';
 import { TextureCache } from './textureCache';
 
-/** Yards above a creature's head its name sits. */
-const NAME_CLEARANCE = 0.35;
-
-/** Where a creature's name goes: model space is z-up, so its head is at (0, 0, height), then a little above. */
-export function headPosition(matrix: THREE.Matrix4, height: number, out: THREE.Vector3): THREE.Vector3 {
-	out.set(0, 0, height).applyMatrix4(matrix);
-	out.y += NAME_CLEARANCE;
-	return out;
-}
-
 type Kind = ObjectKind;
-/** What the View menu can hide: kinds of spawn, or spirit healers among the creatures. */
-export type Hideable = 'creature' | 'object' | 'spiritHealer';
 
 // Ray casts use a model's BVH when it has one (buildings); InstancedMesh casts go through this too.
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
@@ -41,8 +26,6 @@ const UNUSED_MODEL_TTL = 15000;
 const CULL_INTERVAL = 250;
 /** Models smaller than this (radius in yards: crates, fences, people) cast shadows only in the near cascade. */
 const SMALL_CASTER = 3;
-/** Creatures further than this (yards) from the camera stand still. */
-const MOVE_RANGE = 300;
 
 /** The nearest and furthest the detail distance can be set, as a multiple of the usual. */
 export const DETAIL_RANGE_MIN = 0.25;
@@ -74,9 +57,6 @@ class ModelEntry {
 	visible = new Set<string>();
 	/** Set for models animated on the GPU: their shared bone texture and loop length. */
 	animation: { key: string; duration: number } | null = null;
-	/** Creatures that walk: the walk loop's length and when its feet come down (s), and their footstep kind. */
-	walk: { duration: number; steps: number[] } | null = null;
-	footstep = 0;
 	/** Buildings: each material's TerrainType (in the order of materials), for footsteps on it. */
 	grounds: number[] = [];
 	/**
@@ -102,7 +82,7 @@ class ModelEntry {
 	unusedSince = 0;
 	readonly onReady: ((entry: ModelEntry) => void)[] = [];
 
-	constructor(readonly kind: Kind, readonly fdid: number, readonly variant?: string) {}
+	constructor(readonly kind: Kind, readonly fdid: number) {}
 }
 
 /** A placed object; objects crossing tile borders are listed by several tiles. */
@@ -116,8 +96,6 @@ interface PlacedObject {
 	parts: { entry: ModelEntry; key: string }[];
 	/** WMO doodad instances, kept apart so they can come and go with detail. */
 	doodadParts: { entry: ModelEntry; key: string }[];
-	/** Creatures that walk (waypoints or wandering); moves matrix in place. */
-	mover?: Mover;
 }
 
 /** A model placed by hand rather than by a tile (a boat or zeppelin), moved with placeLoose each frame. */
@@ -244,9 +222,8 @@ export class ObjectManager {
 			parts: [],
 			doodadParts: [],
 		};
-		if (p.movement) object.mover = new Mover(p.movement, object.matrix, new THREE.Vector3().setFromMatrixPosition(toWorld));
 		this.objects.set(key, object);
-		object.parts.push(this.addInstance(p.kind, p.fdid, key, object.matrix, p.variant));
+		object.parts.push(this.addInstance(p.kind, p.fdid, key, object.matrix));
 	}
 
 	private release(key: string): void {
@@ -336,8 +313,8 @@ export class ObjectManager {
 		this.moved.add(entry);
 	}
 
-	private addInstance(kind: Kind, fdid: number, key: string, matrix: THREE.Matrix4, variant?: string): { entry: ModelEntry; key: string } {
-		const entry = this.entry(kind, fdid, variant);
+	private addInstance(kind: Kind, fdid: number, key: string, matrix: THREE.Matrix4): { entry: ModelEntry; key: string } {
+		const entry = this.entry(kind, fdid);
 		entry.instances.set(key, matrix);
 		entry.dirty = true;
 		return { entry, key };
@@ -347,11 +324,11 @@ export class ObjectManager {
 		part.entry.instances.delete(part.key);
 		part.entry.dirty = true;
 	}
-	private entry(kind: Kind, fdid: number, variant?: string): ModelEntry {
-		const id = `${kind}:${fdid}:${variant ?? ''}`;
+	private entry(kind: Kind, fdid: number): ModelEntry {
+		const id = `${kind}:${fdid}`;
 		let entry = this.models.get(id);
 		if (!entry) {
-			entry = new ModelEntry(kind, fdid, variant);
+			entry = new ModelEntry(kind, fdid);
 			this.models.set(id, entry);
 			this.queue.push(entry);
 		}
@@ -404,76 +381,9 @@ export class ObjectManager {
 			}
 		}
 		this.moved.clear();
-		perf.time('movers', () => this.moveCreatures(dt, cull));
 		perf.time('particles', () => this.particles.update(dt, this.nearbyEmitters()));
 		// Not a time: the live particle count, averaged the same way.
 		perf.record('particles.alive', this.particles.count);
-	}
-
-	/** Ground height for walking creatures; the viewer supplies the terrain's. */
-	groundAt: GroundAt = () => NaN;
-
-	/** Called when a walking creature near the camera puts a foot down: where, and its footstep kind. */
-	onStep: ((at: THREE.Vector3, footstep: number) => void) | null = null;
-	/** Each walking creature's point in its walk loop at the last frame, for spotting a footfall in between. */
-	private readonly stepTimes = new Map<string, number>();
-	private readonly stepAt = new THREE.Vector3();
-
-	/** Walks the creatures near the camera and writes their new places into the instance buffers. */
-	private moveCreatures(dt: number, cull: boolean): void {
-		if (dt <= 0) return;
-		for (const entry of this.models.values()) {
-			const mesh = entry.mesh;
-			if (entry.kind !== 'creature' || !mesh || !entry.visible.size) continue;
-			const anim = entry.geometry?.getAttribute('instanceAnim') as THREE.InstancedBufferAttribute | undefined;
-			let moved = false;
-			for (const key of entry.visible) {
-				const mover = this.objects.get(key)?.mover;
-				const slot = entry.slots.get(key);
-				if (!mover || slot === undefined) continue;
-				const m = entry.instances.get(key)!;
-				const e = m.elements;
-				if ((e[12] - this.camera.x) ** 2 + (e[13] - this.camera.y) ** 2 + (e[14] - this.camera.z) ** 2 > MOVE_RANGE ** 2) continue;
-				if (mover.update(dt, this.groundAt)) {
-					mesh.setMatrixAt(slot, m);
-					moved = true;
-				}
-				const walking = mover.walking ? 1 : 0;
-				if (anim && anim.getX(slot) !== walking) {
-					anim.setX(slot, walking);
-					anim.needsUpdate = true;
-				}
-				if (walking) this.footfalls(entry, key, slot, e);
-				else this.stepTimes.delete(key);
-			}
-			if (moved) {
-				mesh.instanceMatrix.needsUpdate = true;
-				// Walkers can leave the bounds the mesh was culled by.
-				if (cull) mesh.computeBoundingSphere();
-			}
-		}
-	}
-
-	/**
-	 * Reports a footfall of a walking creature near the camera: where its walk loop is now (as the
-	 * GPU plays it: the shared clock plus the copy's own phase), and whether a footstep fell since
-	 * the last frame.
-	 */
-	private footfalls(entry: ModelEntry, key: string, slot: number, e: ArrayLike<number>): void {
-		const walk = entry.walk;
-		if (!walk || !entry.footstep || !this.onStep) return;
-		if ((e[12] - this.camera.x) ** 2 + (e[13] - this.camera.y) ** 2 + (e[14] - this.camera.z) ** 2 > FOOTSTEP_RANGE ** 2) {
-			this.stepTimes.delete(key);
-			return;
-		}
-		const phase = (entry.geometry?.getAttribute('instancePhase') as THREE.InstancedBufferAttribute | undefined)?.getX(slot) ?? 0;
-		const now = THREE.MathUtils.euclideanModulo(liquidTime.value + phase, walk.duration);
-		const before = this.stepTimes.get(key);
-		this.stepTimes.set(key, now);
-		if (before === undefined) return;
-		// Round the end of the loop, the steps after before and those up to now both count.
-		const fell = walk.steps.some((t) => (before <= now ? t > before && t <= now : t > before || t <= now));
-		if (fell) this.onStep(this.stepAt.set(e[12], e[13], e[14]), entry.footstep);
 	}
 
 	/** Placed copies of models with particle emitters, near enough for their particles to show. */
@@ -514,7 +424,7 @@ export class ObjectManager {
 		for (const e of batch) e.state = 'loading';
 		try {
 			const start = performance.now();
-			const results = await this.storage.loadModels(batch.map((e) => ({ fdid: e.fdid, kind: e.kind, variant: e.variant })));
+			const results = await this.storage.loadModels(batch.map((e) => ({ fdid: e.fdid, kind: e.kind })));
 			perf.log('model', `read ${batch.length} models in ${(performance.now() - start).toFixed(0)} ms (${this.queue.length} queued)`);
 			await Promise.all(batch.map((entry, i) => this.build(entry, results[i])));
 		} catch (e) {
@@ -557,14 +467,11 @@ export class ObjectManager {
 				uClips: { value: a.clips.map((c) => new THREE.Vector3(c.row, c.frames, c.duration)) },
 			};
 			entry.animation = { key: a.key, duration: a.clips[0].duration };
-			const walk = a.clips[1];
-			if (walk?.steps?.length) entry.walk = { duration: walk.duration, steps: walk.steps };
 			entry.depthMaterial = createSkinnedDepthMaterial(skin);
 		}
 		geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
 		const batches = [...data.batches].sort((a, b) => a.order - b.order);
 		entry.grounds = batches.map((b) => b.material.ground ?? 0);
-		entry.footstep = data.footstep ?? 0;
 		entry.materials = batches.map((b, i) => {
 			geometry.addGroup(b.start, b.count, i);
 			const material = createModelMaterial(b.material, textures.get(b.material.texture) ?? null, !!data.baked, skin);
@@ -653,21 +560,6 @@ export class ObjectManager {
 		for (const entry of this.models.values()) entry.dirty = true;
 	}
 
-	private readonly hiddenKinds = new Set<Hideable>();
-
-	/** Shows or hides every creature (NPCs and monsters), game object (chests, herbs, doors...) or spirit healer. */
-	setKindShown(kind: Hideable, shown: boolean): void {
-		if (shown !== this.hiddenKinds.has(kind)) return;
-		if (shown) this.hiddenKinds.delete(kind);
-		else this.hiddenKinds.add(kind);
-		const modelKind = kind === 'spiritHealer' ? 'creature' : kind;
-		for (const entry of this.models.values()) if (entry.kind === modelKind) entry.dirty = true;
-	}
-
-	kindShown(kind: Hideable): boolean {
-		return !this.hiddenKinds.has(kind);
-	}
-
 	/** The buildings' meshes among the group's children (not their liquids), which hide what's behind them. */
 	buildingMeshes(): Set<THREE.Object3D> {
 		const meshes = new Set<THREE.Object3D>();
@@ -682,9 +574,7 @@ export class ObjectManager {
 		return n;
 	}
 
-	private isVisible(entry: ModelEntry, key: string, m: THREE.Matrix4): boolean {
-		if ((entry.kind === 'creature' || entry.kind === 'object') && this.hiddenKinds.has(entry.kind)) return false;
-		if (entry.kind === 'creature' && this.hiddenKinds.has('spiritHealer') && this.objects.get(key)?.placement.spawn?.spiritHealer) return false;
+	private isVisible(entry: ModelEntry, m: THREE.Matrix4): boolean {
 		// Buildings are already limited by tile distance.
 		if (entry.kind === 'wmo' || this.showAll) return true;
 		const e = m.elements;
@@ -696,7 +586,7 @@ export class ObjectManager {
 	private visibilityChanged(entry: ModelEntry): boolean {
 		let count = 0;
 		for (const [key, m] of entry.instances) {
-			if (this.isVisible(entry, key, m) !== entry.visible.has(key)) return true;
+			if (this.isVisible(entry, m) !== entry.visible.has(key)) return true;
 			count++;
 		}
 		return count === 0 && entry.visible.size > 0;
@@ -707,12 +597,11 @@ export class ObjectManager {
 		entry.dirty = false;
 		if (!entry.geometry) return;
 		entry.visible = new Set();
-		for (const [key, m] of entry.instances) if (this.isVisible(entry, key, m)) entry.visible.add(key);
+		for (const [key, m] of entry.instances) if (this.isVisible(entry, m)) entry.visible.add(key);
 		entry.drawnKeys = [...entry.visible];
 		entry.slots = new Map(entry.drawnKeys.map((key, i) => [key, i]));
 		const matrices = entry.drawnKeys.map((key) => entry.instances.get(key)!);
-		// People and creatures are small however big their model's bounds.
-		const role: ShadowRole = entry.kind === 'wmo' || (entry.kind !== 'creature' && entry.radius >= SMALL_CASTER) ? 'cast' : 'near';
+		const role: ShadowRole = entry.kind === 'wmo' || entry.radius >= SMALL_CASTER ? 'cast' : 'near';
 		entry.mesh = this.syncMesh(entry.mesh, entry.geometry, entry.materials, matrices, entry.kind === 'wmo' ? -1 : 0, role);
 		if (entry.depthMaterial) entry.mesh.customDepthMaterial = entry.depthMaterial;
 		if (entry.animation) this.writePhases(entry.mesh, entry.geometry, entry.drawnKeys, entry.animation.duration);
@@ -890,8 +779,8 @@ export class ObjectManager {
 			let h = 2166136261;
 			for (let c = 0; c < key.length; c++) h = Math.imul(h ^ key.charCodeAt(c), 16777619);
 			attribute!.setX(i, ((h >>> 0) / 4294967296) * duration);
-			// Standing or walking (see moveCreatures).
-			anim!.setX(i, this.objects.get(key)?.mover?.walking ? 1 : 0);
+			// Always the standing clip; the shader still reads the attribute.
+			anim!.setX(i, 0);
 		});
 		attribute.needsUpdate = true;
 		anim.needsUpdate = true;
@@ -952,29 +841,6 @@ export class ObjectManager {
 	liquidMeshes(out: THREE.Object3D[] = []): THREE.Object3D[] {
 		for (const entry of this.models.values()) {
 			for (const l of entry.liquids) if (l.mesh?.visible) out.push(l.mesh);
-		}
-		return out;
-	}
-
-	/**
-	 * NPCs within range of the camera, with the world position just above their heads, and
-	 * the live placement it comes from (walkers' change every frame; see headPosition).
-	 */
-	nameplates(camera: THREE.Vector3, range: number, out: { info: SpawnInfo; position: THREE.Vector3; distance: number; matrix: THREE.Matrix4; height: number }[] = []) {
-		out.length = 0;
-		for (const entry of this.models.values()) {
-			if (entry.kind !== 'creature' || entry.state !== 'ready' || !entry.data) continue;
-			const top = entry.data.height;
-			for (const key of entry.visible) {
-				const m = entry.instances.get(key);
-				const info = m && this.objects.get(key)?.placement.spawn;
-				if (!m || !info) continue;
-				const e = m.elements;
-				const dx = e[12] - camera.x, dy = e[13] - camera.y, dz = e[14] - camera.z;
-				if (dx * dx + dy * dy + dz * dz > range * range) continue;
-				const position = headPosition(m, top, new THREE.Vector3());
-				out.push({ info, position, distance: position.distanceTo(camera), matrix: m, height: top });
-			}
 		}
 		return out;
 	}
@@ -1152,21 +1018,6 @@ export class ObjectManager {
 			if (hit && axis.dot(hit.normal) < 0) offset.addScaledVector(axis, -(radius - hit.distance));
 		}
 		return offset;
-	}
-
-	/** The creature or game object spawn nearest along a ray, if any. */
-	pick(raycaster: THREE.Raycaster): { info: SpawnInfo; distance: number } | null {
-		let best: { info: SpawnInfo; distance: number } | null = null;
-		for (const entry of this.models.values()) {
-			if (!entry.mesh?.visible || (entry.kind !== 'creature' && entry.kind !== 'object')) continue;
-			for (const hit of raycaster.intersectObject(entry.mesh, false)) {
-				if (hit.instanceId === undefined) continue;
-				const info = this.objects.get(entry.drawnKeys[hit.instanceId])?.placement.spawn;
-				if (info && (!best || hit.distance < best.distance)) best = { info, distance: hit.distance };
-				break; // hits are sorted; the first is this model's nearest
-			}
-		}
-		return best;
 	}
 
 	stats(): ObjectStats {

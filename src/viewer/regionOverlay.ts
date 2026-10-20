@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CHUNK_SIZE, TILE_SIZE } from '../formats/adt';
-import type { Side } from './nameplates';
+import type { Side } from './viewer';
 import { GRID, worldFromWow, type AreaInfo, type RegionData } from './regionData';
 import type { ContinentPlacement } from './terrain';
 import { behindCamera } from './screen';

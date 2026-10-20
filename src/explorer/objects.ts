@@ -12,17 +12,15 @@ import type { LiquidKind } from '../formats/mh2o';
 import { TILE_SIZE } from '../formats/adt';
 import type { WdtGlobalWmo } from '../formats/wdt';
 import type { LiquidMesh } from './liquidMesh';
-import type { SpawnInfo, SpawnMovement } from './spawns';
 import { compose, fromQuaternion, multiply, rotationX, rotationY, rotationZ, scaling, translation, type Mat4 } from './mat4';
 
 const MDDF_FILE_ID = 0x40;
 const MODF_FILE_ID = 0x8;
 const MODF_HAS_SCALE = 0x4;
 
-export type ObjectKind = 'm2' | 'wmo' | 'creature' | 'object';
+export type ObjectKind = 'm2' | 'wmo';
 
 export interface Placement {
-	/** creature and object placements carry a display ID in fdid rather than a file ID. */
 	kind: ObjectKind;
 	/** Unique across the continent; objects spanning tiles are listed by each tile. */
 	uid: number;
@@ -32,12 +30,6 @@ export interface Placement {
 	doodadSet: number;
 	/** WMOs: the name set, which picks this placement's rows in WMOAreaTable. */
 	nameSet?: number;
-	/** Set for creature and game object spawns (VMaNGOS data), for the info panel. */
-	spawn?: SpawnInfo;
-	/** Distinguishes looks that share a display ID, e.g. held weapons (main_off_shield). */
-	variant?: string;
-	/** Creatures that walk: their waypoints or wander radius. */
-	movement?: SpawnMovement;
 }
 
 export interface ModelMaterial {

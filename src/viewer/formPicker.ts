@@ -1,4 +1,4 @@
-import { CHARACTER_OUTFITS, type CharacterOutfit, type CharacterRace } from '../explorer/spawns';
+import { CHARACTER_OUTFITS, type CharacterOutfit, type CharacterRace } from '../explorer/display';
 import type { CharacterLook } from './character';
 import type { Portraits } from './portraits';
 import { GameScrollbar } from './scrollbar';

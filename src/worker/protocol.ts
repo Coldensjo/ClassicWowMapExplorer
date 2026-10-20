@@ -2,13 +2,13 @@ import type { ProductInfo } from '../casc/config';
 import type { StorageStats } from '../casc/storage';
 import type { AreaInfo, LightingData } from '../explorer/lighting';
 import type { MapSummary } from '../explorer/maps';
-import type { FootstepSounds, LiquidLooks, LockKind } from '../explorer/clientDb';
+import type { FootstepSounds, LiquidLooks } from '../explorer/clientDb';
 import type { MusicData, WmoArea } from '../explorer/music';
 import type { Place } from '../explorer/places';
 import type { WorldMapInfo } from '../explorer/worldMap';
 import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
 import type { CharacterModel, FarTile, InstanceMap, LoadedTexture, MapListing, NearTile, TileTexture } from '../explorer/world';
-import type { CharacterOutfit, CharacterRace } from '../explorer/spawns';
+import type { CharacterOutfit, CharacterRace } from '../explorer/display';
 import type { Image } from '../formats/blp';
 
 export type SourceInit =
@@ -31,7 +31,7 @@ export interface StorageApi {
 	loadNearTile(wdtFdid: number, x: number, y: number, compressed: boolean): NearTile;
 	loadTextures(fdids: number[], compressed: boolean): LoadedTexture[];
 	loadTileObjects(wdtFdid: number, x: number, y: number): Placement[];
-	loadModels(models: { fdid: number; kind: ObjectKind; variant?: string }[]): (ModelData | null)[];
+	loadModels(models: { fdid: number; kind: ObjectKind }[]): (ModelData | null)[];
 	/** The walking character: the races it can be, and one dressed as a look with the clips given. */
 	characterRaces(): CharacterRace[];
 	loadCharacter(race: number, sex: number, hd: boolean, look: number, clips: number[], outfit: CharacterOutfit | null, torch: boolean): CharacterModel | null;
@@ -39,7 +39,6 @@ export interface StorageApi {
 	loadAreas(): AreaInfo[];
 	loadMusic(): MusicData;
 	loadLiquidLooks(): LiquidLooks;
-	loadLockKinds(): Record<number, LockKind>;
 	loadFootsteps(): FootstepSounds;
 	loadPlaces(): Place[];
 	wmoArea(wmoId: number, nameSet: number, groupId: number): WmoArea | null;

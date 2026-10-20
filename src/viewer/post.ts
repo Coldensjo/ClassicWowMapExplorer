@@ -2,7 +2,13 @@ import * as THREE from 'three';
 import { perf } from './perf';
 import type { SunLight } from 'three/addons/lights/SunLight.js';
 import type { AsyncStorageApi } from '../worker/protocol';
-import type { SceneDepth } from './nameplates';
+
+/** The scene's depth as the post pass left it, for what's drawn over it to test against. */
+export interface SceneDepth {
+	uDepth: { value: THREE.Texture | null };
+	uDepthDecode: { value: THREE.Vector2 };
+	uLogFar: { value: number };
+}
 
 /** The colour grading tables: 32 slices of 32x32 (red across, green down, blue by slice) side by side. */
 const LUT_SIZE = 32;

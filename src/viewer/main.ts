@@ -3,22 +3,19 @@ import { createStorageClient } from '../worker/client';
 import type { SourceInit } from '../worker/protocol';
 import type { ProductInfo } from '../casc/config';
 import type { Place } from '../explorer/places';
-import type { SpawnInfo } from '../explorer/spawns';
 import type { MapCategory, MapListing } from '../explorer/world';
-import type { HighlightGroup, HighlightSettings } from './highlights';
 import { CLUTTER_RANGE_DEFAULT, CLUTTER_RANGE_MAX, CLUTTER_RANGE_MIN } from './clutter';
 import { Minimap } from './minimap';
 import { perf } from './perf';
 import { DETAIL_RANGE_MAX, DETAIL_RANGE_MIN } from './objects';
 import { MOUSE_SPEED_MAX, MOUSE_SPEED_MIN } from './look';
-import type { TintMode } from './regionOverlay';
 import { isTyping } from './typing';
 import { loadUiAssets } from './uiAssets';
-import { FIXED_SPEED_DEFAULT, FIXED_SPEED_MAX, FIXED_SPEED_MIN, FLY_SPEED_RANGE, FLY_SPEED_STEP, Viewer, parseResolution, RESOLUTION_MIN, type HudInfo, type MeetingStone, type ViewSettings } from './viewer';
+import { FIXED_SPEED_DEFAULT, FIXED_SPEED_MAX, FIXED_SPEED_MIN, FLY_SPEED_RANGE, FLY_SPEED_STEP, Viewer, parseResolution, RESOLUTION_MIN, type HudInfo, type ViewSettings } from './viewer';
 import type { CharacterLook } from './character';
 import { FormPicker } from './formPicker';
 import { DEFAULT_EMOTE_KEYS, EMOTES, type Emote } from './emotes';
-import { CHARACTER_OUTFITS, type CharacterOutfit, type CharacterRace } from '../explorer/spawns';
+import { CHARACTER_OUTFITS, type CharacterOutfit, type CharacterRace } from '../explorer/display';
 
 import { setVolume, volumeSetting, type VolumeChannel } from './volume';
 import { WorldMap } from './worldMap';
@@ -478,7 +475,7 @@ async function explore(): Promise<void> {
 	try {
 		await storage.open($<HTMLSelectElement>('product').value);
 		const ui = loadUiAssets(storage);
-		const viewer = new Viewer($('view'), storage, showHud, showInfo, $('nameplates'));
+		const viewer = new Viewer($('view'), storage, showHud, $('nameplates'));
 		infoViewer = viewer;
 		// For poking at the scene from the console (and test scripts) while developing.
 		if (import.meta.env.DEV) (globalThis as unknown as { mapExplorerViewer: Viewer }).mapExplorerViewer = viewer;
@@ -505,7 +502,6 @@ async function explore(): Promise<void> {
 		console.info('[MapExplorer] Freezes of 100 ms or more are written here as they happen. F9 saves the full debug log to a file; mapExplorerPerf.verbose = true writes every log line here too.');
 		setUpMinimap(viewer, minimapArrow);
 		void setUpGoTo(viewer);
-		setUpHighlights(viewer);
 		setUpVersions();
 		// Chosen in the menu before: still open, for comparing the next.
 		if (carried.menu) $<HTMLDetailsElement>('version').open = true;
@@ -891,9 +887,6 @@ function setUpView(viewer: Viewer): void {
 			fog: () => `Fog and sun shafts ${onOff(s.fog)}`,
 			clearView: () => (s.clearView ? 'No fog: the view reaches every continent' : 'Fog back'),
 			unlit: () => (s.unlit ? 'Flat, unlit view: every surface its texture’s own colour' : 'Lighting back'),
-			creatures: () => `NPCs and monsters ${onOff(s.creatures)}`,
-			gameObjects: () => `Objects ${onOff(s.gameObjects)}`,
-			spiritHealers: () => `Spirit healers ${onOff(s.spiritHealers)}`,
 			flySpeed: () => `Flying speed ${speedLabel(s.flySpeed)}`,
 			smartSpeed: () => (s.smartSpeed ? 'Smart fly speed: faster the higher you are' : `Fixed fly speed: ${fixedSpeedLabel(s.fixedSpeed)}`),
 			fixedSpeed: () => `Flying speed ${fixedSpeedLabel(s.fixedSpeed)}`,
@@ -968,27 +961,10 @@ function setUpMinimap(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
 	$('minimap-out').addEventListener('click', () => minimap.zoomBy(1));
 }
 
-// --- Travel: meeting stones and the world map ---
+// --- Travel: the world map ---
 
-/** The Travel menu: meeting stones and the world map (Tab). */
+/** The Travel menu: the world map (Tab). */
 function setUpTravel(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
-	const stone = $<HTMLSelectElement>('stone');
-	const saved = readSaved<{ stone?: number }>(TRAVEL_KEY);
-	const remember = () => save(TRAVEL_KEY, { stone: Number(stone.value) || saved.stone });
-
-	// Meeting stones: summoned to one, or straight into its dungeon.
-	stone.replaceChildren(...([[0, 'Eastern Kingdoms'], [1, 'Kalimdor']] as const).map(([mapId, label]) => {
-		const group = document.createElement('optgroup');
-		group.label = label;
-		group.append(...viewer.meetingStones.filter((s) => s.map === mapId).map((s) => new Option(stoneLabel(s), String(s.guid))));
-		return group;
-	}));
-	if (viewer.meetingStone(saved.stone ?? 0)) stone.value = String(saved.stone);
-	for (const id of ['stone-goto', 'stone-enter']) $<HTMLButtonElement>(id).disabled = !viewer.meetingStones.length;
-	stone.addEventListener('change', remember);
-	$('stone-goto').addEventListener('click', () => void meetingStoneAction(viewer.goToMeetingStone(Number(stone.value))));
-	$('stone-enter').addEventListener('click', () => void meetingStoneAction(viewer.enterDungeon(Number(stone.value))));
-
 	const map = new WorldMap($('worldmap'), $<HTMLCanvasElement>('worldmap-canvas'), storage, () => viewer.worldMapView(), (mapId, x, y) => viewer.flyOverWow(mapId, x, y), (mapId, x, y) => viewer.areaNameAt(mapId, x, y), arrow, {
 		title: $('worldmap-title'),
 		up: $<HTMLButtonElement>('worldmap-up'),
@@ -1009,20 +985,6 @@ function setUpTravel(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
 		e.preventDefault();
 		map.toggle();
 	});
-}
-
-const TRAVEL_KEY = 'mapExplorer.travel';
-
-/** A meeting stone's dungeon and level range, as the stone's tooltip has it. */
-function stoneLabel(s: MeetingStone): string {
-	return `${s.dungeon} (${s.minLevel}–${s.maxLevel})`;
-}
-
-/** Runs a meeting stone's Go to or Enter, closing the menus once on the way, or saying why not. */
-async function meetingStoneAction(action: Promise<string | null>): Promise<void> {
-	const problem = await action;
-	if (problem) notify(problem);
-	else ($('travel') as HTMLDetailsElement).open = false;
 }
 
 // --- Walking ---
@@ -1260,16 +1222,6 @@ function setUpEmotes(viewer: Viewer): void {
 	sync();
 }
 
-/** The tint's key under the Ground choice: what its colours mean. */
-function showTintKey(viewer: Viewer): void {
-	$('tint-key').replaceChildren(...viewer.tintKey.map(([color, label]) => {
-		const span = document.createElement('span');
-		span.style.setProperty('--key', color);
-		span.textContent = label;
-		return span;
-	}));
-}
-
 // --- Going places ---
 
 const MAP_GROUPS: [MapCategory, string][] = [
@@ -1436,84 +1388,6 @@ async function setUpGoTo(viewer: Viewer): Promise<void> {
 	});
 }
 
-// --- Highlighting things on the ground ---
-
-const HIGHLIGHT_KEY = 'mapExplorer.highlight';
-
-/** The highlight panel: kinds to mark and a name to find, remembered between visits. */
-function setUpHighlights(viewer: Viewer): void {
-	const panel = $('highlight');
-	const on = $<HTMLInputElement>('highlight-on');
-	const query = $<HTMLInputElement>('highlight-query');
-	const walkable = $<HTMLInputElement>('highlight-walkable');
-	const walls = $<HTMLInputElement>('highlight-walls');
-	const tint = $<HTMLSelectElement>('highlight-tint');
-	const level = $<HTMLInputElement>('tint-level');
-	const levelOut = $('tint-level-out');
-	const rested = $<HTMLInputElement>('highlight-rested');
-	const boxes = [...panel.querySelectorAll<HTMLInputElement>('#highlight-groups input')];
-	const load = () => {
-		const saved = readSaved<HighlightSettings>(HIGHLIGHT_KEY);
-		on.checked = saved.on ?? false;
-		query.value = saved.query ?? '';
-		walkable.checked = saved.walkable ?? false;
-		walls.checked = saved.walls ?? false;
-		// Saved before the tints came in: the graveyards had a box of their own.
-		tint.value = saved.tint ?? ((saved as { graveyards?: boolean }).graveyards ? 'graveyards' : '');
-		level.value = String(saved.level ?? 20);
-		rested.checked = saved.rested ?? false;
-		for (const box of boxes) box.checked = saved.groups?.includes(box.value as HighlightGroup) ?? false;
-	};
-	load();
-
-	const apply = () => {
-		const settings: HighlightSettings = {
-			on: on.checked,
-			groups: boxes.filter((b) => b.checked).map((b) => b.value as HighlightGroup),
-			query: query.value,
-			walkable: walkable.checked,
-			walls: walls.checked,
-			tint: tint.value as TintMode | '',
-			level: Number(level.value),
-			rested: rested.checked,
-		};
-		levelOut.textContent = level.value;
-		panel.dataset.tint = settings.tint;
-		panel.classList.toggle('off', !settings.on);
-		panel.classList.toggle('walkable', settings.walkable);
-		panel.classList.toggle('walls', settings.walls);
-		viewer.setHighlights(settings);
-		save(HIGHLIGHT_KEY, settings);
-		showTintKey(viewer);
-	};
-	for (const box of [on, walkable, walls, rested, tint, ...boxes]) {
-		box.addEventListener('change', () => {
-			// Choosing a kind turns highlighting on.
-			if (box !== on && (box instanceof HTMLSelectElement ? box.value : box.checked)) on.checked = true;
-			apply();
-		});
-	}
-	query.addEventListener('input', () => {
-		if (query.value.trim()) on.checked = true;
-		apply();
-	});
-	level.addEventListener('input', apply);
-	query.addEventListener('keydown', (e) => {
-		if (e.code === 'Enter') query.blur();
-	});
-	window.addEventListener('keydown', (e) => {
-		if (e.code !== 'KeyH' || isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
-		on.checked = !on.checked;
-		apply();
-		notify(`Highlights ${onOff(on.checked)}`);
-	});
-	apply();
-	rereads.push(() => {
-		load();
-		apply();
-	});
-}
-
 // --- Sound ---
 
 /** The Sound panel's on/off box, which is greyed out until the music is read. */
@@ -1617,72 +1491,12 @@ function showShotStatus(text: string | null, done = false): void {
 	if (done) shotStatusTimer = window.setTimeout(() => (el.hidden = true), 5000);
 }
 
-// --- Clicked creature or object ---
-
 document.addEventListener('pointerlockchange', () => {
 	$('crosshair').hidden = !document.pointerLockElement;
 });
-$('info-close').addEventListener('click', () => ($('info').hidden = true));
-window.addEventListener('keydown', (e) => {
-	if (e.code === 'Escape' && !isTyping(e)) $('info').hidden = true;
-});
 
-/** Book text uses $B for line breaks and $N for the reader's name. */
-function pageText(text: string): string {
-	return text.replace(/\$[Bb]/g, '\n').replace(/\$[Nn]/g, 'traveler').replace(/\$[Cc]/g, 'adventurer');
-}
-
-/** The viewer, for the actions the info panel offers (a meeting stone's Go to and Enter). */
+/** The viewer, for the parts of the page that follow it (view state and switches). */
 let infoViewer: Viewer | null = null;
-
-function showInfo(info: SpawnInfo): void {
-	const isNpc = info.type === 'npc';
-	$('info-kind').textContent = [isNpc ? 'NPC' : 'Object', info.kind, info.rank].filter(Boolean).join(' · ');
-	$('info-name').textContent = info.name;
-	$('info-sub').textContent = info.subname ? `<${info.subname}>` : '';
-	const facts: [string, string][] = [];
-	if (info.level) facts.push(['Level', info.level]);
-	const stone = !isNpc ? infoViewer?.meetingStone(info.guid) : null;
-	if (stone) facts.push(['Dungeon', stone.dungeon], ['Levels', `${stone.minLevel}–${stone.maxLevel}`]);
-	facts.push([isNpc ? 'NPC ID' : 'Object ID', String(info.entry)], ['Spawn', String(info.guid)]);
-	fillList('info-facts', facts);
-
-	const actions: HTMLButtonElement[] = [];
-	if (stone && infoViewer) {
-		const viewer = infoViewer;
-		const enter = document.createElement('button');
-		enter.className = 'primary';
-		enter.textContent = `Enter ${stone.dungeon.replace(/^The /, '')}`;
-		enter.addEventListener('click', () => void meetingStoneAction(viewer.enterDungeon(stone.guid)));
-		actions.push(enter);
-	}
-	$('info-actions').replaceChildren(...actions);
-
-	const pages = $('info-pages');
-	pages.replaceChildren();
-	(info.pages ?? []).forEach((text, i) => {
-		if (i > 0) pages.append(document.createElement('hr'));
-		pages.append(pageText(text));
-	});
-
-	// Wowhead uses the same creature/object template IDs; its tooltip script decorates these links.
-	const path = `${isNpc ? 'npc' : 'object'}=${info.entry}`;
-	const links = [
-		['Wowhead Forever', `https://www.wowhead.com/forever/${path}`],
-		['Wowhead Classic', `https://www.wowhead.com/classic/${path}`],
-	].map(([label, href]) => {
-		const a = document.createElement('a');
-		a.href = href;
-		a.target = '_blank';
-		a.rel = 'noopener';
-		a.textContent = label;
-		return a;
-	});
-	$('info-links').replaceChildren(...links);
-	$('info').hidden = false;
-	$('info').scrollTop = 0;
-	(window as unknown as { $WowheadPower?: { refreshLinks?: () => void } }).$WowheadPower?.refreshLinks?.();
-}
 
 let shownZone: string | null = null;
 let shownSubzone: string | null = null;
@@ -1713,7 +1527,6 @@ function announceZone(zone: string | null, subzone: string | null): void {
 
 function showHud(info: HudInfo): void {
 	announceZone(info.zone, info.subzone);
-	$('highlight-status').textContent = info.highlights;
 	// The minimap's zone line, as GetMinimapZoneText: the subzone if there is one.
 	$('minimap-zone').textContent = info.subzone ?? info.zone ?? info.location;
 	$('hud-location').textContent = info.zone ? [info.zone, info.subzone].filter(Boolean).join(' · ') : info.location;

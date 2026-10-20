@@ -239,7 +239,7 @@ export class TerrainManager {
 
 	/**
 	 * Tiles without a low-detail mesh. For a map without terrain (a WMO-only dungeon) they only
-	 * stream its building, objects and spawns as the camera comes near; with terrain (maps that
+	 * stream its building and objects as the camera comes near; with terrain (maps that
 	 * have no WDL), they also load their full-detail terrain then, and show nothing from afar.
 	 */
 	addObjectTiles(continent: ContinentPlacement, coords: [number, number][], terrain = false): void {

@@ -1,7 +1,7 @@
 import { FileListSource, HttpSource, type FileSource } from '../casc/source';
 import { CascStorage, StorageChangedError } from '../casc/storage';
 import { describeError, MapExplorer } from '../explorer/maps';
-import { setPageUrl } from '../explorer/spawns';
+import { setPageUrl } from '../explorer/display';
 import { WorldLoader } from '../explorer/world';
 import type { AsyncStorageApi, Request, Response, SourceInit } from './protocol';
 
@@ -88,9 +88,6 @@ const api: AsyncStorageApi = {
 	},
 	async loadFootsteps() {
 		return requireWorld().loadFootsteps();
-	},
-	async loadLockKinds() {
-		return requireWorld().loadLockKinds();
 	},
 	async loadPlaces() {
 		return requireWorld().loadPlaces();

@@ -7,11 +7,10 @@ import type { AsyncStorageApi } from '../worker/protocol';
 import type { AreaInfo } from '../explorer/lighting';
 import type { WmoArea } from '../explorer/music';
 import type { Place } from '../explorer/places';
-import type { SpawnInfo } from '../explorer/spawns';
 import { Character, type CharacterLook } from './character';
 import { Portraits } from './portraits';
 import type { Emote } from './emotes';
-import type { CharacterRace } from '../explorer/spawns';
+import type { CharacterRace } from '../explorer/display';
 import { FlyControls } from './flyControls';
 import { Footsteps } from './footsteps';
 import { RegionData } from './regionData';
@@ -19,15 +18,12 @@ import { RegionOverlay } from './regionOverlay';
 import { RestedAreas } from './restedAreas';
 import { SNOWFLAKE_TEXTURE, Weather, type WeatherSetting } from './weather';
 import type { WorldMapView } from './worldMap';
-import { Highlights, type HighlightSettings } from './highlights';
-import { setWalkableShown } from './walkable';
 import { mouseSpeed, setMouseSpeed } from './look';
 import { MapLabels } from './mapLabels';
 import { DAY, LightFade, Lighting, Sky, sunDirection } from './lighting';
 import { MusicPlayer, type MusicTarget } from './music';
-import { Nameplates, type Plate, type Side } from './nameplates';
 import { CLUTTER_RANGE_DEFAULT, ClutterManager } from './clutter';
-import { headPosition, ObjectManager } from './objects';
+import { ObjectManager } from './objects';
 import { unlitView } from './modelMaterials';
 import { perf } from './perf';
 import { TerrainManager, type ContinentPlacement } from './terrain';
@@ -72,16 +68,12 @@ const EXPLORE_ALTITUDE = 150;
 /** Where the light of the open sea between the laid-out maps is taken from (see updateLighting). */
 const OPEN_SEA_LIGHT = { mapId: 0, x: 1e6, y: 1e6 };
 const CATEGORY_NAMES: Record<MapCategory, string> = { continent: 'Continent', dungeon: 'Dungeon', raid: 'Raid', battleground: 'Battleground', other: 'Other map' };
-/** Yards above a teleport's destination (the ground there) to put the camera. */
-const EYE_HEIGHT = 2;
 /** Footsteps on a building's floor whose material names no ground sound like stone. */
 const STONE_GROUND = 3;
 /** A walking character smaller than this (its scale: gnomes) splashes in water with the small sounds. */
 const SMALL_SPLASH = 0.7;
 /** A hole in the ground is a way down for the walking character only with a building this near under it (yards). */
 const HOLE_DEPTH = 40;
-/** Yards of slack around area triggers: the camera is a little ball, not a point. */
-const TRIGGER_MARGIN = 1;
 /**
  * Under water: how far you can see (yards), and the colour for when the zone's light gives none.
  * Water and sea take their colour from the light (LightData's river and ocean colours).
@@ -130,12 +122,6 @@ const SHOT_TIMEOUT = 180000;
 const LIQUID_PROBE = 400;
 /** Half-minutes a second that holding T moves the time of day (3 hours, a day in 8 seconds). */
 const TIME_RATE = 360;
-/** Yards; NPC names show within this distance, small and unfaded far away. */
-const NAMEPLATE_RANGE = 400;
-/** Names kept per scan, nearest first, so the sight tests stay cheap with a long range. */
-const NAMEPLATE_MAX = 80;
-/** Yards; clicks further than this don't select anything. */
-const PICK_DISTANCE = 400;
 const TORCH_COLOR = 0xffa650;
 /** Where the light is carried, in camera space (x right, y up, z back): as if from a torch held on the right. */
 const TORCH_POSITION = new THREE.Vector3(0.35, 0, -1.13);
@@ -174,8 +160,6 @@ export interface HudInfo {
 	zone: string | null;
 	subzone: string | null;
 	music: string;
-	/** Highlighted spawns on this map, or '' when nothing is being highlighted. */
-	highlights: string;
 	/** The weather now, or '' when it's off. */
 	weather: string;
 	/** Whether walls, floors and the ground stop the camera (G toggles). */
@@ -214,12 +198,6 @@ export interface ViewSettings {
 	clearView: boolean;
 	/** No lighting or shading: every surface its texture's own colour, as in full daylight with no sun. */
 	unlit: boolean;
-	/** NPCs and monsters. */
-	creatures: boolean;
-	/** Game objects: chests, herbs, ore, doors, mailboxes. */
-	gameObjects: boolean;
-	/** Spirit healers and battleground spirit guides (shown only while creatures are). */
-	spiritHealers: boolean;
 	/** Multiplies the flying speed, from 1/8 to 8 (Y faster, Shift+Y slower), while smart speed is on. */
 	flySpeed: number;
 	/** Flying speed scales with height above the ground; off, it's fixedSpeed everywhere. */
@@ -244,6 +222,9 @@ export function parseResolution(resolution: string): [number, number] | null {
 	const [w, h] = [Number(match[1]), Number(match[2])];
 	return w >= RESOLUTION_MIN && h >= RESOLUTION_MIN ? [w, h] : null;
 }
+
+/** Whose eyes name and territory colours are seen through. */
+export type Side = 'alliance' | 'horde';
 
 /** Steps of the flying speed: each Y press or slider notch multiplies it by 2^(1/4). */
 export const FLY_SPEED_STEP = 0.25;
@@ -288,76 +269,6 @@ export interface MinimapView {
 	yaw: number;
 }
 
-/**
- * An area trigger that teleports (a dungeon entrance or exit): a sphere, or a box turned about
- * the vertical, in WoW world coordinates on one map, and where it sends you.
- */
-interface AreaTrigger {
-	name: string;
-	map: number;
-	x: number;
-	y: number;
-	z: number;
-	radius: number;
-	box: [number, number, number, number];
-	target: { map: number; x: number; y: number; z: number; o: number };
-}
-
-type TriggerRow = [number, string, number, number, number, number, number, number, number, number, number, number, number, number, number, number];
-
-/** Teleporting area triggers by map, from public/spawns/triggers.json (VMaNGOS data). */
-async function loadTriggers(): Promise<Map<number, AreaTrigger[]>> {
-	const byMap = new Map<number, AreaTrigger[]>();
-	try {
-		const response = await fetch('spawns/triggers.json');
-		if (!response.ok) return byMap;
-		const file = (await response.json()) as { triggers: TriggerRow[] };
-		for (const [, name, map, x, y, z, radius, bx, by, bz, bo, tm, tx, ty, tz, to] of file.triggers) {
-			const list = byMap.get(map) ?? [];
-			list.push({ name, map, x, y, z, radius, box: [bx, by, bz, bo], target: { map: tm, x: tx, y: ty, z: tz, o: to } });
-			byMap.set(map, list);
-		}
-	} catch (e) {
-		console.warn('Area triggers unavailable:', e);
-	}
-	return byMap;
-}
-
-/** A meeting stone outside a dungeon, in WoW world coordinates on its continent. */
-export interface MeetingStone {
-	guid: number;
-	entry: number;
-	/** The dungeon's name, as the stone gives it. */
-	dungeon: string;
-	dungeonMap: number;
-	map: number;
-	x: number;
-	y: number;
-	z: number;
-	o: number;
-	minLevel: number;
-	maxLevel: number;
-}
-
-type StoneRow = [number, number, string, number, number, number, number, number, number, number, number];
-
-/** The meeting stones, from public/spawns/stones.json (VMaNGOS data), lowest levels first. */
-async function loadStones(): Promise<MeetingStone[]> {
-	try {
-		const response = await fetch('spawns/stones.json');
-		if (!response.ok) return [];
-		const file = (await response.json()) as { stones: StoneRow[] };
-		return file.stones.map(([guid, entry, dungeon, dungeonMap, map, x, y, z, o, minLevel, maxLevel]) =>
-			({ guid, entry, dungeon, dungeonMap, map, x, y, z, o, minLevel, maxLevel }));
-	} catch (e) {
-		console.warn('Meeting stones unavailable:', e);
-		return [];
-	}
-}
-
-/** Yards in front of a meeting stone that going to it puts you, as a summons does. */
-const STONE_DISTANCE = 13;
-
 /** Whether the GPU can draw with a reversed depth buffer (EXT_clip_control), asked of a throwaway context. */
 function supportsClipControl(): boolean {
 	const gl = document.createElement('canvas').getContext('webgl2');
@@ -369,16 +280,6 @@ function supportsClipControl(): boolean {
 /** WoW world coordinates (x north, y west, z up) on a map -> where that map sits in the world. */
 function worldFromWow(placement: ContinentPlacement, x: number, y: number, z: number): THREE.Vector3 {
 	return new THREE.Vector3(MAP_ORIGIN - y + placement.offsetX * TILE_SIZE, z, MAP_ORIGIN - x + placement.offsetY * TILE_SIZE);
-}
-
-function insideTrigger(t: AreaTrigger, x: number, y: number, z: number): boolean {
-	if (t.radius > 0) return (x - t.x) ** 2 + (y - t.y) ** 2 + (z - t.z) ** 2 <= (t.radius + TRIGGER_MARGIN) ** 2;
-	const [length, width, height, o] = t.box;
-	const dx = x - t.x;
-	const dy = y - t.y;
-	const along = dx * Math.cos(o) + dy * Math.sin(o);
-	const across = -dx * Math.sin(o) + dy * Math.cos(o);
-	return Math.abs(along) <= length / 2 + TRIGGER_MARGIN && Math.abs(across) <= width / 2 + TRIGGER_MARGIN && Math.abs(z - t.z) <= height / 2 + TRIGGER_MARGIN;
 }
 
 export class Viewer {
@@ -455,9 +356,6 @@ export class Viewer {
 	private shadowMapsDrawn = false;
 	/** Whose eyes name colours are seen through (F toggles). */
 	private side: Side = 'alliance';
-	private readonly nameplates: Nameplates | null;
-	/** Markers over chests, herbs, ore and anything found by name. */
-	private readonly highlights: Highlights | null;
 	/** The ground tinted by graveyard, territory, levels, subzones or fishing; rested areas. */
 	private readonly regionOverlay: RegionOverlay | null;
 	private readonly restedAreas: RestedAreas | null;
@@ -479,22 +377,11 @@ export class Viewer {
 	private readonly rooms = new Map<string, WmoArea | null | 'pending'>();
 	/** The room the camera was last found in, if any. */
 	private room: WmoArea | null = null;
-	/** Dungeon entrances and exits by map. */
-	private triggers = new Map<number, AreaTrigger[]>();
-	/** Meeting stones outside the dungeons, lowest levels first. */
-	meetingStones: MeetingStone[] = [];
 	/** Dungeon maps by ID, laid out in the world when first entered. */
 	private readonly instances = new Map<number, Promise<ContinentPlacement | null>>();
 	private readonly loadedInstances = new Map<number, ContinentPlacement>();
 	/** WMO-only maps' building bounds in world space, for landing above them. */
 	private readonly instanceBounds = new Map<number, THREE.Box3>();
-	/**
-	 * Triggers fire only once the camera has been outside all of them, so arriving on (or
-	 * starting in) one doesn't send you straight back.
-	 */
-	private triggersArmed = false;
-	private teleporting = false;
-	private lastTriggerCheck = 0;
 	private ocean: THREE.Mesh | null = null;
 	/** The liquid the camera is in, if any: its kind, LiquidType and surface height. */
 	private underwater: { kind: LiquidKind; type: number; surface: number } | null = null;
@@ -525,13 +412,11 @@ export class Viewer {
 		private readonly canvas: HTMLCanvasElement,
 		private readonly storage: AsyncStorageApi,
 		private readonly onHud: (info: HudInfo) => void,
-		private readonly onSelect: (info: SpawnInfo) => void = () => {},
 		plateContainer: HTMLElement | null = null,
 	) {
 		let show = () => {};
 		this.firstView = new Promise((resolve) => (show = resolve));
 		this.showFirstView = show;
-		this.highlights = plateContainer ? new Highlights(plateContainer, storage.loadLockKinds()) : null;
 		this.regionOverlay = plateContainer ? new RegionOverlay(plateContainer, (x, z) => this.terrain?.surfaceAt(x, z) ?? -Infinity) : null;
 		this.restedAreas = plateContainer ? new RestedAreas(plateContainer) : null;
 		this.mapLabels = plateContainer ? new MapLabels(plateContainer) : null;
@@ -555,7 +440,6 @@ export class Viewer {
 		this.seaFloorPass = new SeaFloorPass(this.renderer);
 		// Antialiased there rather than on the canvas.
 		this.post = new PostPass(this.renderer, storage);
-		this.nameplates = plateContainer ? new Nameplates(this.post.sceneDepth) : null;
 		this.uploads = new UploadQueue(this.renderer);
 		this.terrainShadow = new TerrainShadowPass(this.renderer);
 
@@ -597,50 +481,18 @@ export class Viewer {
 		});
 		window.addEventListener('blur', () => this.stopTime());
 		canvas.addEventListener('mousedown', () => (this.pressedWalking = this.walker.active));
-		canvas.addEventListener('click', (e) => this.onClick(e));
-		canvas.addEventListener('mousemove', (e) => this.onHover(e));
+		canvas.addEventListener('click', () => this.onClick());
 		this.resize();
 	}
 
-	private readonly raycaster = new THREE.Raycaster();
-	private lastHover = 0;
 	/** The last press on the view began while walking, so its click doesn't capture the mouse for flying. */
 	private pressedWalking = false;
 
-	/** Spawn under the mouse, or under the centre crosshair while the mouse is captured. */
-	private pickAt(e: MouseEvent): SpawnInfo | null {
-		if (!this.objects) return null;
-		const ndc = this.controls.locked
-			? new THREE.Vector2(0, 0)
-			: new THREE.Vector2((e.offsetX / this.canvas.clientWidth) * 2 - 1, -(e.offsetY / this.canvas.clientHeight) * 2 + 1);
-		this.raycaster.setFromCamera(ndc, this.camera);
-		this.raycaster.far = PICK_DISTANCE;
-		return this.objects.pick(this.raycaster)?.info ?? null;
-	}
-
-	/** Clicking a creature or object opens its info (releasing the mouse); elsewhere captures the mouse. */
-	private onClick(e: MouseEvent): void {
-		// Walking, a click selects what's under the mouse and never captures it (holding the right
-		// button does); a drag that turned the camera isn't a click.
-		if (this.walker.active) {
-			const hit = this.walker.wasDrag || this.controls.locked ? null : this.pickAt(e);
-			if (hit) this.onSelect(hit);
-			return;
-		}
-		if (this.pressedWalking) return;
-		const hit = this.pickAt(e);
-		if (hit) {
-			if (this.controls.locked) document.exitPointerLock();
-			this.onSelect(hit);
-		} else {
-			this.controls.lock();
-		}
-	}
-
-	private onHover(e: MouseEvent): void {
-		if (this.controls.locked || performance.now() - this.lastHover < 80) return;
-		this.lastHover = performance.now();
-		this.canvas.style.cursor = this.pickAt(e) ? 'pointer' : '';
+	/** Clicking the view captures the mouse for looking around while flying. */
+	private onClick(): void {
+		// Walking, a click never captures the mouse (holding the right button does).
+		if (this.walker.active || this.pressedWalking) return;
+		this.controls.lock();
 	}
 
 	/**
@@ -665,17 +517,6 @@ export class Viewer {
 		this.shadowsOn = on;
 		this.post.setShadowLight(on ? this.sun : null);
 		this.sun.shadow.intensity = on ? SHADOW_INTENSITY * this.shadowStrength : 0;
-	}
-
-	/** What to highlight on the ground (chests, herbs, ore, fishing pools, names). */
-	setHighlights(settings: HighlightSettings): void {
-		this.highlights?.set(settings);
-		setWalkableShown(settings.on && settings.walkable);
-		if (this.objects) this.objects.invisibleWalls = settings.on && settings.walls;
-		if (this.terrain) this.terrain.invisibleWalls = settings.on && settings.walls;
-		this.regionOverlay?.setMode(settings.on ? settings.tint || null : null);
-		this.regionOverlay?.setLevel(settings.level);
-		if (this.restedAreas) this.restedAreas.shown = settings.on && settings.rested;
 	}
 
 	/** Called when a key changes a setting, the time or the sound, for the page to show and remember. */
@@ -880,7 +721,6 @@ export class Viewer {
 				if (this.walker.state === 'ground') step(this.walker.position, kind, this.walker.ground);
 			};
 		}
-		this.objects.onStep = (at, kind) => step(at, kind, undefined);
 	}
 
 	/** The walking character's state last frame (or '' not walking), for its splashes into and out of water. */
@@ -942,9 +782,6 @@ export class Viewer {
 			fog: this.post.fogOn,
 			clearView: this.clearView,
 			unlit: this.unlit,
-			creatures: this.objects?.kindShown('creature') ?? true,
-			gameObjects: this.objects?.kindShown('object') ?? true,
-			spiritHealers: this.objects?.kindShown('spiritHealer') ?? true,
 			flySpeed: this.controls.speedScale,
 			smartSpeed: this.controls.smartSpeed,
 			fixedSpeed: this.controls.fixedSpeed,
@@ -980,9 +817,6 @@ export class Viewer {
 			// So the light changes on the next frame, not up to 100 ms later.
 			this.lastLightUpdate = 0;
 		}
-		if (next.creatures !== undefined) this.objects?.setKindShown('creature', next.creatures);
-		if (next.gameObjects !== undefined) this.objects?.setKindShown('object', next.gameObjects);
-		if (next.spiritHealers !== undefined) this.objects?.setKindShown('spiritHealer', next.spiritHealers);
 		if (typeof next.flySpeed === 'number' && next.flySpeed > 0) {
 			// Snapped to the slider's notches, so a remembered or stepped value lands on one.
 			const notches = Math.round(Math.log2(next.flySpeed) / FLY_SPEED_STEP) * FLY_SPEED_STEP;
@@ -1068,8 +902,6 @@ export class Viewer {
 		this.setUpWalker();
 		this.character = new Character(this.storage, this.usesCompressedTextures, anisotropy, prepare);
 		this.scene.add(this.character.group);
-		// Walking creatures follow the ground.
-		this.objects.groundAt = (x, z) => this.terrain.heightAt(x, z);
 		this.clutter = new ClutterManager(this.storage, this.usesCompressedTextures, anisotropy, prepare);
 		this.terrain.clutter = this.clutter;
 		this.scene.add(this.terrain.group, this.objects.group, this.clutter.group);
@@ -1088,7 +920,6 @@ export class Viewer {
 		this.loadRegions();
 
 		onStatus('Reading lighting and zone names');
-		[this.triggers, this.meetingStones] = await Promise.all([loadTriggers(), loadStones()]);
 		// Light for every map in the install (any of them can be gone to).
 		const mapIds = new Set(this.continents.map((c) => c.mapId));
 		for (const m of await this.storage.listMaps().catch(() => [])) mapIds.add(m.id);
@@ -1338,13 +1169,6 @@ export class Viewer {
 		}
 		const placement = await this.placementFor(mapId);
 		if (!placement) return false;
-		this.triggersArmed = false;
-		// Where the game puts you: the entrance, if one leads here.
-		const entrance = [...this.triggers.values()].flat().find((t) => t.target.map === mapId);
-		if (entrance) {
-			this.controls.set(worldFromWow(placement, entrance.target.x, entrance.target.y, entrance.target.z + EYE_HEIGHT), entrance.target.o, 0);
-			return true;
-		}
 		const bounds = this.instanceBounds.get(mapId);
 		if (bounds) {
 			// Above the building, a little to the south, looking down into it.
@@ -1361,75 +1185,6 @@ export class Viewer {
 		const distance = THREE.MathUtils.clamp(extent * 0.3, 250, 700);
 		this.controls.set(new THREE.Vector3(center.x, ground - Math.sin(pitch) * distance, center.y + Math.cos(pitch) * distance), 0, pitch);
 		return true;
-	}
-
-	/** Walks through dungeon entrances and exits: sends the camera on when it enters a teleport trigger. */
-	private checkTriggers(): void {
-		// On foot, it's the character that walks in.
-		const at = this.walker.active ? this.walker.position : this.camera.position;
-		const where = this.wowPosition(at);
-		if (!where || this.teleporting) return;
-		const z = at.y;
-		const hit = this.triggers.get(where.mapId)?.find((t) => insideTrigger(t, where.x, where.y, z));
-		if (!this.triggersArmed) {
-			this.triggersArmed = !hit;
-			return;
-		}
-		if (hit) void this.teleport(hit);
-	}
-
-	private async teleport(t: AreaTrigger): Promise<void> {
-		this.teleporting = true;
-		try {
-			const placement = await this.placementFor(t.target.map);
-			if (!placement) {
-				console.warn(`${t.name}: map ${t.target.map} isn't in this install`);
-				return;
-			}
-			// WoW orientation turns from north toward west, as the camera's yaw does.
-			if (this.walker.active) this.walker.place(worldFromWow(placement, t.target.x, t.target.y, t.target.z), t.target.o);
-			else this.controls.set(worldFromWow(placement, t.target.x, t.target.y, t.target.z + EYE_HEIGHT), t.target.o, 0);
-		} finally {
-			this.teleporting = false;
-			this.triggersArmed = false;
-		}
-	}
-
-	/** Puts you in front of a meeting stone, facing it, as being summoned to it does; the reason it can't, or null. */
-	async goToMeetingStone(guid: number): Promise<string | null> {
-		const stone = this.meetingStones.find((s) => s.guid === guid);
-		const placement = stone && (await this.placementFor(stone.map));
-		if (!stone || !placement) return 'That meeting stone isn’t in this install';
-		const x = stone.x + Math.cos(stone.o) * STONE_DISTANCE;
-		const y = stone.y + Math.sin(stone.o) * STONE_DISTANCE;
-		const facing = stone.o + Math.PI;
-		this.triggersArmed = false;
-		if (this.walker.active) this.walker.place(worldFromWow(placement, x, y, stone.z), facing, 0);
-		else this.controls.set(worldFromWow(placement, x, y, stone.z + EYE_HEIGHT + 1), facing, 0.05);
-		return null;
-	}
-
-	/**
-	 * Takes you into a meeting stone's dungeon, where its entrance nearest the stone leads (Dire
-	 * Maul and Maraudon have several); the reason it can't, or null.
-	 */
-	async enterDungeon(guid: number): Promise<string | null> {
-		const stone = this.meetingStones.find((s) => s.guid === guid);
-		if (!stone) return 'No such meeting stone';
-		const distance = (t: AreaTrigger) => (t.map === stone.map ? Math.hypot(t.x - stone.x, t.y - stone.y) : Infinity);
-		const entrance = [...this.triggers.values()].flat()
-			.filter((t) => t.target.map === stone.dungeonMap)
-			.sort((a, b) => distance(a) - distance(b))[0];
-		if (entrance) {
-			await this.teleport(entrance);
-			return null;
-		}
-		return (await this.goToMap(stone.dungeonMap)) ? null : `${stone.dungeon} isn’t in this install`;
-	}
-
-	/** The meeting stone a spawn is, if it is one. */
-	meetingStone(guid: number): MeetingStone | null {
-		return this.meetingStones.find((s) => s.guid === guid) ?? null;
 	}
 
 	/** Above Northshire Abbey, looking north. */
@@ -1602,7 +1357,6 @@ export class Viewer {
 	async goToPlace(place: Place): Promise<boolean> {
 		const placement = await this.placementFor(place.mapId);
 		if (!placement) return false;
-		this.triggersArmed = false;
 		const spot = worldFromWow(placement, place.x, place.y, 0);
 		const pitch = place.size ? -0.7 : -0.5;
 		const distance = place.size ? THREE.MathUtils.clamp(place.size * 0.35, 400, 2200) : 420;
@@ -1627,47 +1381,6 @@ export class Viewer {
 		const x = (32.5 + ek.offsetX) * TILE_SIZE;
 		const z = (48.95 + ek.offsetY) * TILE_SIZE;
 		return new THREE.Vector3(x, this.terrain.heightAt(x, z) + 140, z);
-	}
-
-	private plates: Plate[] = [];
-	private lastPlateScan = 0;
-
-	/** Rescans nearby NPCs a few times a second; re-projects their names every frame. */
-	private updateNameplates(now: number): void {
-		if (!this.nameplates) return;
-		if (now - this.lastPlateScan > 150) {
-			this.lastPlateScan = now;
-			this.objects.nameplates(this.camera.position, NAMEPLATE_RANGE, this.plates);
-				if (this.plates.length > NAMEPLATE_MAX) {
-					this.plates.sort((a, b) => a.distance - b.distance).length = NAMEPLATE_MAX;
-				}
-			// Like the game, only name NPCs you could actually see. Underground (caves, mines) the
-			// terrain surface is overhead, so only buildings count.
-			const cam = this.camera.position;
-			const underground = cam.y < this.terrain.surfaceAt(cam.x, cam.z) - 0.5;
-			for (const p of this.plates) {
-				p.visible = (underground || !this.terrainBlocks(this.camera.position, p.position)) && !this.objects.blocksSight(this.camera.position, p.position);
-			}
-		}
-		// Every frame, so names keep up with walking creatures; and distances change as the camera moves.
-		for (const p of this.plates) {
-			headPosition(p.matrix, p.height, p.position);
-			p.distance = p.position.distanceTo(this.camera.position);
-		}
-		this.nameplates.update(this.plates, this.camera, this.renderer, this.side);
-	}
-
-	/** Whether the ground rises above the straight line between two points (sampled every 1.5 yd). */
-	private terrainBlocks(from: THREE.Vector3, to: THREE.Vector3): boolean {
-		const steps = Math.ceil(from.distanceTo(to) / 1.5);
-		for (let i = 1; i < steps; i++) {
-			const t = i / steps;
-			const x = from.x + (to.x - from.x) * t;
-			const y = from.y + (to.y - from.y) * t;
-			const z = from.z + (to.z - from.z) * t;
-			if (y < this.terrain.heightAt(x, z) - 0.2) return true;
-		}
-		return false;
 	}
 
 	/**
@@ -1746,10 +1459,6 @@ export class Viewer {
 		animateFlipbooks(now / 1000);
 		const pos = this.camera.position;
 
-		if (now - this.lastTriggerCheck > 100) {
-			this.lastTriggerCheck = now;
-			this.checkTriggers();
-		}
 		// While T is held the light follows every frame, so the sun glides rather than steps.
 		if (this.timeRunning) {
 			this.timeOffset += this.timeRunning * TIME_RATE * dt;
@@ -1793,7 +1502,6 @@ export class Viewer {
 		if (this.renderer.shadowMap.needsUpdate) this.shadowMapsDrawn = true;
 		perf.time('render', () => this.post.render(this.renderer, this.scene, this.camera));
 		if (this.shot) this.updateShot(now);
-		perf.time('nameplates', () => this.updateNameplates(now));
 		if (this.mapLabels) {
 			// Only out in the open: not in a cave, a building or down on the ground among things.
 			if (now - this.lastLabelCheck > 250) {
@@ -1804,7 +1512,6 @@ export class Viewer {
 		}
 		perf.time('highlights', () => {
 			const continent = this.terrain.locate(pos.x, pos.z)?.continent ?? null;
-			this.highlights?.update(now, this.camera, continent, this.canvas.clientWidth, this.canvas.clientHeight);
 			this.regionOverlay?.update(now, this.camera, continent, this.terrain.surfaceAt(pos.x, pos.z), this.canvas.clientWidth, this.canvas.clientHeight);
 			this.restedAreas?.update(now, this.camera, this.canvas.clientWidth, this.canvas.clientHeight);
 		});
@@ -2287,7 +1994,6 @@ export class Viewer {
 			...this.zoneNames(),
 			side: this.side === 'alliance' ? 'Alliance' : 'Horde',
 			music: this.music?.status ?? 'unavailable',
-			highlights: [this.highlights?.status, this.regionOverlay?.status, this.restedAreas?.status].filter(Boolean).join('\n'),
 			weather: this.weather.status,
 			collision: this.controls.ghost ? 'Off: through walls' : 'On',
 		};

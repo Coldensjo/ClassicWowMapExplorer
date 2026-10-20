@@ -4,7 +4,7 @@ import { blpTexture, decodeBlp, mipmapped, type Image, type TextureData } from '
 import type { Db2 } from '../formats/db2';
 import type { LiquidKind } from '../formats/mh2o';
 import { parseWdl, WDL_CELLS } from '../formats/wdl';
-import { DB2_FILES, footstepSounds, liquidKinds, liquidLooks, loadTable, lockKinds, type FootstepSounds, type LiquidLooks, type LockKind } from './clientDb';
+import { DB2_FILES, footstepSounds, liquidKinds, liquidLooks, loadTable, type FootstepSounds, type LiquidLooks } from './clientDb';
 import { loadAreas, loadLighting, type AreaInfo, type LightingData } from './lighting';
 import { buildLiquidMeshes, type LiquidMesh } from './liquidMesh';
 import { MusicTables, type MusicData, type WmoArea } from './music';
@@ -14,8 +14,7 @@ import { loadPlaces, type Place } from './places';
 import { KNOWN_MAPS } from './maps';
 import { globalWmoPlacement, globalWmoTiles, loadM2, loadWmo, parsePlacements, type ModelData, type ObjectKind, type Placement } from './objects';
 import { GroundEffects, type ClutterSource } from './groundEffects';
-import { PortalSource } from './portals';
-import { DisplayResolver, parseWeapons, SpawnSource, type CharacterOutfit, type CharacterRace } from './spawns';
+import { DisplayResolver, type CharacterOutfit, type CharacterRace } from './display';
 import { buildSplatTerrain, type SplatTerrain } from './splatMesh';
 import { buildTerrainMesh, type TerrainGeometry } from './terrainMesh';
 
@@ -35,7 +34,7 @@ export interface InstanceMap {
 	farTiles: FarTile[];
 	/** Terrain tiles of maps without a WDL (newer ones): no distant view, only full detail up close. */
 	terrainTiles: [number, number][];
-	/** Tiles a WMO-only map's building covers, for streaming its objects and spawns. */
+	/** Tiles a WMO-only map's building covers, for streaming its objects. */
 	wmoTiles: [number, number][];
 	/** A WMO-only map's building bounds, relative to the map's centre in placement space (x, height, z). */
 	wmoBounds: { min: [number, number, number]; max: [number, number, number] } | null;
@@ -121,8 +120,6 @@ export class WorldLoader {
 		return this.maps.storage;
 	}
 
-	private mapIds: Promise<Map<number, number>> | null = null;
-
 	/**
 	 * A map's WDT file (0 if none): from Map.db2, or where that hasn't the field (Classic), by its
 	 * path, world/maps/<directory>/<directory>.wdt, the directory being the map's first field.
@@ -132,18 +129,6 @@ export class WorldLoader {
 		if (listed !== null) return listed;
 		const directory = table.getString(mapId, MAP_DIRECTORY)?.toLowerCase();
 		return directory ? this.storage.lookupPath(`world/maps/${directory}/${directory}.wdt`) ?? 0 : 0;
-	}
-
-	/** The Map.db2 ID of a map's WDT, or null for a WDT no map uses. */
-	private async mapIdOf(wdtFdid: number): Promise<number | null> {
-		const known = KNOWN_MAPS.find((m) => m.wdt === wdtFdid);
-		if (known) return known.mapId;
-		this.mapIds ??= loadTable(this.storage, DB2_FILES.Map).then((table) => {
-			const byWdt = new Map<number, number>();
-			for (const id of table.ids()) byWdt.set(this.mapWdt(table, id), id);
-			return byWdt;
-		});
-		return (await this.mapIds).get(wdtFdid) ?? null;
 	}
 
 	/**
@@ -285,56 +270,19 @@ export class WorldLoader {
 	async loadTileObjects(wdtFdid: number, x: number, y: number): Promise<Placement[]> {
 		const wdt = await this.maps.wdt(wdtFdid);
 		const tile = wdt.tiles[y * 64 + x];
-		const [placements, spawns, portals] = await Promise.all([
-			tile?.files.obj0 ? this.storage.readFile(tile.files.obj0).then(parsePlacements) : ([] as Placement[]),
-			this.tileSpawns(wdtFdid, x, y),
-			this.tilePortals(wdtFdid, x, y),
-		]);
+		const placements = tile?.files.obj0 ? await this.storage.readFile(tile.files.obj0).then(parsePlacements) : ([] as Placement[]);
 		// A WMO-only map's building is listed by every tile it covers (placed once, by its key).
 		const global = wdt.globalWmo;
 		if (global && globalWmoTiles(global).some(([tx, ty]) => tx === x && ty === y)) placements.push(globalWmoPlacement(global));
-		// Spawn placements are cached per tile; send copies of their matrices, since the
-		// transfer to the main thread empties the originals.
-		return placements.concat(spawns.map((p) => ({ ...p, matrix: p.matrix.slice() })), portals);
+		return placements;
 	}
 
-	private portalSource: Promise<PortalSource> | null = null;
-
-	/** Instance portals added at dungeon doors the map files leave without one. */
-	private async tilePortals(wdtFdid: number, x: number, y: number): Promise<Placement[]> {
-		const mapId = await this.mapIdOf(wdtFdid);
-		if (mapId === null) return [];
-		this.portalSource ??= PortalSource.load();
-		return (await this.portalSource).placements(mapId, x, y);
-	}
-
-	private readonly spawnSources = new Map<number, Promise<SpawnSource | null>>();
 	private displayResolver: DisplayResolver | null = null;
 
-	/** Created on first use, so its tables only load once spawns are shown. */
+	/** Created on first use, so its tables only load once a character is shown. */
 	private get displays(): DisplayResolver {
 		this.displayResolver ??= new DisplayResolver(this.storage);
 		return this.displayResolver;
-	}
-
-	/** Creatures and game objects on a tile, from public/spawns (empty if that data is absent). */
-	private async tileSpawns(wdtFdid: number, x: number, y: number): Promise<Placement[]> {
-		const mapId = await this.mapIdOf(wdtFdid);
-		if (mapId === null) return [];
-		let source = this.spawnSources.get(mapId);
-		if (!source) {
-			source = SpawnSource.load(mapId);
-			this.spawnSources.set(mapId, source);
-		}
-		const spawns = await source;
-		if (!spawns) return [];
-		try {
-			const [scale, reaction] = await Promise.all([this.displays.scaleLookup(), this.displays.reactionLookup()]);
-			return spawns.placements(x, y, scale, reaction);
-		} catch (e) {
-			console.warn('Display tables unavailable; skipping spawns', e);
-			return [];
-		}
 	}
 
 	/** The races the walking character can be, with how many looks each sex has. */
@@ -355,24 +303,10 @@ export class WorldLoader {
 	}
 
 	/** Renderable geometry for models; null where a model can't be read. */
-	async loadModels(models: { fdid: number; kind: ObjectKind; variant?: string }[]): Promise<(ModelData | null)[]> {
-		return Promise.all(models.map(async ({ fdid, kind, variant }) => {
+	async loadModels(models: { fdid: number; kind: ObjectKind }[]): Promise<(ModelData | null)[]> {
+		return Promise.all(models.map(async ({ fdid, kind }) => {
 			try {
 				if (kind === 'wmo') return await loadWmo(this.storage, fdid, await this.liquidKind());
-				if (kind === 'creature') {
-					const creature = await this.displays.creature(fdid, parseWeapons(variant));
-					return creature ? { ...(await loadM2(this.storage, creature.fdid, creature.options)), fdid } : null;
-				}
-				if (kind === 'object') {
-					// Game objects are either M2 or WMO; the file's first chunk says which.
-					const file = await this.displays.object(fdid);
-					if (!file) return null;
-					// Read once and handed on, rather than read (and decompressed) again by the loader.
-					const bytes = await this.storage.readFile(file);
-					const isWmo = bytes[0] === 0x52 && bytes[1] === 0x45 && bytes[2] === 0x56 && bytes[3] === 0x4d; // 'REVM'
-					const model = isWmo ? await loadWmo(this.storage, file, await this.liquidKind(), bytes) : await loadM2(this.storage, file, { solid: true }, bytes);
-					return { ...model, fdid };
-				}
 				return await loadM2(this.storage, fdid, { solid: true });
 			} catch (e) {
 				console.warn(`Model ${fdid}:`, e);
@@ -406,10 +340,6 @@ export class WorldLoader {
 
 	loadFootsteps(): Promise<FootstepSounds> {
 		return footstepSounds(this.storage);
-	}
-
-	loadLockKinds(): Promise<Record<number, LockKind>> {
-		return lockKinds(this.storage);
 	}
 
 	loadMusic(): Promise<MusicData> {

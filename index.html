@@ -80,11 +80,52 @@
 	<nav id="editor-bar" aria-label="Scene" hidden>
 		<span id="editor-name"></span>
 		<button id="editor-save">Save</button>
+		<button id="editor-undo" hidden aria-label="Undo">↶</button>
+		<button id="editor-redo" hidden aria-label="Redo">↷</button>
 		<button id="editor-export" title="Download this scene as a .wscene file">Export</button>
 		<button id="editor-back" title="Save and go back to your scenes">Scenes</button>
 		<span id="editor-status" class="muted small"></span>
-		<span class="editor-hint muted small"><kbd>Tab</kbd> walk · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly · <kbd>Click</kbd> look</span>
+		<span class="editor-hint muted small"><kbd>Tab</kbd> walk · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly · right mouse look · left mouse tool</span>
 	</nav>
+
+	<!-- The tool rail on the left of the viewport (spec 8). Keys 1-6 choose a tool. -->
+	<div id="tool-rail" role="toolbar" aria-label="Tools" aria-orientation="vertical" hidden>
+		<button id="tool-sculpt" title="Sculpt the ground (1)">Sculpt</button>
+		<button id="tool-paint" title="Paint textures (coming in Phase 2)" disabled>Paint</button>
+		<button id="tool-holes" title="Cut holes (coming in Phase 2)" disabled>Holes</button>
+		<button id="tool-water" title="Add water (coming in Phase 2)" disabled>Water</button>
+		<button id="tool-place" title="Place objects (coming in Phase 3)" disabled>Place</button>
+		<button id="tool-npcs" title="Place NPCs (coming in Phase 5)" disabled>NPCs</button>
+	</div>
+
+	<!-- The properties panel on the right: the active tool's settings (spec 8). -->
+	<div id="tool-panel" hidden>
+		<div id="sculpt-props" class="tool-props">
+			<h3>Sculpt</h3>
+			<div class="mode-row" role="group" aria-label="Sculpt mode">
+				<button id="sculpt-raise">Raise</button>
+				<button id="sculpt-lower">Lower</button>
+				<button id="sculpt-smooth">Smooth</button>
+				<button id="sculpt-flatten">Flatten</button>
+				<button id="sculpt-noise">Noise</button>
+				<button id="sculpt-ramp">Ramp</button>
+			</div>
+			<label class="prop-row">Radius <input type="range" id="brush-radius" min="1" max="100" step="1" title="[ and ] change it too"><output id="brush-radius-out"></output></label>
+			<label class="prop-row">Strength <input type="range" id="brush-strength" min="0" max="1" step="0.05" title="Shift+[ and Shift+] change it too"><output id="brush-strength-out"></output></label>
+			<label class="prop-row">Falloff <select id="brush-falloff"><option value="linear">Linear</option><option value="smooth">Smooth</option><option value="flat">Flat</option></select></label>
+			<label class="prop-row" id="flatten-row" hidden>Flatten to <input type="number" id="flatten-to" step="1" placeholder="first touch" title="A height in yards; empty flattens toward the height you first touch"></label>
+			<p id="tool-hint" class="muted small"></p>
+		</div>
+	</div>
+
+	<!-- The status bar along the bottom (spec 8). -->
+	<div id="status-bar" hidden>
+		<span id="status-cursor" title="Cursor position in yards"></span>
+		<span id="status-height" title="Ground height under the cursor"></span>
+		<span id="status-layers" title="Texture layers of the chunk under the cursor"></span>
+		<span id="status-scan"></span>
+		<span id="status-fps"></span>
+	</div>
 
 	<!-- Along the top: the menus, each dropping down below its name, and Go to and the controls list at the right. -->
 	<nav id="menu" aria-label="Settings" hidden>

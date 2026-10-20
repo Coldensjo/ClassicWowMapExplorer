@@ -51,8 +51,12 @@ const innerIndex = (row: number, col: number) => row * 17 + OUTER + col;
  * referenced by FDID and never stored here.
  */
 export class SceneModel {
-	/** Tile indices (y * tilesX + x) whose GPU resources need rebuilding. */
+	/** Tile indices (y * tilesX + x) whose GPU resources need rebuilding whole (layers, holes, water). */
 	readonly dirtyTiles = new Set<number>();
+	/** Chunks (by tile index) whose heights changed; the renderer updates these in place. */
+	readonly dirtyHeights = new Map<number, Set<number>>();
+	/** Chunks (by tile index) whose alpha maps changed without the layer set changing. */
+	readonly dirtyAlpha = new Map<number, Set<number>>();
 
 	constructor(
 		readonly meta: SceneMeta,
@@ -123,6 +127,98 @@ export class SceneModel {
 	markDirty(tile: SceneTile): void {
 		this.dirtyTiles.add(tile.y * this.tilesX + tile.x);
 		this.meta.modified = new Date().toISOString();
+	}
+
+	private markChannel(map: Map<number, Set<number>>, tileIndex: number, chunkId: number): void {
+		let set = map.get(tileIndex);
+		if (!set) map.set(tileIndex, (set = new Set()));
+		set.add(chunkId);
+		this.meta.modified = new Date().toISOString();
+	}
+
+	markHeightsDirty(tileIndex: number, chunkId: number): void {
+		this.markChannel(this.dirtyHeights, tileIndex, chunkId);
+	}
+
+	markAlphaDirty(tileIndex: number, chunkId: number): void {
+		this.markChannel(this.dirtyAlpha, tileIndex, chunkId);
+	}
+
+	// ---- The height lattice (spec 7.4) ----
+	// Chunk edge vertices are shared values: the same spot is stored in up to four chunks (and up
+	// to four tiles at corners). All writes go through setOuter/setInner, which update every copy,
+	// so edits can never open a seam. Outer vertices sit at (gx * CELL, gz * CELL) with
+	// gx in 0..tilesX*128; inner (cell-centre) vertices at ((gx + 0.5) * CELL, ...) with
+	// gx in 0..tilesX*128-1. CELL is CHUNK_SIZE / 8.
+
+	/** Outer lattice vertices per side, minus one (the number of cells). */
+	get cellsX(): number {
+		return this.tilesX * CHUNKS_PER_TILE * INNER;
+	}
+
+	get cellsZ(): number {
+		return this.tilesY * CHUNKS_PER_TILE * INNER;
+	}
+
+	/** The chunks owning lattice column g (cell units): one, or two along a chunk edge. */
+	private static owners(g: number, count: number): number[] {
+		const cc = Math.floor(g / INNER);
+		const list: number[] = [];
+		if (g % INNER === 0 && cc > 0) list.push(cc - 1);
+		if (cc < count) list.push(cc);
+		return list;
+	}
+
+	/** The tile and chunk at chunk-grid column/row (0..tiles*16-1 each way). */
+	private chunkAt(ccx: number, ccy: number): { tileIndex: number; chunkId: number; chunk: SceneChunk } {
+		const tileIndex = Math.floor(ccy / CHUNKS_PER_TILE) * this.tilesX + Math.floor(ccx / CHUNKS_PER_TILE);
+		const chunkId = (ccy % CHUNKS_PER_TILE) * CHUNKS_PER_TILE + (ccx % CHUNKS_PER_TILE);
+		return { tileIndex, chunkId, chunk: this.tiles[tileIndex].chunks[chunkId] };
+	}
+
+	/** The outer lattice height at (gx, gz); callers keep indices in range. */
+	outerHeight(gx: number, gz: number): number {
+		const ccx = Math.min(Math.floor(gx / INNER), this.tilesX * CHUNKS_PER_TILE - 1);
+		const ccy = Math.min(Math.floor(gz / INNER), this.tilesY * CHUNKS_PER_TILE - 1);
+		return this.chunkAt(ccx, ccy).chunk.heights[outerIndex(gz - ccy * INNER, gx - ccx * INNER)];
+	}
+
+	/** The inner (cell-centre) lattice height at (gx, gz); gx in 0..cellsX-1. */
+	innerHeight(gx: number, gz: number): number {
+		const ccx = Math.floor(gx / INNER);
+		const ccy = Math.floor(gz / INNER);
+		return this.chunkAt(ccx, ccy).chunk.heights[innerIndex(gz - ccy * INNER, gx - ccx * INNER)];
+	}
+
+	/**
+	 * Writes an outer lattice height into every chunk that shares the vertex (spec 7.4 seams) and
+	 * marks each heights-dirty. touch is called with each chunk before it changes, for snapshots.
+	 */
+	setOuterHeight(gx: number, gz: number, h: number, touch?: (tileIndex: number, chunkId: number, chunk: SceneChunk) => void): void {
+		for (const ccy of SceneModel.owners(gz, this.tilesY * CHUNKS_PER_TILE)) {
+			for (const ccx of SceneModel.owners(gx, this.tilesX * CHUNKS_PER_TILE)) {
+				const { tileIndex, chunkId, chunk } = this.chunkAt(ccx, ccy);
+				touch?.(tileIndex, chunkId, chunk);
+				chunk.heights[outerIndex(gz - ccy * INNER, gx - ccx * INNER)] = h;
+				this.markHeightsDirty(tileIndex, chunkId);
+			}
+		}
+	}
+
+	/** Writes an inner lattice height; inner vertices belong to exactly one chunk. */
+	setInnerHeight(gx: number, gz: number, h: number, touch?: (tileIndex: number, chunkId: number, chunk: SceneChunk) => void): void {
+		const ccx = Math.floor(gx / INNER);
+		const ccy = Math.floor(gz / INNER);
+		const { tileIndex, chunkId, chunk } = this.chunkAt(ccx, ccy);
+		touch?.(tileIndex, chunkId, chunk);
+		chunk.heights[innerIndex(gz - ccy * INNER, gx - ccx * INNER)] = h;
+		this.markHeightsDirty(tileIndex, chunkId);
+	}
+
+	/** Puts back a chunk's heights whole (undo/redo) and marks it dirty. */
+	restoreHeights(tileIndex: number, chunkId: number, heights: Float32Array): void {
+		this.tiles[tileIndex].chunks[chunkId].heights.set(heights);
+		this.markHeightsDirty(tileIndex, chunkId);
 	}
 
 	/**

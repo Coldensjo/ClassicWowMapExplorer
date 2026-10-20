@@ -3,6 +3,7 @@ import type { AsyncStorageApi } from '../worker/protocol';
 import { SceneLibrary, type SceneSummary } from '../scene/library';
 import { SceneModel } from '../scene/sceneModel';
 import { MAX_BLANK_TILES } from '../scene/types';
+import { EditorPanels } from './editorPanels';
 import { SceneEditor } from './sceneEditor';
 
 /**
@@ -31,6 +32,7 @@ let stats: StorageStats;
 let onExplore: () => void;
 
 let editor: SceneEditor | null = null;
+let panels: EditorPanels | null = null;
 let lastSaved = '';
 let autosaveTimer = 0;
 
@@ -175,6 +177,7 @@ async function openEditor(model: SceneModel, isNew = false): Promise<void> {
 	setSaveState('');
 	editor = new SceneEditor($<HTMLCanvasElement>('view'), storage, model);
 	editor.onNotice = notice;
+	panels = new EditorPanels(editor);
 	try {
 		await editor.load();
 	} catch (e) {
@@ -216,6 +219,8 @@ async function closeEditor(): Promise<void> {
 	clearInterval(autosaveTimer);
 	document.removeEventListener('visibilitychange', autosaveOnHide);
 	await saveOpen(false);
+	panels?.dispose();
+	panels = null;
 	editor.dispose();
 	editor = null;
 	$('editor-bar').hidden = true;

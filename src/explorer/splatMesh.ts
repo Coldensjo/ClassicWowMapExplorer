@@ -31,6 +31,16 @@ export interface SplatGeometry {
 	indices: Uint32Array;
 }
 
+/** Where one chunk's vertices sit in the geometry, for updating heights in place (the editor). */
+export interface ChunkVertexLayout {
+	/** The chunk's index (y * 16 + x). */
+	id: number;
+	/** First of the chunk's 145 vertices: 81 outer row-major, then 64 inner. */
+	base: number;
+	/** Skirt vertices: copies of outer lattice vertex (gx, gz) dropped by the skirt depth. */
+	skirts: { vertex: number; gx: number; gz: number }[];
+}
+
 export interface SplatTerrain {
 	geometry: SplatGeometry;
 	groups: SplatGroup[];
@@ -40,8 +50,16 @@ export interface SplatTerrain {
 	textures: number[];
 	/** 129x129 outer heights. */
 	heights: Float32Array;
+	/** 128x128 inner (cell-centre) heights. */
+	inner: Float32Array;
+	/** Shared-lattice normals (129x129 outer then 128x128 inner, xyz each), as the vertices copy them. */
+	latticeNormals: Float32Array;
 	/** 128x128 cells, 1 where the terrain has a hole (cave and mine entrances). */
 	holes: Uint8Array;
+	/** How far skirt vertices hang below their lattice vertex. */
+	skirtDepth: number;
+	/** Each chunk's vertex ranges, in root.chunks order. */
+	layout: ChunkVertexLayout[];
 }
 
 const OUTER = 9;
@@ -89,11 +107,14 @@ export function buildSplatTerrain(root: AdtRoot, tex: AdtTex, skirtDepth = 30): 
 
 	// Triangles per chunk, collected so they can be reordered by texture group.
 	const chunkTriangles = new Map<number, number[]>();
+	const layout: ChunkVertexLayout[] = [];
 	for (const c of root.chunks) {
 		const id = c.indexY * CHUNKS_PER_TILE + c.indexX;
 		const x0 = c.indexX * 8;
 		const y0 = c.indexY * 8;
 		const base = next;
+		const chunkLayout: ChunkVertexLayout = { id, base, skirts: [] };
+		layout.push(chunkLayout);
 		for (let row = 0; row < OUTER; row++) {
 			for (let col = 0; col < OUTER; col++) addVertex(sharedOuter(y0 + row, x0 + col), id, c.colors, row * 17 + col);
 		}
@@ -122,7 +143,11 @@ export function buildSplatTerrain(root: AdtRoot, tex: AdtTex, skirtDepth = 30): 
 		if (c.indexX === 15) edges.push(line((k) => [k, 8]));
 		for (const edge of edges) {
 			const top = edge.map(([row, col]) => base + row * OUTER + col);
-			const bottom = edge.map(([row, col]) => addVertex(sharedOuter(y0 + row, x0 + col), id, c.colors, row * 17 + col, skirtDepth));
+			const bottom = edge.map(([row, col]) => {
+				const vertex = addVertex(sharedOuter(y0 + row, x0 + col), id, c.colors, row * 17 + col, skirtDepth);
+				chunkLayout.skirts.push({ vertex, gx: x0 + col, gz: y0 + row });
+				return vertex;
+			});
 			for (let k = 0; k < OUTER - 1; k++) {
 				const a = top[k], b = top[k + 1], sa = bottom[k], sb = bottom[k + 1];
 				// Both windings, so the skirt shows from either side.
@@ -185,6 +210,10 @@ export function buildSplatTerrain(root: AdtRoot, tex: AdtTex, skirtDepth = 30): 
 		alpha,
 		textures: [...textures],
 		heights: grids.outer,
+		inner: grids.inner,
+		latticeNormals: shared.normals.slice(0, ((n + 1) * (n + 1) + n * n) * 3),
 		holes: grids.holes,
+		skirtDepth,
+		layout,
 	};
 }

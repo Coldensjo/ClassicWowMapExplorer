@@ -221,6 +221,16 @@
 			<button id="place-restore" title="Bring back the copied objects you deleted" hidden></button>
 			<p id="place-hint" class="muted small"></p>
 		</div>
+		<div id="revert-props" class="tool-props" hidden>
+			<h3>Revert to base</h3>
+			<p class="muted small">Puts the chunks the brush passes over back the way the source map has them.</p>
+			<label class="prop-row"><input type="checkbox" id="revert-heights"> Heights</label>
+			<label class="prop-row"><input type="checkbox" id="revert-vertexShade"> Vertex shading</label>
+			<label class="prop-row"><input type="checkbox" id="revert-paint"> Textures</label>
+			<label class="prop-row"><input type="checkbox" id="revert-holes"> Holes</label>
+			<label class="prop-row"><input type="checkbox" id="revert-water"> Water</label>
+			<label class="prop-row">Radius <input type="range" id="revert-radius" min="1" max="100" step="1" title="[ and ] change it too"><output id="revert-radius-out"></output></label>
+		</div>
 		<!-- Ground clutter settings (spec 7.7), under whichever tool is open. -->
 		<div id="clutter-box" class="tool-props">
 			<h3>Ground clutter</h3>

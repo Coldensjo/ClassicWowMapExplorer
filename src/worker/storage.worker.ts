@@ -101,6 +101,12 @@ const api: AsyncStorageApi = {
 	async loadImages(fdids) {
 		return requireWorld().loadImages(fdids);
 	},
+	async loadThumbnails(fdids, maxSize) {
+		return requireWorld().loadThumbnails(fdids, maxSize);
+	},
+	async fileStatus(fdids) {
+		return requireWorld().fileStatus(fdids);
+	},
 	async textureOpacity(fdids) {
 		return requireWorld().textureOpacity(fdids);
 	},

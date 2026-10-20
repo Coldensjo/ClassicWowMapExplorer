@@ -2604,3 +2604,68 @@ body.wow-ui {
 .tool-props .paint-modes {
 	grid-template-columns: 1fr 1fr;
 }
+
+/* ---- The texture asset browser (spec 7.3) ---- */
+
+#texture-browser .browser-top {
+	display: flex;
+	gap: 4px;
+}
+
+#texture-browser .browser-top input {
+	flex: 1;
+	min-width: 0;
+}
+
+.texture-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr 1fr;
+	gap: 4px;
+	max-height: 240px;
+	overflow: auto;
+	margin-top: 6px;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	padding: 4px;
+}
+
+.texture-item {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 2px;
+	padding: 4px 2px;
+	border: 1px solid transparent;
+	border-radius: 6px;
+	background: none;
+	font-size: 10px;
+	line-height: 1.2;
+}
+
+.texture-item canvas {
+	width: 56px;
+	height: 56px;
+	border-radius: 4px;
+	background: #20242b;
+}
+
+.texture-item span {
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--muted);
+}
+
+.texture-item.active {
+	border-color: var(--accent);
+	background: rgba(217, 164, 65, 0.15);
+}
+
+.texture-item.greyed {
+	opacity: 0.35;
+}
+
+#texture-count {
+	margin-top: 4px;
+}

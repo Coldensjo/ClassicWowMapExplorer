@@ -1,7 +1,9 @@
-import { BASE_TEXTURES, textureName } from './baseTextures';
+import type { AsyncStorageApi } from '../worker/protocol';
+import { textureName } from './baseTextures';
 import type { PaintMode } from './paint';
 import type { SceneEditor } from './sceneEditor';
 import type { Falloff, SculptMode } from './sculpt';
+import { TextureBrowser } from './textureBrowser';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -39,7 +41,12 @@ const SCULPT_HINTS: Record<SculptMode, string> = {
 export class EditorPanels {
 	private readonly cleanups: (() => void)[] = [];
 
-	constructor(private readonly editor: SceneEditor) {
+	private readonly textures: TextureBrowser;
+
+	constructor(
+		private readonly editor: SceneEditor,
+		storage: AsyncStorageApi,
+	) {
 		this.show(true);
 		this.wireRail();
 		this.wireSculpt();
@@ -47,6 +54,10 @@ export class EditorPanels {
 		this.wireUndo();
 		this.wireKeys();
 		this.wireStatus();
+		this.textures = new TextureBrowser(storage, editor.paint.fdid, (fdid) => {
+			editor.paint.fdid = fdid;
+			this.syncPaint();
+		}, (text) => editor.onNotice(text));
 		this.syncSculpt();
 		this.syncPaint();
 	}
@@ -152,25 +163,6 @@ export class EditorPanels {
 		this.listen($('paint-policy'), 'change', () => {
 			paint.policy = $<HTMLSelectElement>('paint-policy').value as typeof paint.policy;
 		});
-		this.buildTextureList();
-	}
-
-	/** The textures to paint with: the scene's palette plus the starter set (spec 3.2). */
-	private buildTextureList(): void {
-		const list = $('paint-textures');
-		const fdids = [...new Set([...this.editor.model.textures, ...BASE_TEXTURES.map((t) => t.fdid)])];
-		list.replaceChildren(
-			...fdids.map((fdid) => {
-				const button = document.createElement('button');
-				button.textContent = textureName(fdid);
-				button.dataset.fdid = String(fdid);
-				button.addEventListener('click', () => {
-					this.editor.paint.fdid = fdid;
-					this.syncPaint();
-				});
-				return button;
-			}),
-		);
 	}
 
 	private syncPaint(): void {
@@ -178,9 +170,7 @@ export class EditorPanels {
 		for (const mode of Object.keys(PAINT_HINTS) as PaintMode[]) {
 			$(`paint-${mode}`).classList.toggle('active', paint.mode === mode);
 		}
-		for (const button of $('paint-textures').children) {
-			button.classList.toggle('active', Number((button as HTMLElement).dataset.fdid) === paint.fdid);
-		}
+		$('texture-picked').textContent = `Painting with ${(this.textures as TextureBrowser | undefined)?.labelOf(paint.fdid) ?? textureName(paint.fdid)}`;
 		$<HTMLInputElement>('paint-radius').value = String(paint.radius);
 		$('paint-radius-out').textContent = `${paint.radius} yd`;
 		$<HTMLInputElement>('paint-strength').value = String(paint.strength);
@@ -259,6 +249,7 @@ export class EditorPanels {
 	}
 
 	dispose(): void {
+		this.textures.dispose();
 		for (const cleanup of this.cleanups) cleanup();
 		this.cleanups.length = 0;
 		this.show(false);

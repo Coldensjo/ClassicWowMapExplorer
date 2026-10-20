@@ -1,3 +1,4 @@
+import { dbOp, SCENE_STORE } from './db';
 import type { SceneModel } from './sceneModel';
 import { decodeScene, encodeScene, type DecodedScene } from './wscene';
 
@@ -18,30 +19,10 @@ export interface SceneSummary {
 	thumbnail: Blob | null;
 }
 
-const DB_NAME = 'dungeonBuilder';
-const STORE = 'scenes';
 const FOLDER = 'scenes';
 
-function openIndex(): Promise<IDBDatabase> {
-	return new Promise((resolve, reject) => {
-		const request = indexedDB.open(DB_NAME, 1);
-		request.onupgradeneeded = () => request.result.createObjectStore(STORE, { keyPath: 'id' });
-		request.onsuccess = () => resolve(request.result);
-		request.onerror = () => reject(request.error);
-	});
-}
-
 function indexOp<T>(mode: IDBTransactionMode, op: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-	return openIndex().then(
-		(db) =>
-			new Promise<T>((resolve, reject) => {
-				const tx = db.transaction(STORE, mode);
-				const request = op(tx.objectStore(STORE));
-				request.onsuccess = () => resolve(request.result);
-				request.onerror = () => reject(request.error);
-				tx.oncomplete = () => db.close();
-			}),
-	);
+	return dbOp(SCENE_STORE, mode, op);
 }
 
 async function sceneFolder(): Promise<FileSystemDirectoryHandle> {

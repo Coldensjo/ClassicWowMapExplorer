@@ -124,7 +124,16 @@
 				<button id="paint-fill" title="Fill a whole chunk with the texture">Fill chunk</button>
 				<button id="paint-base" title="Replace a chunk's base texture, keeping the painted layers">Set base</button>
 			</div>
-			<div id="paint-textures" class="texture-list" aria-label="Texture"></div>
+			<!-- The texture asset browser (spec 7.3): search and thumbnails over the listfile's tileset textures. -->
+			<div id="texture-browser">
+				<div class="browser-top">
+					<input id="texture-search" type="search" placeholder="Search textures… e.g. elwynn grass" autocomplete="off" spellcheck="false" aria-label="Search textures">
+					<button id="texture-refresh" title="Fetch the listfile afresh" aria-label="Refresh the listfile">⟳</button>
+				</div>
+				<div id="texture-grid" class="texture-grid" aria-label="Textures"></div>
+				<div id="texture-count" class="muted small"></div>
+			</div>
+			<div id="texture-picked" class="muted small"></div>
 			<label class="prop-row">Radius <input type="range" id="paint-radius" min="1" max="100" step="1" title="[ and ] change it too"><output id="paint-radius-out"></output></label>
 			<label class="prop-row">Strength <input type="range" id="paint-strength" min="0" max="1" step="0.05" title="Shift+[ and Shift+] change it too"><output id="paint-strength-out"></output></label>
 			<label class="prop-row" id="paint-opacity-row">Opacity <input type="range" id="paint-opacity" min="0" max="1" step="0.05" title="The strongest blend the brush paints toward"><output id="paint-opacity-out"></output></label>

@@ -1,3 +1,4 @@
+import type { FileStatus } from '../casc/storage';
 import { parseAdtRoot, TILE_CELLS, TILE_SIZE, tileGrids } from '../formats/adt';
 import { parseAdtTex } from '../formats/adtTex';
 import { blpTexture, decodeBlp, mipmapped, type Image, type TextureData } from '../formats/blp';
@@ -360,6 +361,22 @@ export class WorldLoader {
 	/** The world map's continents and zones on the continents (see worldMap.ts). */
 	loadWorldMaps(mapIds: number[]): Promise<WorldMapInfo[]> {
 		return loadWorldMaps(this.storage, mapIds);
+	}
+
+	/** Thumbnails for the asset browser (spec 7.3): the mip closest to maxSize, decoded here. */
+	async loadThumbnails(fdids: number[], maxSize: number): Promise<(Image | null)[]> {
+		return Promise.all(fdids.map(async (fdid) => {
+			try {
+				return decodeBlp(await this.storage.readFile(fdid), maxSize);
+			} catch {
+				return null;
+			}
+		}));
+	}
+
+	/** Whether each file's data is really here; 'not-local' files show greyed (spec 7.1). */
+	fileStatus(fdids: number[]): FileStatus[] {
+		return fdids.map((fdid) => this.storage.status(fdid));
 	}
 
 	/** Pictures from the install by file ID, decoded; null for any it can't read. */

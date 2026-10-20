@@ -164,7 +164,7 @@ async function openEditor(model: SceneModel, isNew = false): Promise<void> {
 	setSaveState('');
 	editor = new SceneEditor($<HTMLCanvasElement>('view'), storage, model);
 	editor.onNotice = notice;
-	panels = new EditorPanels(editor);
+	panels = new EditorPanels(editor, storage);
 	try {
 		await editor.load();
 	} catch (e) {

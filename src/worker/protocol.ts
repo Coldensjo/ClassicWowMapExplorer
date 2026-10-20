@@ -1,5 +1,5 @@
 import type { ProductInfo } from '../casc/config';
-import type { StorageStats } from '../casc/storage';
+import type { FileStatus, StorageStats } from '../casc/storage';
 import type { AreaInfo, LightingData } from '../explorer/lighting';
 import type { MapSummary } from '../explorer/maps';
 import type { LiquidLooks } from '../explorer/clientDb';
@@ -43,6 +43,10 @@ export interface StorageApi {
 	loadFont(fdid: number): Uint8Array;
 	loadInterfaceImages(paths: string[]): (Image | null)[];
 	loadImages(fdids: number[]): (Image | null)[];
+	/** Images decoded at the mip closest to maxSize, for asset-browser thumbnails (spec 7.3). */
+	loadThumbnails(fdids: number[], maxSize: number): (Image | null)[];
+	/** Whether each file's data is really in the local install ('not-local' shows greyed, spec 7.1). */
+	fileStatus(fdids: number[]): FileStatus[];
 	textureOpacity(fdids: number[]): number[];
 	loadWorldMaps(mapIds: number[]): WorldMapInfo[];
 }

@@ -1,8 +1,10 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
+import type { CopyTile } from '../explorer/copyWorld';
 import { CHUNK_HEIGHTS, CHUNKS_PER_TILE } from '../formats/adt';
 import { ALPHA_SIZE } from '../formats/adtTex';
-import { SceneModel, type SceneChunk, type SceneTile } from './sceneModel';
-import { MAX_COPIED_TILES, SCENE_VERSION, type BinRef, type Chunk, type PlacedObject, type Scene, type Tile, type Vec3 } from './types';
+import { baseObjectsFromCopy, baseTileFromCopy, cloneChunk, composeObjects, matchesTemplate } from './copyScene';
+import { sameWater, SceneModel, type SceneBaseData, type SceneChunk, type SceneTile, type SceneWater } from './sceneModel';
+import { MAX_COPIED_TILES, SCENE_VERSION, type BinRef, type Chunk, type ChunkLayer, type ChunkOverride, type PlacedObject, type Scene, type Tile, type Vec3, type WaterSettings } from './types';
 
 /**
  * The .wscene container (spec 6.2): a zip holding scene.json plus the binary arrays it references
@@ -50,38 +52,112 @@ function holesFromHex(hex: string): Uint8Array {
 	return new Uint8Array(Array.from({ length: 8 }, (_, i) => parseInt(hex.slice(i * 2, i * 2 + 2), 16)));
 }
 
+// ---- Byte-for-byte channel comparisons, for the save-time sweep (spec 6.5) ----
+
+function sameF32(a: Float32Array, b: Float32Array): boolean {
+	if (a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+	return true;
+}
+
+function sameU8(a: Uint8Array | null, b: Uint8Array | null): boolean {
+	if (!a || !b) return a === b;
+	if (a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+	return true;
+}
+
+function sameLayers(a: ChunkLayer[], b: ChunkLayer[]): boolean {
+	return a.length === b.length && a.every((l, i) => l.texture === b[i].texture && l.effectId === b[i].effectId);
+}
+
 /** Serializes a scene to .wscene bytes. The thumbnail is a 512x288 WebP render, when one is given. */
 export function encodeScene(model: SceneModel, thumbnail: Uint8Array | null = null): Uint8Array {
-	if (model.meta.base) throw new Error('Copied scenes are not supported yet');
 	const heights = new BinWriter('heights.bin');
 	const alpha = new BinWriter('alpha.bin');
 	const shade = new BinWriter('shade.bin');
 
-	const tiles: Tile[] = model.tiles.map((tile) => ({
-		x: tile.x,
-		y: tile.y,
-		chunks: tile.chunks.map((c): Chunk => {
-			if (c.layers.length < 1 || c.layers.length > 4) throw new Error(`A chunk has ${c.layers.length} texture layers`);
-			const expectAlpha = (c.layers.length - 1) * ALPHA_BYTES;
-			if ((c.alpha?.length ?? 0) !== expectAlpha) throw new Error(`A chunk with ${c.layers.length} layers has ${c.alpha?.length ?? 0} alpha bytes, expected ${expectAlpha}`);
-			return {
-				heights: heights.add(new Uint8Array(c.heights.buffer, c.heights.byteOffset, c.heights.byteLength)),
-				...(c.vertexShade ? { vertexShade: shade.add(c.vertexShade) } : {}),
-				layers: c.layers,
-				alpha: c.alpha ? alpha.add(c.alpha) : null,
-				holes: holesToHex(c.holes),
-				water: c.water ? { kind: c.water.kind, height: c.water.height, coverage: holesToHex(c.water.coverage) } : null,
-			};
-		}),
-	}));
+	const checkPaint = (c: SceneChunk): void => {
+		if (c.layers.length < 1 || c.layers.length > 4) throw new Error(`A chunk has ${c.layers.length} texture layers`);
+		const expectAlpha = (c.layers.length - 1) * ALPHA_BYTES;
+		if ((c.alpha?.length ?? 0) !== expectAlpha) throw new Error(`A chunk with ${c.layers.length} layers has ${c.alpha?.length ?? 0} alpha bytes, expected ${expectAlpha}`);
+	};
+	const heightBytes = (c: SceneChunk): Uint8Array => new Uint8Array(c.heights.buffer, c.heights.byteOffset, c.heights.byteLength);
+	const waterOut = (water: SceneWater): WaterSettings => ({ kind: water.kind, height: water.height, coverage: holesToHex(water.coverage) });
+
+	const encodeChunk = (c: SceneChunk): Chunk => {
+		checkPaint(c);
+		return {
+			heights: heights.add(heightBytes(c)),
+			...(c.vertexShade ? { vertexShade: shade.add(c.vertexShade) } : {}),
+			layers: c.layers,
+			alpha: c.alpha ? alpha.add(c.alpha) : null,
+			holes: holesToHex(c.holes),
+			water: c.water ? waterOut(c.water) : null,
+		};
+	};
+
+	/** The channels of a working chunk that differ from its base, or null for none (spec 6.5). */
+	const encodeOverride = (c: SceneChunk, b: SceneChunk): ChunkOverride | null => {
+		const o: ChunkOverride = {};
+		if (!sameF32(c.heights, b.heights)) o.heights = heights.add(heightBytes(c));
+		if (c.vertexShade && !sameU8(c.vertexShade, b.vertexShade)) o.vertexShade = shade.add(c.vertexShade);
+		// Layers and alpha are always overridden together (spec 6.1).
+		if (!sameLayers(c.layers, b.layers) || !sameU8(c.alpha, b.alpha)) {
+			checkPaint(c);
+			o.layers = c.layers;
+			o.alpha = c.alpha ? alpha.add(c.alpha) : null;
+		}
+		if (!sameU8(c.holes, b.holes)) o.holes = holesToHex(c.holes);
+		if (!sameWater(c.water, b.water)) o.water = c.water ? waterOut(c.water) : null;
+		return Object.keys(o).length ? o : null;
+	};
+
+	let tiles: Tile[];
+	let base = model.meta.base;
+	let objects = model.objects;
+	if (model.baseData && base) {
+		// A copied scene saves only its diffs: the sweep compares each touched chunk to the base
+		// and writes the channels that differ, so edits undone back to base don't bloat the file.
+		const baseData = model.baseData;
+		tiles = model.tiles.map((tile, tileIndex) => {
+			const touched = model.touchedChunks.get(tileIndex);
+			const overrides: Record<number, ChunkOverride> = {};
+			let any = false;
+			if (touched) {
+				const ids = touched === 'all' ? tile.chunks.map((_, i) => i) : [...touched];
+				for (const id of ids) {
+					const override = encodeOverride(tile.chunks[id], baseData.tiles[tileIndex].chunks[id]);
+					if (override) {
+						overrides[id] = override;
+						any = true;
+					}
+				}
+			}
+			return { x: tile.x, y: tile.y, chunks: null, ...(any ? { overrides } : {}) };
+		});
+		// Objects: an entry still matching its base object is dropped; a base object with no entry
+		// at all was deleted, and its key goes to removedObjects (spec 6.5).
+		const templates = new Map(baseData.objects.map((t) => [t.baseKey, t]));
+		objects = model.objects.filter((o) => {
+			if (!o.baseKey) return true;
+			const t = templates.get(o.baseKey);
+			return !t || !matchesTemplate(o, t);
+		});
+		const present = new Set(model.objects.map((o) => o.baseKey));
+		base = { ...base, removedObjects: baseData.objects.filter((t) => !present.has(t.baseKey)).map((t) => t.baseKey) };
+	} else {
+		tiles = model.tiles.map((tile) => ({ x: tile.x, y: tile.y, chunks: tile.chunks.map(encodeChunk) }));
+	}
 
 	const scene: Scene = {
 		format: 'wscene',
 		version: SCENE_VERSION,
 		...model.meta,
+		base,
 		textures: model.textures,
 		tiles,
-		objects: model.objects,
+		objects,
 		npcPresets: model.npcPresets,
 		npcs: model.npcs,
 	};
@@ -100,10 +176,19 @@ export function encodeScene(model: SceneModel, thumbnail: Uint8Array | null = nu
 export interface DecodedScene {
 	model: SceneModel;
 	thumbnail: Uint8Array | null;
+	/** Copied scenes: stored object edits whose base object the source no longer lists, dropped (spec 6.5). */
+	missingObjects: number;
 }
 
-/** Reads .wscene bytes back into a SceneModel, refusing anything but a valid container. */
-export function decodeScene(bytes: Uint8Array): DecodedScene {
+/** A .wscene container opened but not yet turned into a model, so callers can look at scene.base first. */
+export interface SceneFile {
+	scene: Scene;
+	files: Record<string, Uint8Array>;
+	thumbnail: Uint8Array | null;
+}
+
+/** Unzips and validates the container and the scene.json version, migrating older versions. */
+export function readSceneFile(bytes: Uint8Array): SceneFile {
 	let files: Record<string, Uint8Array>;
 	try {
 		files = unzipSync(bytes);
@@ -127,7 +212,22 @@ export function decodeScene(bytes: Uint8Array): DecodedScene {
 		throw new Error(`This scene was made with a newer version of the builder (format ${scene.version}; this build reads up to ${SCENE_VERSION}). Update to open it.`);
 	}
 	migrate(scene);
-	return { model: toModel(scene, files), thumbnail: files['thumbnail.webp'] ?? null };
+	return { scene, files, thumbnail: files['thumbnail.webp'] ?? null };
+}
+
+/**
+ * Reads .wscene bytes back into a SceneModel, refusing anything but a valid container. A copied
+ * scene needs its source tiles loaded first (readSceneFile says whether scene.base is set), passed
+ * here row-major over the base rectangle.
+ */
+export function decodeScene(bytes: Uint8Array, copyTiles?: CopyTile[]): DecodedScene {
+	return decodeFile(readSceneFile(bytes), copyTiles);
+}
+
+/** Turns an opened container into a model; see decodeScene. */
+export function decodeFile(file: SceneFile, copyTiles?: CopyTile[]): DecodedScene {
+	const { model, missingObjects } = toModel(file.scene, file.files, copyTiles);
+	return { model, thumbnail: file.thumbnail, missingObjects };
 }
 
 /** Brings an older scene.json up to the current version, step by step (spec 6.4). */
@@ -141,8 +241,7 @@ function migrate(scene: Omit<Scene, 'version'> & { version: number }): void {
 	}
 }
 
-function toModel(scene: Scene, files: Record<string, Uint8Array>): SceneModel {
-	if (scene.base) throw new Error('Copied scenes are not supported yet');
+function toModel(scene: Scene, files: Record<string, Uint8Array>, copyTiles?: CopyTile[]): { model: SceneModel; missingObjects: number } {
 	const { tilesX, tilesY } = scene.size ?? {};
 	if (!Number.isInteger(tilesX) || !Number.isInteger(tilesY) || tilesX < 1 || tilesY < 1 || tilesX > MAX_COPIED_TILES || tilesY > MAX_COPIED_TILES) {
 		throw new Error(`Bad scene size ${tilesX}x${tilesY}`);
@@ -160,59 +259,126 @@ function toModel(scene: Scene, files: Record<string, Uint8Array>): SceneModel {
 		}
 		return file.slice(ref.offset, ref.offset + ref.length);
 	};
+	const readHeights = (ref: BinRef, what: string): Float32Array => {
+		const bytes = read(ref, HEIGHTS_BYTES, what);
+		const heights = new Float32Array(bytes.buffer, bytes.byteOffset, CHUNK_HEIGHTS);
+		if (!heights.every(Number.isFinite)) throw new Error(`${what.replace(/ heights$/, '')} has non-finite heights`);
+		return heights;
+	};
+	const checkLayers = (layers: ChunkLayer[], what: string): void => {
+		if (!Array.isArray(layers) || layers.length < 1 || layers.length > 4) throw new Error(`${what} has ${layers?.length ?? 0} texture layers`);
+		for (const layer of layers) {
+			if (!Number.isInteger(layer.texture) || layer.texture < 0 || layer.texture >= scene.textures.length) {
+				throw new Error(`${what} paints texture ${layer.texture}, outside the palette of ${scene.textures.length}`);
+			}
+		}
+	};
+	const readWater = (water: WaterSettings, what: string): SceneWater => {
+		if (!(Number.isInteger(water?.kind) && Number.isFinite(water?.height))) throw new Error(`${what} has bad water settings`);
+		// Scenes written before the v0.4 coverage mask carry none: water covers the chunk.
+		return { kind: water.kind, height: water.height, coverage: water.coverage ? holesFromHex(water.coverage) : new Uint8Array(8).fill(0xff) };
+	};
 
+	const meta = {
+		id: scene.id,
+		name: scene.name,
+		created: scene.created,
+		modified: scene.modified,
+		client: scene.client,
+		size: scene.size,
+		base: scene.base,
+		spawn: scene.spawn,
+		environment: scene.environment,
+		player: scene.player,
+	};
+
+	if (!scene.base) {
+		const tiles: SceneTile[] = scene.tiles.map((tile, index) => {
+			if (tile.x !== index % tilesX || tile.y !== Math.floor(index / tilesX)) throw new Error(`Tile ${index} is out of order`);
+			if (!Array.isArray(tile.chunks) || tile.chunks.length !== CHUNK_COUNT) {
+				throw new Error(`Tile ${tile.x}_${tile.y} holds ${tile.chunks?.length ?? 0} chunks, expected ${CHUNK_COUNT}`);
+			}
+			const chunks = tile.chunks.map((c, i): SceneChunk => {
+				const what = `Tile ${tile.x}_${tile.y} chunk ${i}`;
+				checkLayers(c.layers, what);
+				const expectAlpha = (c.layers.length - 1) * ALPHA_BYTES;
+				if (expectAlpha === 0 && c.alpha) throw new Error(`${what} has one layer but an alpha map`);
+				if (expectAlpha > 0 && !c.alpha) throw new Error(`${what} has ${c.layers.length} layers but no alpha map`);
+				return {
+					heights: readHeights(c.heights, `${what} heights`),
+					vertexShade: c.vertexShade ? read(c.vertexShade, SHADE_BYTES, `${what} shading`) : null,
+					layers: c.layers,
+					alpha: c.alpha ? read(c.alpha, expectAlpha, `${what} alpha`) : null,
+					holes: holesFromHex(c.holes),
+					water: c.water ? readWater(c.water, what) : null,
+				};
+			});
+			return { x: tile.x, y: tile.y, chunks };
+		});
+
+		const model = new SceneModel(meta, scene.textures, tiles, validObjects(scene.objects ?? []), scene.npcPresets ?? [], scene.npcs ?? []);
+		return { model, missingObjects: 0 };
+	}
+
+	// A copied scene (spec 6.5): rebuild the base from the source tiles, then lay the overrides,
+	// removals and object edits on top.
+	const base = scene.base;
+	const pair = (v: unknown): v is [number, number] => Array.isArray(v) && v.length === 2 && v.every((n) => Number.isInteger(n) && n >= 0 && n < 64);
+	if (!Number.isInteger(base.mapId) || base.mapId < 0 || typeof base.mapDirectory !== 'string' || !pair(base.tileMin) || !pair(base.tileMax)) {
+		throw new Error('Bad world base');
+	}
+	if (base.tileMax[0] - base.tileMin[0] + 1 !== tilesX || base.tileMax[1] - base.tileMin[1] + 1 !== tilesY) {
+		throw new Error('The world base rectangle does not match the scene size');
+	}
+	if (!Array.isArray(base.removedObjects) || !base.removedObjects.every((k) => typeof k === 'string')) throw new Error('Bad removed object list');
+	if (!copyTiles) throw new Error('This scene is a world copy; its source tiles must be read first');
+	if (copyTiles.length !== tilesX * tilesY) throw new Error(`The world base covers ${tilesX * tilesY} tiles but ${copyTiles.length} were read`);
+
+	const textureIndex = (fdid: number): number => {
+		const index = scene.textures.indexOf(fdid);
+		if (index >= 0) return index;
+		scene.textures.push(fdid);
+		return scene.textures.length - 1;
+	};
+	const baseTiles = copyTiles.map((copy) => baseTileFromCopy(copy, textureIndex));
+	const baseData: SceneBaseData = { tiles: baseTiles, objects: baseObjectsFromCopy(copyTiles, base) };
+
+	const touched = new Map<number, Set<number>>();
 	const tiles: SceneTile[] = scene.tiles.map((tile, index) => {
 		if (tile.x !== index % tilesX || tile.y !== Math.floor(index / tilesX)) throw new Error(`Tile ${index} is out of order`);
-		if (!Array.isArray(tile.chunks) || tile.chunks.length !== CHUNK_COUNT) {
-			throw new Error(`Tile ${tile.x}_${tile.y} holds ${tile.chunks?.length ?? 0} chunks, expected ${CHUNK_COUNT}`);
-		}
-		const chunks = tile.chunks.map((c, i): SceneChunk => {
-			const what = `Tile ${tile.x}_${tile.y} chunk ${i}`;
-			if (!Array.isArray(c.layers) || c.layers.length < 1 || c.layers.length > 4) throw new Error(`${what} has ${c.layers?.length ?? 0} texture layers`);
-			for (const layer of c.layers) {
-				if (!Number.isInteger(layer.texture) || layer.texture < 0 || layer.texture >= scene.textures.length) {
-					throw new Error(`${what} paints texture ${layer.texture}, outside the palette of ${scene.textures.length}`);
-				}
+		if (tile.chunks) throw new Error(`Tile ${tile.x}_${tile.y} of a copied scene holds full chunks`);
+		const chunks = baseTiles[index].chunks.map(cloneChunk);
+		for (const [key, override] of Object.entries(tile.overrides ?? {})) {
+			const id = Number(key);
+			if (!Number.isInteger(id) || id < 0 || id >= CHUNK_COUNT) throw new Error(`Tile ${tile.x}_${tile.y} overrides chunk "${key}"`);
+			const what = `Tile ${tile.x}_${tile.y} chunk ${id} override`;
+			const chunk = chunks[id];
+			if (override.heights) chunk.heights = readHeights(override.heights, `${what} heights`);
+			if (override.vertexShade) chunk.vertexShade = read(override.vertexShade, SHADE_BYTES, `${what} shading`);
+			if (override.layers) {
+				checkLayers(override.layers, what);
+				const expectAlpha = (override.layers.length - 1) * ALPHA_BYTES;
+				if (expectAlpha === 0 && override.alpha) throw new Error(`${what} has one layer but an alpha map`);
+				if (expectAlpha > 0 && !override.alpha) throw new Error(`${what} has ${override.layers.length} layers but no alpha map`);
+				chunk.layers = override.layers;
+				chunk.alpha = override.alpha ? read(override.alpha, expectAlpha, `${what} alpha`) : null;
+			} else if (override.alpha) {
+				throw new Error(`${what} has an alpha map without its layers`);
 			}
-			const heightBytes = read(c.heights, HEIGHTS_BYTES, `${what} heights`);
-			const heights = new Float32Array(heightBytes.buffer, heightBytes.byteOffset, CHUNK_HEIGHTS);
-			if (!heights.every(Number.isFinite)) throw new Error(`${what} has non-finite heights`);
-			const expectAlpha = (c.layers.length - 1) * ALPHA_BYTES;
-			if (expectAlpha === 0 && c.alpha) throw new Error(`${what} has one layer but an alpha map`);
-			if (expectAlpha > 0 && !c.alpha) throw new Error(`${what} has ${c.layers.length} layers but no alpha map`);
-			if (c.water !== null && !(Number.isInteger(c.water?.kind) && Number.isFinite(c.water?.height))) throw new Error(`${what} has bad water settings`);
-			return {
-				heights,
-				vertexShade: c.vertexShade ? read(c.vertexShade, SHADE_BYTES, `${what} shading`) : null,
-				layers: c.layers,
-				alpha: c.alpha ? read(c.alpha, expectAlpha, `${what} alpha`) : null,
-				holes: holesFromHex(c.holes),
-				// Scenes written before the v0.4 coverage mask carry none: water covers the chunk.
-				water: c.water ? { kind: c.water.kind, height: c.water.height, coverage: c.water.coverage ? holesFromHex(c.water.coverage) : new Uint8Array(8).fill(0xff) } : null,
-			};
-		});
+			if (override.holes !== undefined) chunk.holes = holesFromHex(override.holes);
+			if ('water' in override) chunk.water = override.water ? readWater(override.water, what) : null;
+			let set = touched.get(index);
+			if (!set) touched.set(index, (set = new Set()));
+			set.add(id);
+		}
 		return { x: tile.x, y: tile.y, chunks };
 	});
 
-	return new SceneModel(
-		{
-			id: scene.id,
-			name: scene.name,
-			created: scene.created,
-			modified: scene.modified,
-			client: scene.client,
-			size: scene.size,
-			base: scene.base,
-			spawn: scene.spawn,
-			environment: scene.environment,
-			player: scene.player,
-		},
-		scene.textures,
-		tiles,
-		validObjects(scene.objects ?? []),
-		scene.npcPresets ?? [],
-		scene.npcs ?? [],
-	);
+	const { objects, missing } = composeObjects(validObjects(scene.objects ?? []), baseData.objects, base.removedObjects);
+	const model = new SceneModel(meta, scene.textures, tiles, objects, scene.npcPresets ?? [], scene.npcs ?? [], baseData);
+	// Loaded overrides count as touched, so the next save's sweep re-checks them (spec 6.5).
+	for (const [index, set] of touched) model.touchedChunks.set(index, set);
+	return { model, missingObjects: missing };
 }
 
 /** Checks placed objects (spec 7.8) and keeps only the fields the format defines. */

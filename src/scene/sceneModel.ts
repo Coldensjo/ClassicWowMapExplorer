@@ -1,6 +1,7 @@
 import { CHUNK_HEIGHTS, CHUNK_SIZE, CHUNKS_PER_TILE, TILE_SIZE, type AdtChunk, type AdtRoot } from '../formats/adt';
 import { ALPHA_SIZE, type AdtTex } from '../formats/adtTex';
-import type { ChunkLayer, NpcAppearance, NpcPreset, PlacedNpc, PlacedObject, Scene, WorldBase } from './types';
+import type { LiquidInstance } from '../formats/mh2o';
+import type { ChunkLayer, NpcAppearance, NpcPreset, PlacedNpc, PlacedObject, Scene, Vec3, WorldBase } from './types';
 import { MAX_BLANK_TILES } from './types';
 
 /** A chunk's water as the editor holds it (spec 7.6): flat surface plus per-cell coverage. */
@@ -33,6 +34,40 @@ export interface SceneTile {
 	y: number;
 	/** 256 chunks, row-major (y * 16 + x). */
 	chunks: SceneChunk[];
+}
+
+/** Whether two water settings are the same surface, cell for cell. */
+export function sameWater(a: SceneWater | null, b: SceneWater | null): boolean {
+	if (!a || !b) return a === b;
+	return a.kind === b.kind && a.height === b.height && a.coverage.every((v, i) => v === b.coverage[i]);
+}
+
+// ---- Copied scenes (spec 6.5): the world base the working tiles diff against ----
+
+/** One source tile's pristine state, kept beside the (edited) working chunks. */
+export interface SceneBaseTile {
+	/** The base chunks in editor form (water as its derived flat form), never edited. */
+	chunks: SceneChunk[];
+	/** The source MH2O liquids, for rendering unedited water as the client does (spec 6.5). */
+	liquids: LiquidInstance[];
+}
+
+/** A copied object's source placement, already in scene space; keyed by its stable baseKey. */
+export interface BaseObjectTemplate {
+	baseKey: string;
+	kind: 'm2' | 'wmo';
+	fdid: number;
+	position: Vec3;
+	rotation: Vec3;
+	scale: number;
+	doodadSet?: number;
+	nameSet?: number;
+}
+
+export interface SceneBaseData {
+	/** tilesX * tilesY, row-major, like the working tiles. */
+	tiles: SceneBaseTile[];
+	objects: BaseObjectTemplate[];
 }
 
 export interface SceneMeta {
@@ -79,7 +114,33 @@ export class SceneModel {
 		readonly objects: PlacedObject[],
 		readonly npcPresets: NpcPreset[],
 		readonly npcs: PlacedNpc[],
+		/** Copied scenes only (spec 6.5): the pristine world base the working tiles diff against. */
+		readonly baseData: SceneBaseData | null = null,
 	) {}
+
+	/** The pristine base chunk behind a working chunk, or null in a blank scene. */
+	baseChunk(tileIndex: number, chunkId: number): SceneChunk | null {
+		return this.baseData?.tiles[tileIndex]?.chunks[chunkId] ?? null;
+	}
+
+	/**
+	 * Chunks that may differ from the base, by tile index ('all' for whole tiles): written by every
+	 * edit and undo, and at load for stored overrides, so the save-time sweep (spec 6.5) only
+	 * compares chunks that could have changed. Blank scenes don't keep it.
+	 */
+	readonly touchedChunks = new Map<number, Set<number> | 'all'>();
+
+	private touchChunk(tileIndex: number, chunkId: number): void {
+		if (!this.baseData) return;
+		const have = this.touchedChunks.get(tileIndex);
+		if (have === 'all') return;
+		if (have) have.add(chunkId);
+		else this.touchedChunks.set(tileIndex, new Set([chunkId]));
+	}
+
+	private touchTile(tileIndex: number): void {
+		if (this.baseData) this.touchedChunks.set(tileIndex, 'all');
+	}
 
 	/** A new flat scene (spec 3.2): 1x1 to 3x3 tiles at height 0, painted with one base texture. */
 	static blank(options: { name: string; tilesX: number; tilesY: number; baseTexture: number; client: Scene['client'] }): SceneModel {
@@ -137,7 +198,9 @@ export class SceneModel {
 	}
 
 	markDirty(tile: SceneTile): void {
-		this.dirtyTiles.add(tile.y * this.tilesX + tile.x);
+		const index = tile.y * this.tilesX + tile.x;
+		this.dirtyTiles.add(index);
+		this.touchTile(index);
 		this.meta.modified = new Date().toISOString();
 	}
 
@@ -145,6 +208,7 @@ export class SceneModel {
 		let set = map.get(tileIndex);
 		if (!set) map.set(tileIndex, (set = new Set()));
 		set.add(chunkId);
+		this.touchChunk(tileIndex, chunkId);
 		this.meta.modified = new Date().toISOString();
 	}
 
@@ -158,6 +222,7 @@ export class SceneModel {
 
 	markWaterDirty(tileIndex: number): void {
 		this.dirtyWater.add(tileIndex);
+		this.touchTile(tileIndex);
 		this.meta.modified = new Date().toISOString();
 	}
 

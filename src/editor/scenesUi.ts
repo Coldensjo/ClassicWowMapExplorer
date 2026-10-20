@@ -71,13 +71,19 @@ function wireOnce(): void {
 	$('scene-create-cancel').addEventListener('click', () => ($('scene-create').hidden = true));
 	$('scene-create-form').addEventListener('submit', (e) => {
 		e.preventDefault();
+		const baseTexture = Number($<HTMLSelectElement>('scene-texture').value);
 		const model = SceneModel.blank({
 			name: $<HTMLInputElement>('scene-name').value.trim() || 'Untitled scene',
 			tilesX: Number($<HTMLSelectElement>('scene-tiles-x').value),
 			tilesY: Number($<HTMLSelectElement>('scene-tiles-y').value),
-			baseTexture: Number($<HTMLSelectElement>('scene-texture').value),
+			baseTexture,
 			client: { product: stats.product, build: stats.buildName },
 		});
+		// The base layer carries its texture's usual clutter where the scan already knows it (spec 7.7.2).
+		const effect = scan?.effectFor(baseTexture) ?? 0;
+		if (effect) {
+			for (const tile of model.tiles) for (const chunk of tile.chunks) chunk.layers[0].effectId = effect;
+		}
 		$('scene-create').hidden = true;
 		void openEditor(model, true);
 	});

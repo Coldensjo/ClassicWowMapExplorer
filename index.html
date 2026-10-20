@@ -185,6 +185,23 @@
 			<label class="prop-row"><input type="checkbox" id="place-random-yaw"> Random facing</label>
 			<label class="prop-row" title="Placed doodads pick a random size in this range">Scale <input type="number" id="place-scale-min" min="0.05" max="10" step="0.05" value="1"> – <input type="number" id="place-scale-max" min="0.05" max="10" step="0.05" value="1"></label>
 			<label class="prop-row">Grid snap <select id="place-snap"><option value="0">Off</option><option value="0.5">0.5 yd</option><option value="1">1 yd</option><option value="5">5 yd</option></select></label>
+			<label class="prop-row"><input type="checkbox" id="place-angle-snap" checked> 15° angle snap</label>
+			<div id="place-selection" hidden>
+				<h3>Selection</h3>
+				<div class="mode-row" role="group" aria-label="Gizmo mode">
+					<button id="gizmo-translate" title="Move the selection (W)">Move</button>
+					<button id="gizmo-rotate" title="Rotate the selection (E)">Rotate</button>
+					<button id="gizmo-scale" title="Scale the selection (R); doodads only">Scale</button>
+				</div>
+				<div class="mode-row" role="group" aria-label="Selection actions">
+					<button id="sel-drop" title="Set the selection down on the terrain">Drop to ground</button>
+					<button id="sel-duplicate" title="Copies beside the originals (Ctrl+D)">Duplicate</button>
+					<button id="sel-delete" title="Delete the selection (Del)">Delete</button>
+				</div>
+				<label class="prop-row"><input type="checkbox" id="sel-lock"> Locked</label>
+				<label class="prop-row">Group <input type="text" id="sel-group" placeholder="none" title="Objects sharing a group label select together"></label>
+				<div id="sel-count" class="muted small"></div>
+			</div>
 			<p id="place-hint" class="muted small"></p>
 		</div>
 		<!-- Ground clutter settings (spec 7.7), under whichever tool is open. -->

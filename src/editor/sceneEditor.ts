@@ -115,9 +115,18 @@ export class SceneEditor {
 	/** The editor core (spec 7.11): every change goes through a command. */
 	readonly commands = new CommandStack();
 	/** Which tool the left mouse button drives. */
-	tool: 'sculpt' | 'paint' | 'holes' | 'water' | 'place' = 'sculpt';
+	private activeTool: 'sculpt' | 'paint' | 'holes' | 'water' | 'place' = 'sculpt';
 	/** The placed doodads and buildings (spec 7.8). */
 	readonly objects: SceneObjects;
+
+	get tool(): 'sculpt' | 'paint' | 'holes' | 'water' | 'place' {
+		return this.activeTool;
+	}
+
+	set tool(tool: 'sculpt' | 'paint' | 'holes' | 'water' | 'place') {
+		this.activeTool = tool;
+		this.objects?.setActive(tool === 'place');
+	}
 	/** The hole brush (spec 7.6), edited by the properties panel. */
 	readonly holes: HoleSettings = { radius: 4, mode: 'cut' };
 	/** The water brush (spec 7.6), edited by the properties panel. */
@@ -197,6 +206,8 @@ export class SceneEditor {
 		this.scene.add(this.clutter.group);
 		this.objects = new SceneObjects(
 			this.scene,
+			this.camera,
+			canvas,
 			model,
 			this.commands,
 			storage,
@@ -756,6 +767,8 @@ export class SceneEditor {
 		}
 		const ground = this.model.surfaceAt(this.camera.position.x, this.camera.position.z);
 		this.clutter.update(performance.now(), this.camera.position, ground ?? -Infinity);
+		// The gizmo and boxes hide while walking or looking around, like the other overlays.
+		this.objects.setActive(this.tool === 'place' && !this.walker.active && !this.controls.locked);
 		this.objects.update(performance.now(), this.camera.position);
 		const now = performance.now();
 		for (let i = this.flags.length - 1; i >= 0; i--) {
@@ -870,12 +883,14 @@ export class SceneEditor {
 	}
 
 	/** Starts the active tool at the cursor (left button). */
-	private beginStroke(): void {
+	private beginStroke(event?: MouseEvent): void {
 		if (this.walker.active || this.controls.locked) return;
 		if (this.tool === 'place') {
-			if (Number.isNaN(this.mouse.x)) return;
+			// A press on the gizmo belongs to it, not to placing or selecting.
+			if (Number.isNaN(this.mouse.x) || this.objects.gizmoBusy || !event) return;
 			this.raycaster.setFromCamera(this.mouse, this.camera);
 			if (this.objects.place.mode === 'place') this.objects.placeClick(this.raycaster, this.cursor);
+			else this.objects.selectClick(this.raycaster, event);
 			return;
 		}
 		if (!this.cursor) return;
@@ -974,7 +989,7 @@ export class SceneEditor {
 			this.endStroke();
 			this.controls.lock();
 		} else if (e.button === 0 && !this.controls.locked) {
-			this.beginStroke();
+			this.beginStroke(e);
 		}
 	};
 
@@ -1009,6 +1024,22 @@ export class SceneEditor {
 			e.preventDefault();
 			this.redo();
 			return;
+		}
+		// The Place tool's editing keys (spec 8): copy/paste/duplicate, gizmo modes, delete.
+		if (this.tool === 'place' && !this.walker.active && !this.controls.locked) {
+			if (e.ctrlKey || e.metaKey) {
+				if (e.code === 'KeyC') this.objects.copySelection();
+				else if (e.code === 'KeyV') this.objects.paste();
+				else if (e.code === 'KeyD') this.objects.duplicateSelection();
+				else return;
+				e.preventDefault();
+				return;
+			}
+			if (e.code === 'KeyW') return this.objects.setGizmoMode('translate');
+			if (e.code === 'KeyE') return this.objects.setGizmoMode('rotate');
+			if (e.code === 'KeyR') return this.objects.setGizmoMode('scale');
+			if (e.code === 'Delete' || e.code === 'Backspace') return this.objects.deleteSelection();
+			if (e.code === 'Escape') return this.objects.clearSelection();
 		}
 		if (e.ctrlKey || e.metaKey) return;
 		if (e.code === 'Tab') {

@@ -299,7 +299,43 @@ export class EditorPanels {
 		this.listen($('place-snap'), 'change', () => {
 			place.gridSnap = Number($<HTMLSelectElement>('place-snap').value);
 		});
+		this.listen($('place-angle-snap'), 'change', () => {
+			place.angleSnap = $<HTMLInputElement>('place-angle-snap').checked;
+		});
+		const objects = this.editor.objects;
+		for (const mode of ['translate', 'rotate', 'scale'] as const) {
+			this.listen($(`gizmo-${mode}`), 'click', () => objects.setGizmoMode(mode));
+		}
+		this.listen($('sel-drop'), 'click', () => objects.dropToGround());
+		this.listen($('sel-duplicate'), 'click', () => objects.duplicateSelection());
+		this.listen($('sel-delete'), 'click', () => objects.deleteSelection());
+		this.listen($('sel-lock'), 'change', () => objects.setLocked($<HTMLInputElement>('sel-lock').checked));
+		this.listen($('sel-group'), 'change', () => objects.setGroup($<HTMLInputElement>('sel-group').value));
+		objects.onSelectionChange = () => this.syncSelection();
+		this.cleanups.push(() => {
+			objects.onSelectionChange = () => {};
+		});
 		this.syncPlace();
+		this.syncSelection();
+	}
+
+	/** Brings the selection block in line with what's selected and the gizmo mode. */
+	private syncSelection(): void {
+		const objects = this.editor.objects;
+		const selected = objects.selectedObjects();
+		$('place-selection').hidden = selected.length === 0;
+		for (const mode of ['translate', 'rotate', 'scale'] as const) {
+			$(`gizmo-${mode}`).classList.toggle('active', objects.gizmoMode === mode);
+		}
+		if (!selected.length) return;
+		const lock = $<HTMLInputElement>('sel-lock');
+		lock.checked = selected.every((o) => o.locked);
+		lock.indeterminate = !lock.checked && selected.some((o) => o.locked);
+		const groups = new Set(selected.map((o) => o.group ?? ''));
+		const group = $<HTMLInputElement>('sel-group');
+		if (document.activeElement !== group) group.value = groups.size === 1 ? [...groups][0] : '';
+		group.placeholder = groups.size > 1 ? 'mixed' : 'none';
+		$('sel-count').textContent = `${selected.length} selected · ${this.editor.objects.count} in the scene`;
 	}
 
 	private syncPlace(): void {

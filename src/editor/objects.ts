@@ -161,12 +161,32 @@ export class SceneObjects {
 		return this.model.objects.length;
 	}
 
+	/**
+	 * Whether the terrain under a point is shown: large scenes stream their tiles (Phase 4), and
+	 * objects stream with them, so nothing floats over terrain that isn't built.
+	 */
+	visibleAt: (x: number, z: number) => boolean = () => true;
+	/** Ids of the objects placed in the manager now. */
+	private readonly spawned = new Set<string>();
+
 	private spawn(o: PlacedObject): void {
+		if (!this.visibleAt(o.position[0], o.position[2])) return;
 		this.manager.placeLoose(o.id, o.kind, o.fdid, objectMatrix(o), o.doodadSet ?? 0);
+		this.spawned.add(o.id);
 	}
 
 	private despawn(id: string): void {
 		this.manager.removeLoose(id);
+		this.spawned.delete(id);
+	}
+
+	/** Spawns objects whose terrain streamed in and removes those whose terrain streamed out. */
+	syncVisibility(): void {
+		for (const o of this.model.objects) {
+			const visible = this.visibleAt(o.position[0], o.position[2]);
+			if (visible && !this.spawned.has(o.id)) this.spawn(o);
+			else if (!visible && this.spawned.has(o.id)) this.despawn(o.id);
+		}
 	}
 
 	/** Re-places an object whose structure changed (doodad set); a plain move keeps the instance. */
@@ -176,7 +196,12 @@ export class SceneObjects {
 	}
 
 	private move(o: PlacedObject): void {
-		this.manager.placeLoose(o.id, o.kind, o.fdid, objectMatrix(o), o.doodadSet ?? 0);
+		if (this.visibleAt(o.position[0], o.position[2])) {
+			this.manager.placeLoose(o.id, o.kind, o.fdid, objectMatrix(o), o.doodadSet ?? 0);
+			this.spawned.add(o.id);
+		} else if (this.spawned.has(o.id)) {
+			this.despawn(o.id);
+		}
 	}
 
 	/** The object a pick ray hits, resolved to its placed id (a WMO's own doodads count as it). */
@@ -349,6 +374,7 @@ export class SceneObjects {
 		const point = new THREE.Vector3();
 		const ids: string[] = [];
 		for (const o of this.model.objects) {
+			if (!this.spawned.has(o.id)) continue;
 			point.set(o.position[0], o.position[1], o.position[2]).project(this.camera);
 			if (point.z > 1 || point.z < -1) continue;
 			const sx = rect.left + ((point.x + 1) / 2) * rect.width;

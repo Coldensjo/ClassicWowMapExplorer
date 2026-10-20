@@ -233,6 +233,15 @@ export class SceneEditor {
 			(x, z) => this.model.surfaceAt(x, z),
 		);
 		this.objects.onNotice = (text) => this.onNotice(text);
+		this.objects.visibleAt = (x, z) => {
+			if (!this.streaming) return true;
+			const tx = Math.floor(x / TILE_SIZE);
+			const ty = Math.floor(z / TILE_SIZE);
+			// Objects off the scene's edge go with the nearest tile.
+			const cx = Math.max(0, Math.min(this.model.tilesX - 1, tx));
+			const cy = Math.max(0, Math.min(this.model.tilesY - 1, ty));
+			return this.tileMeshes.has(cy * this.model.tilesX + cx);
+		};
 		// The explorer's sea mask tints terrain below sea level; a scene has no sea.
 		seaMask.uSeaBounds.value.set(1e9, 1e9, 1, 1);
 
@@ -302,6 +311,7 @@ export class SceneEditor {
 			this.streamBuilding.add(index);
 			void this.buildTile(this.model.tiles[index]).finally(() => this.streamBuilding.delete(index));
 		}
+		this.objects.syncVisibility();
 	}
 
 	/** Whether a tile's mesh should exist: always for small scenes, near the camera when streaming. */

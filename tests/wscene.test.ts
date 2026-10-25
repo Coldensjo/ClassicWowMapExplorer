@@ -223,4 +223,8 @@ test('the environment round-trips, and odd or missing values fall back to the de
 	expect(tamper((j) => (j.environment = { lightPreset: -1, timeOfDay: 'noon' }))).toEqual({ lightPreset: 0, timeOfDay: 1440 });
 	// The time wraps round the day.
 	expect(tamper((j) => (j.environment!.timeOfDay = -60))).toEqual({ lightPreset: 12, timeOfDay: 2820 });
+	// Fog is on unless the file says it's off.
+	scene.setEnvironment({ lightPreset: 12, timeOfDay: 2000, fogOn: false });
+	expect(decodeScene(encodeScene(scene)).model.meta.environment).toEqual({ lightPreset: 12, timeOfDay: 2000, fogOn: false });
+	expect(tamper((j) => (j.environment!.fogOn = 'yes'))).toEqual({ lightPreset: 12, timeOfDay: 2000 });
 });

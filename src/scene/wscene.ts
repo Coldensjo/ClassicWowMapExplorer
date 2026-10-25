@@ -395,6 +395,7 @@ export function readEnvironment(environment: Partial<Scene['environment']> | und
 		timeOfDay: Number.isFinite(e.timeOfDay) ? ((Math.round(e.timeOfDay!) % 2880) + 2880) % 2880 : 1440,
 	};
 	if (e.fog && Number.isFinite(e.fog.start) && Number.isFinite(e.fog.end)) out.fog = { start: e.fog.start, end: e.fog.end };
+	if (e.fogOn === false) out.fogOn = false;
 	return out;
 }
 

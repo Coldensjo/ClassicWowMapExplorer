@@ -39,6 +39,8 @@ export interface Scene {
 		/** 0..2880 (half-minutes), as in WoW lighting. */
 		timeOfDay: number;
 		fog?: { start: number; end: number };
+		/** Whether fog is drawn at all (the preset's distance fog and the valley fog); left out when it is. */
+		fogOn?: boolean;
 	};
 	/** Play-mode avatar; null = default. */
 	player: NpcAppearance | null;

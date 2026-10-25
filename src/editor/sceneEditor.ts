@@ -1066,8 +1066,10 @@ export class SceneEditor {
 			this.fog.color.copy(SKY);
 			background.copy(SKY);
 		}
-		this.fog.near = fogNear;
-		this.fog.far = fogFar;
+		// Fog off: the distance fog pushed out past everything drawn (near and far apart, as smoothstep needs).
+		const fogOn = env.fogOn !== false;
+		this.fog.near = fogOn ? fogNear : FAR * 2;
+		this.fog.far = fogOn ? fogFar : FAR * 3;
 
 		// Under the scene's water the sky and fog don't show; the fog lies at the lowest ground around.
 		const pos = this.camera.position;
@@ -1077,7 +1079,7 @@ export class SceneEditor {
 		const base = this.lowestGroundAround(pos);
 		this.fogBase = this.fogBase === null ? base : this.fogBase + (base - this.fogBase) * 0.15;
 		this.fogLook.base = this.fogBase;
-		this.post.setFog(state && !this.underwater ? this.fogLook : null);
+		this.post.setFog(state && fogOn && !this.underwater ? this.fogLook : null);
 	}
 
 	/** Changes who the user plays as (spec 7.10), as one undoable command; the avatar changes at once if playing. */
@@ -1524,5 +1526,6 @@ export class SceneEditor {
 function tidyEnvironment(e: Scene['environment']): Scene['environment'] {
 	const out: Scene['environment'] = { lightPreset: e.lightPreset, timeOfDay: THREE.MathUtils.euclideanModulo(Math.round(e.timeOfDay), DAY) };
 	if (e.fog) out.fog = e.fog;
+	if (e.fogOn === false) out.fogOn = false;
 	return out;
 }

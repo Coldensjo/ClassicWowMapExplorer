@@ -623,13 +623,16 @@ export class EditorPanels {
 
 	private wireEnvironment(): void {
 		const time = $<HTMLInputElement>('env-time');
+		const fog = $<HTMLInputElement>('env-fog');
 		const sync = () => {
 			const env = this.editor.environment;
 			// The slider is in minutes, on quarter hours; the scene keeps half-minutes.
 			const minutes = Math.round(env.timeOfDay / 30) * 15;
 			time.value = String(minutes % 1440);
 			$('env-time-out').textContent = clock(env.timeOfDay / 2);
+			fog.checked = env.fogOn !== false;
 		};
+		this.listen(fog, 'change', () => this.editor.setEnvironment({ fogOn: fog.checked }, fog.checked ? 'Turn fog on' : 'Turn fog off'));
 		// Dragging previews each value; letting go records the whole drag as one command.
 		let timeBefore: typeof this.editor.environment | null = null;
 		this.listen(time, 'input', () => {

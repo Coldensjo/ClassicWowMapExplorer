@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SunLight } from 'three/addons/lights/SunLight.js';
 import { CHUNK_SIZE, CHUNKS_PER_TILE, TILE_CELLS, TILE_SIZE } from '../formats/adt';
 import { ALPHA_ATLAS_SIZE, buildSplatTerrain, type ChunkVertexLayout, type SplatGeometry } from '../explorer/splatMesh';
 import { sameWater, type SceneModel, type SceneTile } from '../scene/sceneModel';
@@ -13,6 +14,8 @@ import { TextureCache } from '../viewer/textureCache';
 import { createTexture, supportsClipControl, supportsCompressedTextures } from '../viewer/textures';
 import { DAY, Lighting, Sky, sunDirection } from '../viewer/lighting';
 import { PostPass, type FogSettings } from '../viewer/post';
+import { installShadowGroups, setShadowLight, shadowStandIns, useShadows } from '../viewer/shadows';
+import { TerrainShadowPass } from '../viewer/terrainShadow';
 import { SNOWFLAKE_TEXTURE, Weather } from '../viewer/weather';
 import { CommandStack } from './commands';
 import { HoleStroke, WaterStroke, type HoleSettings, type WaterSettings } from './cells';
@@ -37,6 +40,14 @@ const NEAR = 0.5;
 const FAR = 40000;
 /** Below this height of the sun the moon lights the scene instead (as the explorer). */
 const SUN_TO_MOON = 0.08;
+/** Yards the sun's shadows reach from the camera on the ground, and how much further per yard of altitude (as the explorer). */
+const SHADOW_RANGE = 300;
+const SHADOW_RANGE_PER_ALTITUDE = 2;
+const SHADOW_RANGE_MAX = 1200;
+/** How much of the sun shade takes away: some stays, as light from the sky and the ground would fill it in. */
+const SHADOW_INTENSITY = 0.8;
+/** Where the shadows setting is kept: a view setting across scenes, never part of a scene. */
+const SHADOWS_KEY = 'wdb.shadows';
 /** Height fog: thickness per yard at the lowest ground around (times the preset's), and how fast it thins with height. */
 const FOG_DENSITY = 0.0008;
 const FOG_FALLOFF = 1 / 40;
@@ -162,7 +173,22 @@ export class SceneEditor {
 	private disposed = false;
 	/** The scene's light (spec 6.1): the preset's sun, sky and fog at its time of day, drawn through the explorer's post pass. */
 	private readonly post: PostPass;
-	private readonly sun = new THREE.DirectionalLight(PLAIN_SUN, Math.PI);
+	private readonly sun = new SunLight(PLAIN_SUN, Math.PI);
+	/**
+	 * The sun's shadows, as the explorer draws them: two cascades fitted to the view, redrawn
+	 * every other frame, and mountains' shadows past their reach. Off stops drawing the maps and
+	 * fades the shadows out, but the sun still casts them as far as three is concerned: whether a
+	 * light casts shadows is part of every shader, and changing it would build them all again.
+	 */
+	private readonly terrainShadow: TerrainShadowPass;
+	private shadowsOn = readShadowsSetting();
+	/** 0-1: shadows fade out as the light passes from the sun to the moon at dusk and back at dawn. */
+	private shadowStrength = 1;
+	private shadowFrame = 0;
+	/** Whether the shadow maps have been drawn yet: drawn once even with shadows off, since the shaders read them. */
+	private shadowMapsDrawn = false;
+	/** Height of the camera over the ground, which the shadows' reach grows with. */
+	private altitude = 0;
 	private readonly ambient = new THREE.HemisphereLight(PLAIN_AMBIENT, PLAIN_AMBIENT, Math.PI);
 	private readonly sky = new Sky();
 	private readonly fog = new THREE.Fog(SKY, FOG_NEAR_DEFAULT, FOG_FAR_DEFAULT);
@@ -268,6 +294,7 @@ export class SceneEditor {
 		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, reversedDepthBuffer: reversed, logarithmicDepthBuffer: !reversed });
 		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 		this.post = new PostPass(this.renderer, storage);
+		this.terrainShadow = new TerrainShadowPass(this.renderer);
 		this.textures = new TextureCache(storage, supportsCompressedTextures(this.renderer), this.renderer.capabilities.getMaxAnisotropy());
 		this.camera = new THREE.PerspectiveCamera(60, 1, NEAR, FAR);
 		this.controls = new FlyControls(this.camera, canvas);
@@ -292,12 +319,27 @@ export class SceneEditor {
 		// The scene's lighting (spec 6.1): its light preset's colours at its time of day, once the
 		// light tables are read (see updateLighting); plain daylight until then.
 		this.sun.position.set(-0.6, 1, 0.45);
+		// Two cascades fitted to the view out to the shadow range, softened by filtering, redrawn
+		// every other frame (see render): each map is used with its own matrices, so a map a frame
+		// old still lines up; only moving things' shadows lag a frame.
+		this.renderer.shadowMap.enabled = true;
+		this.renderer.shadowMap.type = THREE.PCFShadowMap;
+		this.renderer.shadowMap.autoUpdate = false;
+		installShadowGroups(this.scene);
+		setShadowLight(this.sun);
+		this.sun.castShadow = true;
+		this.sun.shadow.mapSize.set(2048, 2048);
+		this.sun.shadow.camera.near = 1;
+		this.sun.shadow.camera.far = SHADOW_RANGE;
+		// Towards the light: down a normal depth buffer, up a reversed one (three's filtered shadows don't flip it themselves).
+		this.sun.shadow.bias = this.renderer.capabilities.reversedDepthBuffer ? 0.0003 : -0.0003;
+		this.sun.shadow.normalBias = 0.15;
+		this.sun.shadow.radius = 2;
+		this.setShadows(this.shadowsOn);
 		this.sky.mesh.visible = false;
 		this.scene.add(this.sun, this.ambient, this.sky.mesh, this.weather.group, this.terrain, this.ring, this.rampRing);
 		this.groundPass = new GroundDistancePass(this.renderer);
-		this.clutter = new ClutterManager(storage, supportsCompressedTextures(this.renderer), this.renderer.capabilities.getMaxAnisotropy(), async (object) => {
-			await this.renderer.compileAsync(object, this.camera, this.scene);
-		});
+		this.clutter = new ClutterManager(storage, supportsCompressedTextures(this.renderer), this.renderer.capabilities.getMaxAnisotropy(), this.prepare);
 		this.scene.add(this.clutter.group);
 		this.objects = new SceneObjects(
 			this.scene,
@@ -308,15 +350,11 @@ export class SceneEditor {
 			storage,
 			supportsCompressedTextures(this.renderer),
 			this.renderer.capabilities.getMaxAnisotropy(),
-			async (object) => {
-				await this.renderer.compileAsync(object, this.camera, this.scene);
-			},
+			this.prepare,
 			(x, z) => this.model.surfaceAt(x, z),
 		);
 		this.objects.onNotice = (text) => this.onNotice(text);
-		this.character = new Character(storage, supportsCompressedTextures(this.renderer), this.renderer.capabilities.getMaxAnisotropy(), async (object) => {
-			await this.renderer.compileAsync(object, this.camera, this.scene);
-		});
+		this.character = new Character(storage, supportsCompressedTextures(this.renderer), this.renderer.capabilities.getMaxAnisotropy(), this.prepare);
 		this.scene.add(this.character.group, this.nameplates.group);
 		this.targetRing = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 48), new THREE.MeshBasicMaterial({ color: 0xffd100, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide }));
 		this.targetRing.rotation.x = -Math.PI / 2;
@@ -351,6 +389,44 @@ export class SceneEditor {
 		this.controls.set(new THREE.Vector3(sx, span * 0.35, sz + span * 0.4), 0, -0.6);
 	}
 
+	/**
+	 * Builds an object's shaders ahead of its first draw, for the post pass's target they draw
+	 * into, along with those the shadow pass will draw it with (see shadowStandIns), so a new
+	 * kind of model doesn't stop the frame to compile them. shadowPass: the object's own
+	 * materials are depth materials for the shadow maps.
+	 */
+	private readonly prepare = async (object: THREE.Object3D, shadowPass = false): Promise<void> => {
+		if (shadowPass) {
+			await this.post.compileAsync(this.renderer, object, this.camera, this.scene, true);
+			return;
+		}
+		await Promise.all([
+			this.post.compileAsync(this.renderer, object, this.camera, this.scene),
+			...shadowStandIns(object).map((o) => this.post.compileAsync(this.renderer, o, this.camera, this.scene, true)),
+		]);
+	};
+
+	/** Whether the sun casts shadows: a view setting kept across scenes, not part of the scene. */
+	get shadows(): boolean {
+		return this.shadowsOn;
+	}
+
+	set shadows(on: boolean) {
+		this.setShadows(on);
+		try {
+			localStorage.setItem(SHADOWS_KEY, on ? '1' : '0');
+		} catch {
+			// No storage: the setting lasts the session.
+		}
+	}
+
+	private setShadows(on: boolean): void {
+		this.shadowsOn = on;
+		// The sun shafts in the fog are traced through the shadow maps.
+		this.post.setShadowLight(on ? this.sun : null);
+		this.sun.shadow.intensity = on ? SHADOW_INTENSITY * this.shadowStrength : 0;
+	}
+
 	/** Loads the texture palette and builds every tile; the scene is in view when this resolves. */
 	async load(): Promise<void> {
 		// Water colours come from LiquidType.db2; the materials update when they arrive.
@@ -364,7 +440,7 @@ export class SceneEditor {
 		);
 		// Large scenes build the tiles around the camera now and stream the rest as it moves.
 		const first = this.streaming ? this.wantedTiles(STREAM_IN) : this.model.tiles.map((_, i) => i);
-		await Promise.all(first.map((index) => this.buildTile(this.model.tiles[index])));
+		await Promise.all([...first.map((index) => this.buildTile(this.model.tiles[index])), this.terrainShadow.warm(this.renderer)]);
 		this.objects.load();
 		this.render();
 	}
@@ -466,6 +542,7 @@ export class SceneEditor {
 		});
 		const mesh = new THREE.Mesh(geometry, materials);
 		mesh.matrixAutoUpdate = false;
+		useShadows(mesh);
 		const group = new THREE.Group();
 		group.add(mesh);
 		group.position.set(tile.x * TILE_SIZE, 0, tile.y * TILE_SIZE);
@@ -534,6 +611,7 @@ export class SceneEditor {
 			const mesh = new THREE.Mesh(geometry, liquidMaterial(built.kind, built.type));
 			mesh.renderOrder = 1;
 			mesh.matrixAutoUpdate = false;
+			useShadows(mesh, 'receive');
 			tm.group.add(mesh);
 			mesh.updateMatrixWorld(true);
 			tm.water.push(mesh);
@@ -1048,6 +1126,10 @@ export class SceneEditor {
 		const bySun = sunDir.y > SUN_TO_MOON;
 		const lightDir = bySun ? sunDir : new THREE.Vector3(-sunDir.x, Math.abs(sunDir.y) + 0.35, sunDir.z).normalize();
 		this.sun.position.copy(lightDir);
+		// Shadows fade to nothing either side of the switch, so they don't jump round.
+		this.shadowStrength = bySun ? THREE.MathUtils.smoothstep(sunDir.y, SUN_TO_MOON, SUN_TO_MOON + 0.12) : THREE.MathUtils.smoothstep(-sunDir.y, -SUN_TO_MOON, 0.1);
+		this.sun.shadow.intensity = this.shadowsOn ? SHADOW_INTENSITY * this.shadowStrength : 0;
+		this.sun.shadow.camera.far = Math.min(SHADOW_RANGE + this.altitude * SHADOW_RANGE_PER_ALTITUDE, SHADOW_RANGE_MAX);
 		const state = this.lighting?.sampleZone(env.lightPreset, t) ?? null;
 		const background = this.scene.background as THREE.Color;
 		let fogNear = FOG_NEAR_DEFAULT;
@@ -1061,7 +1143,7 @@ export class SceneEditor {
 			this.post.grading.set(state.grading);
 			const fog = this.fogLook;
 			fog.color.copy(c.skyFog);
-			fog.sunColor.copy(c.direct);
+			fog.sunColor.copy(c.direct).multiplyScalar(this.shadowStrength);
 			fog.sunDir.copy(lightDir);
 			fog.density = FOG_DENSITY * state.fogDensity;
 			this.fog.color.copy(c.skyFog);
@@ -1228,6 +1310,7 @@ export class SceneEditor {
 			}
 		}
 		const ground = this.model.surfaceAt(this.camera.position.x, this.camera.position.z);
+		this.altitude = Math.max(0, this.camera.position.y - Math.max(ground ?? 0, 0));
 		this.clutter.update(performance.now(), this.camera.position, ground ?? -Infinity);
 		// The gizmo and boxes hide while walking or looking around, like the other overlays.
 		this.objects.setActive(this.objectTool && !this.walker.active && !this.controls.locked);
@@ -1360,6 +1443,10 @@ export class SceneEditor {
 
 	private render(): void {
 		if (this.hasWater) this.groundPass.render(this.renderer, this.terrain, this.camera);
+		// Mountains' shadows past the shadow maps' reach, then the maps themselves every other frame.
+		this.terrainShadow.update(this.renderer, this.terrain, this.camera.position, this.altitude, this.sun.position, this.sun.shadow.camera.far, this.shadowsOn ? this.shadowStrength : 0, performance.now());
+		this.renderer.shadowMap.needsUpdate = (this.shadowsOn || !this.shadowMapsDrawn) && (this.shadowFrame++ & 1) === 0;
+		if (this.renderer.shadowMap.needsUpdate) this.shadowMapsDrawn = true;
 		this.post.render(this.renderer, this.scene, this.camera);
 	}
 
@@ -1579,7 +1666,17 @@ export class SceneEditor {
 				(o.material as THREE.Material).dispose();
 			}
 		});
+		this.sun.dispose();
 		this.renderer.dispose();
+	}
+}
+
+/** The saved shadows setting; on until turned off. */
+function readShadowsSetting(): boolean {
+	try {
+		return localStorage.getItem(SHADOWS_KEY) !== '0';
+	} catch {
+		return true;
 	}
 }
 

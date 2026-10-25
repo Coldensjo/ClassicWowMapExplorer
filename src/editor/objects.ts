@@ -135,7 +135,7 @@ export class SceneObjects {
 		storage: AsyncStorageApi,
 		compressed: boolean,
 		anisotropy: number,
-		prepare: (object: THREE.Object3D) => Promise<void>,
+		prepare: (object: THREE.Object3D, shadowPass?: boolean) => Promise<void>,
 		/** The terrain surface, for placing and dropping to ground. */
 		private readonly surfaceAt: (x: number, z: number) => number | null,
 	) {

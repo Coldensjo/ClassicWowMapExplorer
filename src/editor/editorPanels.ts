@@ -619,12 +619,16 @@ export class EditorPanels {
 		sync();
 	}
 
-	// ---- The environment (spec 6.1): time of day, weather and fog ----
+	// ---- The environment (spec 6.1): time of day, weather, fog and shadows ----
 
 	private wireEnvironment(): void {
 		const time = $<HTMLInputElement>('env-time');
 		const fog = $<HTMLInputElement>('env-fog');
 		const weather = $<HTMLSelectElement>('env-weather');
+		// Shadows are how the scene is viewed, not part of it: no command, and kept across scenes.
+		const shadows = $<HTMLInputElement>('env-shadows');
+		shadows.checked = this.editor.shadows;
+		this.listen(shadows, 'change', () => (this.editor.shadows = shadows.checked));
 		const sync = () => {
 			const env = this.editor.environment;
 			// The slider is in minutes, on quarter hours; the scene keeps half-minutes.

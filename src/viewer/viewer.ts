@@ -31,7 +31,7 @@ import { TerrainShadowPass } from './terrainShadow';
 import { animateFlipbooks, flipbooks, liquidBelowStandIns, liquidKindOf, liquidMaterials, liquidTime, seaMask, setLiquidLooks, setLiquidsFromBelow } from './terrainMaterials';
 import type { LiquidKind } from '../formats/mh2o';
 import type { LiquidLooks } from '../explorer/clientDb';
-import { createTexture, supportsCompressedTextures } from './textures';
+import { createTexture, supportsClipControl, supportsCompressedTextures } from './textures';
 import { isTyping } from './typing';
 import { WalkControls } from './walkControls';
 
@@ -248,14 +248,6 @@ export interface MinimapView {
 	x: number;
 	y: number;
 	yaw: number;
-}
-
-/** Whether the GPU can draw with a reversed depth buffer (EXT_clip_control), asked of a throwaway context. */
-function supportsClipControl(): boolean {
-	const gl = document.createElement('canvas').getContext('webgl2');
-	const supported = !!gl?.getExtension('EXT_clip_control');
-	gl?.getExtension('WEBGL_lose_context')?.loseContext();
-	return supported;
 }
 
 /** WoW world coordinates (x north, y west, z up) on a map -> where that map sits in the world. */

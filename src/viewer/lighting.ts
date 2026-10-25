@@ -71,6 +71,21 @@ export class Lighting {
 		return value;
 	}
 
+	/**
+	 * The light of one Light.db2 zone on its own, as a scene's light preset (spec 6.1); t is
+	 * half-minutes since midnight. 0 or an id that isn't there falls back to the Eastern Kingdoms'
+	 * global light, the built-in default, and null means no light tables at all.
+	 */
+	sampleZone(id: number, t: number): LightState | null {
+		const zones = this.data.zones;
+		const zone = zones.find((z) => z.id === id) ?? zones.find((z) => z.mapId === 0 && z.outer === 0) ?? zones.find((z) => z.outer === 0);
+		const value = zone ? this.sampleParams(zone.params, t) : null;
+		if (!value) return null;
+		const colors = {} as Record<LightColor, THREE.Color>;
+		LIGHT_COLORS.forEach((name, i) => (colors[name] = value.colors[i].clone()));
+		return { colors, fogEnd: value.fogEnd, fogScaler: value.fogScaler, grading: new Map(value.grading), fogDensity: value.fogDensity };
+	}
+
 	/** wowX/wowY are world coordinates (x north, y west); t is half-minutes since midnight. */
 	sample(mapId: number, wowX: number, wowY: number, t: number): LightState | null {
 		let global: LightZone | null = null;

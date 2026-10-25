@@ -290,7 +290,7 @@ function toModel(scene: Scene, files: Record<string, Uint8Array>, copyTiles?: Co
 		size: scene.size,
 		base: scene.base,
 		spawn: scene.spawn,
-		environment: scene.environment,
+		environment: readEnvironment(scene.environment),
 		player: scene.player,
 	};
 
@@ -386,6 +386,17 @@ function toModel(scene: Scene, files: Record<string, Uint8Array>, copyTiles?: Co
 }
 
 const EQUIP_SLOTS: EquipSlot[] = ['head', 'shoulder', 'back', 'chest', 'shirt', 'tabard', 'wrist', 'hands', 'waist', 'legs', 'feet', 'mainHand', 'offHand', 'ranged'];
+
+/** The scene's environment (spec 6.1) with what's missing or malformed put back to the defaults, so an odd file still opens. */
+export function readEnvironment(environment: Partial<Scene['environment']> | undefined): Scene['environment'] {
+	const e = environment ?? {};
+	const out: Scene['environment'] = {
+		lightPreset: Number.isInteger(e.lightPreset) && e.lightPreset! >= 0 ? e.lightPreset! : 0,
+		timeOfDay: Number.isFinite(e.timeOfDay) ? ((Math.round(e.timeOfDay!) % 2880) + 2880) % 2880 : 1440,
+	};
+	if (e.fog && Number.isFinite(e.fog.start) && Number.isFinite(e.fog.end)) out.fog = { start: e.fog.start, end: e.fog.end };
+	return out;
+}
 
 /** Checks the embedded custom NPC presets (spec 6.6) and keeps only the fields the format defines. */
 export function validPresets(presets: NpcPreset[]): NpcPreset[] {

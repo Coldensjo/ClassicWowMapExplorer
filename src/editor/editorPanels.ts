@@ -93,6 +93,7 @@ export class EditorPanels {
 		this.wireNpcs();
 		this.wireRevert();
 		this.wireClutter();
+		this.wireEnvironment();
 		this.wireUndo();
 		this.wirePlay();
 		this.wireKeys();
@@ -618,6 +619,35 @@ export class EditorPanels {
 		sync();
 	}
 
+	// ---- The environment (spec 6.1): time of day, weather and fog ----
+
+	private wireEnvironment(): void {
+		const time = $<HTMLInputElement>('env-time');
+		const sync = () => {
+			const env = this.editor.environment;
+			// The slider is in minutes, on quarter hours; the scene keeps half-minutes.
+			const minutes = Math.round(env.timeOfDay / 30) * 15;
+			time.value = String(minutes % 1440);
+			$('env-time-out').textContent = clock(env.timeOfDay / 2);
+		};
+		// Dragging previews each value; letting go records the whole drag as one command.
+		let timeBefore: typeof this.editor.environment | null = null;
+		this.listen(time, 'input', () => {
+			timeBefore ??= { ...this.editor.environment };
+			this.editor.previewEnvironment({ timeOfDay: Number(time.value) * 2 });
+		});
+		this.listen(time, 'change', () => {
+			const from = timeBefore ?? { ...this.editor.environment };
+			timeBefore = null;
+			this.editor.setEnvironment({ timeOfDay: Number(time.value) * 2 }, 'Set time of day', from);
+		});
+		this.editor.onEnvironmentChange = sync;
+		this.cleanups.push(() => {
+			this.editor.onEnvironmentChange = () => {};
+		});
+		sync();
+	}
+
 	// ---- Undo and redo ----
 
 	private wireUndo(): void {
@@ -702,6 +732,12 @@ export class EditorPanels {
 		this.cleanups.length = 0;
 		this.show(false);
 	}
+}
+
+/** A time of day in minutes as HH:MM. */
+function clock(minutes: number): string {
+	const m = Math.floor(minutes) % 1440;
+	return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 }
 
 function download(name: string, bytes: Uint8Array, type: string): void {

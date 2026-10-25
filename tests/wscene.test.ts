@@ -204,3 +204,23 @@ test('NPCs and their presets round-trip, unused presets are dropped, and bad NPC
 	expect(() => decodeScene(tamper((j) => ((j.npcs[1] as { scale: number }).scale = 0)))).toThrow(/scale/);
 	expect(() => decodeScene(tamper((j) => ((j.npcPresets[0] as { equipment: unknown }).equipment = { hat: 1 })))).toThrow(/slot/);
 });
+
+test('the environment round-trips, and odd or missing values fall back to the defaults', () => {
+	const scene = blank(1, 1);
+	scene.setEnvironment({ lightPreset: 12, timeOfDay: 2000 });
+	const bytes = encodeScene(scene);
+	expect(decodeScene(bytes).model.meta.environment).toEqual({ lightPreset: 12, timeOfDay: 2000 });
+
+	const tamper = (edit: (json: { environment?: Record<string, unknown> }) => void) => {
+		const files = unzipSync(bytes);
+		const json = JSON.parse(strFromU8(files['scene.json']));
+		edit(json);
+		files['scene.json'] = strToU8(JSON.stringify(json)) as Uint8Array<ArrayBuffer>;
+		return decodeScene(zipSync(files)).model.meta.environment;
+	};
+	// A file from before the environment was written, or one with the fields missing or wrong, still opens at noon.
+	expect(tamper((j) => delete j.environment)).toEqual({ lightPreset: 0, timeOfDay: 1440 });
+	expect(tamper((j) => (j.environment = { lightPreset: -1, timeOfDay: 'noon' }))).toEqual({ lightPreset: 0, timeOfDay: 1440 });
+	// The time wraps round the day.
+	expect(tamper((j) => (j.environment!.timeOfDay = -60))).toEqual({ lightPreset: 12, timeOfDay: 2820 });
+});

@@ -366,6 +366,12 @@ export class SceneModel {
 		this.meta.modified = new Date().toISOString();
 	}
 
+	/** The scene's light preset, time of day, weather and fog (spec 6.1), replaced whole. */
+	setEnvironment(environment: Scene['environment']): void {
+		this.meta.environment = structuredClone(environment);
+		this.meta.modified = new Date().toISOString();
+	}
+
 	/** Who the user plays as (spec 7.10): a creature display, an embedded preset, or null for the default. */
 	setPlayer(appearance: NpcAppearance | null): void {
 		this.meta.player = appearance ? structuredClone(appearance) : null;

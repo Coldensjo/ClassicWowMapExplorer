@@ -6,11 +6,13 @@ import type { AsyncStorageApi } from '../worker/protocol';
 import { FlyControls } from '../viewer/flyControls';
 import { WalkControls } from '../viewer/walkControls';
 import { Character } from '../viewer/character';
-import type { NpcAppearance, PlacedNpc } from '../scene/types';
+import type { NpcAppearance, PlacedNpc, Scene } from '../scene/types';
 import { Nameplates, NAMEPLATE_RANGE, type Plate } from './nameplates';
 import { createAlphaTexture, createSplatMaterial, seaMask } from '../viewer/terrainMaterials';
 import { TextureCache } from '../viewer/textureCache';
-import { supportsCompressedTextures } from '../viewer/textures';
+import { supportsClipControl, supportsCompressedTextures } from '../viewer/textures';
+import { DAY, Lighting, Sky, sunDirection } from '../viewer/lighting';
+import { PostPass, type FogSettings } from '../viewer/post';
 import { CommandStack } from './commands';
 import { HoleStroke, WaterStroke, type HoleSettings, type WaterSettings } from './cells';
 import { PaintStroke, type PaintSettings } from './paint';
@@ -26,9 +28,25 @@ import { ClutterManager } from '../viewer/clutter';
 import type { ClutterEffect, ClutterSource } from '../explorer/groundEffects';
 
 const SKY = new THREE.Color(0x9ec4e4);
+/** The plain daylight scenes had before the light tables: used until they're read, and when they can't be. */
+const PLAIN_SUN = new THREE.Color(0xfff2dd);
+const PLAIN_AMBIENT = new THREE.Color(0x8899aa);
 /** Camera distance limits for small scenes. */
 const NEAR = 0.5;
 const FAR = 40000;
+/** Below this height of the sun the moon lights the scene instead (as the explorer). */
+const SUN_TO_MOON = 0.08;
+/** Height fog: thickness per yard at the lowest ground around (times the preset's), and how fast it thins with height. */
+const FOG_DENSITY = 0.0008;
+const FOG_FALLOFF = 1 / 40;
+/** How strongly the sun lights the fog. */
+const FOG_SUNLIGHT = 2;
+/** The fog lies at the lowest ground within this many yards of the camera, sampled on a grid this many to a side. */
+const FOG_BASE_REACH = 600;
+const FOG_BASE_SAMPLES = 9;
+/** Distance fog when the preset sets none. */
+const FOG_NEAR_DEFAULT = 1200;
+const FOG_FAR_DEFAULT = 9000;
 /** Thumbnails for the scene library (and later galleries), spec 6.2. */
 const THUMBNAIL_WIDTH = 512;
 const THUMBNAIL_HEIGHT = 288;
@@ -141,6 +159,28 @@ export class SceneEditor {
 	private readonly clock = new THREE.Clock();
 	private frame = 0;
 	private disposed = false;
+	/** The scene's light (spec 6.1): the preset's sun, sky and fog at its time of day, drawn through the explorer's post pass. */
+	private readonly post: PostPass;
+	private readonly sun = new THREE.DirectionalLight(PLAIN_SUN, Math.PI);
+	private readonly ambient = new THREE.HemisphereLight(PLAIN_AMBIENT, PLAIN_AMBIENT, Math.PI);
+	private readonly sky = new Sky();
+	private readonly fog = new THREE.Fog(SKY, FOG_NEAR_DEFAULT, FOG_FAR_DEFAULT);
+	private lighting: Lighting | null = null;
+	private readonly fogLook: FogSettings = {
+		color: new THREE.Color(),
+		sunColor: new THREE.Color(),
+		sunDir: new THREE.Vector3(0, 1, 0),
+		density: FOG_DENSITY,
+		falloff: FOG_FALLOFF,
+		base: 0,
+		sunlight: FOG_SUNLIGHT,
+	};
+	/** World height the fog is thickest at, eased towards the lowest ground around. */
+	private fogBase: number | null = null;
+	/** Whether the camera is under the scene's water, where the sky and fog don't show. */
+	private underwater = false;
+	/** Called when the environment changes (a command, undo or redo), for the panel. */
+	onEnvironmentChange: () => void = () => {};
 	/** Something the user should know, shown by the editor bar. */
 	onNotice: (text: string) => void = () => {};
 	/** Status bar data, sent every frame. */
@@ -217,8 +257,12 @@ export class SceneEditor {
 		readonly model: SceneModel,
 	) {
 		this.paint = { fdid: model.textures[0], radius: 15, strength: 0.7, opacity: 1, mode: 'paint', policy: 'replace' };
-		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+		// Depth as the explorer draws it, which the post pass's fog reads back: a reversed float
+		// depth buffer where the GPU has it, else a logarithmic one. Antialiased in the pass's target.
+		const reversed = supportsClipControl();
+		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, reversedDepthBuffer: reversed, logarithmicDepthBuffer: !reversed });
 		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+		this.post = new PostPass(this.renderer, storage);
 		this.textures = new TextureCache(storage, supportsCompressedTextures(this.renderer), this.renderer.capabilities.getMaxAnisotropy());
 		this.camera = new THREE.PerspectiveCamera(60, 1, NEAR, FAR);
 		this.controls = new FlyControls(this.camera, canvas);
@@ -238,13 +282,13 @@ export class SceneEditor {
 			liquid: (at) => this.liquidOver(at),
 		};
 
-		this.scene.background = SKY;
-		// The scene's lighting: Phase 1 renders every scene with the one built-in preset
-		// (environment.lightPreset 0), a daylight sun and sky light as the explorer starts with.
-		const sun = new THREE.DirectionalLight(0xfff2dd, Math.PI);
-		sun.position.set(-0.6, 1, 0.45);
-		const ambient = new THREE.HemisphereLight(0x8899aa, 0x8899aa, Math.PI);
-		this.scene.add(sun, ambient, this.terrain, this.ring, this.rampRing);
+		this.scene.background = SKY.clone();
+		this.scene.fog = this.fog;
+		// The scene's lighting (spec 6.1): its light preset's colours at its time of day, once the
+		// light tables are read (see updateLighting); plain daylight until then.
+		this.sun.position.set(-0.6, 1, 0.45);
+		this.sky.mesh.visible = false;
+		this.scene.add(this.sun, this.ambient, this.sky.mesh, this.terrain, this.ring, this.rampRing);
 		this.groundPass = new GroundDistancePass(this.renderer);
 		this.clutter = new ClutterManager(storage, supportsCompressedTextures(this.renderer), this.renderer.capabilities.getMaxAnisotropy(), async (object) => {
 			await this.renderer.compileAsync(object, this.camera, this.scene);
@@ -306,6 +350,7 @@ export class SceneEditor {
 	async load(): Promise<void> {
 		// Water colours come from LiquidType.db2; the materials update when they arrive.
 		void this.storage.loadLiquidLooks().then(setLiquidLooks).catch(() => {});
+		void this.loadLighting();
 		// Large scenes build the tiles around the camera now and stream the rest as it moves.
 		const first = this.streaming ? this.wantedTiles(STREAM_IN) : this.model.tiles.map((_, i) => i);
 		await Promise.all(first.map((index) => this.buildTile(this.model.tiles[index])));
@@ -924,6 +969,117 @@ export class SceneEditor {
 		}
 	}
 
+	// ---- The environment (spec 6.1): light preset, time of day, weather and fog ----
+
+	/** The light zones of every map the client has, for the scene's light preset (any Light.db2 zone). */
+	private async loadLighting(): Promise<void> {
+		try {
+			const mapIds = new Set<number>([0]);
+			if (this.model.meta.base) mapIds.add(this.model.meta.base.mapId);
+			for (const m of await this.storage.listMaps().catch(() => [])) mapIds.add(m.id);
+			const data = await this.storage.loadLighting([...mapIds]);
+			if (!this.disposed) this.lighting = new Lighting(data);
+		} catch (e) {
+			console.warn('Lighting unavailable, the scene keeps its plain daylight:', e);
+		}
+	}
+
+	/** The scene's environment as it stands. */
+	get environment(): Readonly<Scene['environment']> {
+		return this.model.meta.environment;
+	}
+
+	/**
+	 * Changes the environment as one undoable command. A slider previews its values live through
+	 * previewEnvironment first and commits once with `from`, the environment before the drag, so
+	 * the drag undoes in one step.
+	 */
+	setEnvironment(patch: Partial<Scene['environment']>, label: string, from?: Scene['environment']): void {
+		const before = from ?? this.model.meta.environment;
+		const after = tidyEnvironment({ ...this.model.meta.environment, ...patch });
+		if (JSON.stringify(before) === JSON.stringify(after)) {
+			if (from) this.apply(before);
+			return;
+		}
+		this.apply(after);
+		this.commands.push({ label, bytes: 64, undo: () => this.apply(before), redo: () => this.apply(after) });
+	}
+
+	/** Shows a change without recording it; setEnvironment with `from` records the whole drag afterwards. */
+	previewEnvironment(patch: Partial<Scene['environment']>): void {
+		this.apply(tidyEnvironment({ ...this.model.meta.environment, ...patch }));
+	}
+
+	private apply(environment: Scene['environment']): void {
+		this.model.setEnvironment(environment);
+		this.onEnvironmentChange();
+	}
+
+	/** The lowest ground on a grid around a point, for the fog to lie at; the point's own height where there's none. */
+	private lowestGroundAround(p: THREE.Vector3): number {
+		let lowest = Infinity;
+		const half = (FOG_BASE_SAMPLES - 1) / 2;
+		for (let i = 0; i < FOG_BASE_SAMPLES; i++) {
+			for (let j = 0; j < FOG_BASE_SAMPLES; j++) {
+				const h = this.model.heightAt(p.x + ((i - half) / half) * FOG_BASE_REACH, p.z + ((j - half) / half) * FOG_BASE_REACH);
+				if (h !== null && h < lowest) lowest = h;
+			}
+		}
+		return lowest < Infinity ? lowest : p.y;
+	}
+
+	/** Sun, ambient, sky and fog from the scene's light preset at its time of day. */
+	private updateLighting(): void {
+		const env = this.model.meta.environment;
+		const t = THREE.MathUtils.euclideanModulo(env.timeOfDay, DAY);
+		const sunDir = sunDirection(t);
+		// Lit by the sun by day and by the (opposite) moon at night; the colours already say how bright.
+		const bySun = sunDir.y > SUN_TO_MOON;
+		const lightDir = bySun ? sunDir : new THREE.Vector3(-sunDir.x, Math.abs(sunDir.y) + 0.35, sunDir.z).normalize();
+		this.sun.position.copy(lightDir);
+		const state = this.lighting?.sampleZone(env.lightPreset, t) ?? null;
+		const background = this.scene.background as THREE.Color;
+		let fogNear = FOG_NEAR_DEFAULT;
+		let fogFar = FOG_FAR_DEFAULT;
+		if (state) {
+			const c = state.colors;
+			this.sun.color.copy(c.direct);
+			this.ambient.color.copy(c.ambient);
+			this.ambient.groundColor.copy(c.ambient).multiplyScalar(0.8);
+			this.sky.update(state, sunDir, this.camera.position);
+			this.post.grading.set(state.grading);
+			const fog = this.fogLook;
+			fog.color.copy(c.skyFog);
+			fog.sunColor.copy(c.direct);
+			fog.sunDir.copy(lightDir);
+			fog.density = FOG_DENSITY * state.fogDensity;
+			this.fog.color.copy(c.skyFog);
+			background.copy(c.skyFog);
+			if (state.fogEnd > 0) {
+				fogFar = state.fogEnd;
+				fogNear = state.fogEnd * THREE.MathUtils.clamp(state.fogScaler, 0, 0.9);
+			}
+		} else {
+			this.sun.color.copy(PLAIN_SUN);
+			this.ambient.color.copy(PLAIN_AMBIENT);
+			this.ambient.groundColor.copy(PLAIN_AMBIENT);
+			this.fog.color.copy(SKY);
+			background.copy(SKY);
+		}
+		this.fog.near = fogNear;
+		this.fog.far = fogFar;
+
+		// Under the scene's water the sky and fog don't show; the fog lies at the lowest ground around.
+		const pos = this.camera.position;
+		const liquid = this.liquidOver(pos);
+		this.underwater = liquid !== null && liquid.surface > pos.y;
+		this.sky.mesh.visible = state !== null && !this.underwater;
+		const base = this.lowestGroundAround(pos);
+		this.fogBase = this.fogBase === null ? base : this.fogBase + (base - this.fogBase) * 0.15;
+		this.fogLook.base = this.fogBase;
+		this.post.setFog(state && !this.underwater ? this.fogLook : null);
+	}
+
 	/** Changes who the user plays as (spec 7.10), as one undoable command; the avatar changes at once if playing. */
 	setPlayer(appearance: NpcAppearance | null): void {
 		const before = this.model.meta.player;
@@ -1050,6 +1206,7 @@ export class SceneEditor {
 		else this.controls.update(dt, (x, z) => this.model.heightAt(x, z) ?? -Infinity, (x, z) => this.model.surfaceAt(x, z) ?? -Infinity);
 		this.character.update(dt, this.walker);
 		this.updatePlay();
+		this.updateLighting();
 		this.updateRings();
 		this.updateStatus(dt);
 	}
@@ -1146,7 +1303,7 @@ export class SceneEditor {
 
 	private render(): void {
 		if (this.hasWater) this.groundPass.render(this.renderer, this.terrain, this.camera);
-		this.renderer.render(this.scene, this.camera);
+		this.post.render(this.renderer, this.scene, this.camera);
 	}
 
 	/** Starts the active tool at the cursor (left button). */
@@ -1357,6 +1514,15 @@ export class SceneEditor {
 		(this.ring.material as THREE.Material).dispose();
 		this.rampRing.geometry.dispose();
 		(this.rampRing.material as THREE.Material).dispose();
+		this.sky.mesh.geometry.dispose();
+		(this.sky.mesh.material as THREE.Material).dispose();
 		this.renderer.dispose();
 	}
+}
+
+/** An environment with its defaults left out, so files stay small and equal settings compare equal. */
+function tidyEnvironment(e: Scene['environment']): Scene['environment'] {
+	const out: Scene['environment'] = { lightPreset: e.lightPreset, timeOfDay: THREE.MathUtils.euclideanModulo(Math.round(e.timeOfDay), DAY) };
+	if (e.fog) out.fog = e.fog;
+	return out;
 }

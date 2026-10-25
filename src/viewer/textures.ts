@@ -12,6 +12,14 @@ export function supportsCompressedTextures(renderer: THREE.WebGLRenderer): boole
 	return renderer.extensions.has('WEBGL_compressed_texture_s3tc') && renderer.extensions.has('WEBGL_compressed_texture_s3tc_srgb');
 }
 
+/** Whether the GPU can draw with a reversed depth buffer (EXT_clip_control), asked of a throwaway context. */
+export function supportsClipControl(): boolean {
+	const gl = document.createElement('canvas').getContext('webgl2');
+	const supported = !!gl?.getExtension('EXT_clip_control');
+	gl?.getExtension('WEBGL_lose_context')?.loseContext();
+	return supported;
+}
+
 export function createTexture(data: TextureData, anisotropy: number, repeat = false): THREE.Texture {
 	let texture: THREE.Texture;
 	if (data.format === 'rgba') {

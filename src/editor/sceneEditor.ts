@@ -37,6 +37,8 @@ const CURSOR_REACH = 6000;
 const CELL = CHUNK_SIZE / 8;
 /** Leaving play mode, the editor camera goes to the player's eyes: this share of its height above the feet. */
 const PLAYER_EYE = 0.9;
+/** How far above a point to look for a building's liquid surface (yards). */
+const LIQUID_PROBE = 200;
 /** The avatar when scene.player is null (spec 7.10): a human male (ChrRaces 1), in its first NPC look. */
 const DEFAULT_PLAYER = { race: 1, sex: 0 };
 /** Scenes with more tiles than a 3x3 stream their terrain meshes around the camera (Phase 4). */
@@ -226,8 +228,7 @@ export class SceneEditor {
 			cast: (from, direction, far) => this.objects.manager.castBuildings(from, direction, far),
 			sweep: (from, move, radius) => this.objects.npcs.sweep(from, this.objects.manager.sweep(from, move, radius, true), radius),
 			pushOut: (at, radius) => this.objects.manager.pushOut(at, radius, true).add(this.objects.npcs.pushOut(at, radius)),
-			// Swimming in scene water arrives with play mode (Phase 6).
-			liquid: () => null,
+			liquid: (at) => this.liquidOver(at),
 		};
 
 		this.scene.background = SKY;
@@ -298,6 +299,36 @@ export class SceneEditor {
 		await Promise.all(first.map((index) => this.buildTile(this.model.tiles[index])));
 		this.objects.load();
 		this.render();
+	}
+
+	/** Buildings' liquid surfaces in view, gathered per query. */
+	private readonly liquidMeshes: THREE.Object3D[] = [];
+	private readonly liquidRay = new THREE.Raycaster();
+
+	/**
+	 * The liquid surface over a point, for swimming (spec 7.10): the scene's water there (edited
+	 * or copied), or a placed building's pool or canal. Of a building's surfaces, the lowest one
+	 * above the point, or the highest below it (so a jump out of the water still knows it).
+	 */
+	private liquidOver(at: THREE.Vector3): { surface: number; sea: boolean } | null {
+		let surface = this.model.waterAt(at.x, at.z);
+		const meshes = this.liquidMeshes;
+		meshes.length = 0;
+		this.objects.manager.liquidMeshes(meshes);
+		if (meshes.length) {
+			this.liquidRay.set(new THREE.Vector3(at.x, at.y + LIQUID_PROBE, at.z), new THREE.Vector3(0, -1, 0));
+			this.liquidRay.far = LIQUID_PROBE * 2;
+			let above: number | null = null;
+			let below: number | null = null;
+			for (const hit of this.liquidRay.intersectObjects(meshes, false)) {
+				const y = hit.point.y;
+				if (y >= at.y) above = above === null ? y : Math.min(above, y);
+				else below = below === null ? y : Math.max(below, y);
+			}
+			const found = above ?? below;
+			if (found !== null && (surface === null || (found >= at.y && (surface < at.y || found < surface)) || (found < at.y && surface < at.y && found > surface))) surface = found;
+		}
+		return surface === null ? null : { surface, sea: false };
 	}
 
 	/** Whether this scene streams its terrain meshes (more than 3x3 tiles). */

@@ -440,6 +440,56 @@ export class SceneModel {
 		return this.sample(x, z, true);
 	}
 
+	/**
+	 * The surface height of the scene's water over (x, z), or null where there is none (spec 7.10
+	 * swimming): a chunk's flat water where its cell is covered, or, in a copied scene whose
+	 * chunk still has its source water, the source liquid's own surface there (which may slope).
+	 */
+	waterAt(x: number, z: number): number | null {
+		const tile = this.tileAt(x, z);
+		if (!tile) return null;
+		const lx = x - tile.x * TILE_SIZE;
+		const lz = z - tile.y * TILE_SIZE;
+		const cx = Math.min(Math.floor(lx / CHUNK_SIZE), CHUNKS_PER_TILE - 1);
+		const cy = Math.min(Math.floor(lz / CHUNK_SIZE), CHUNKS_PER_TILE - 1);
+		const chunkId = cy * CHUNKS_PER_TILE + cx;
+		const chunk = tile.chunks[chunkId];
+		const cell = CHUNK_SIZE / INNER;
+		const fx = (lx - cx * CHUNK_SIZE) / cell;
+		const fz = (lz - cy * CHUNK_SIZE) / cell;
+		const col = Math.min(Math.floor(fx), INNER - 1);
+		const row = Math.min(Math.floor(fz), INNER - 1);
+		const tileIndex = tile.y * this.tilesX + tile.x;
+		const base = this.baseData?.tiles[tileIndex];
+		if (base && sameWater(chunk.water, base.chunks[chunkId].water)) {
+			if (!chunk.water) return null;
+			let surface: number | null = null;
+			for (const l of base.liquids) {
+				if (l.chunk !== chunkId) continue;
+				const i = col - l.x;
+				const j = row - l.y;
+				if (i < 0 || j < 0 || i >= l.width || j >= l.height) continue;
+				if (l.exists && !l.exists[j * l.width + i]) continue;
+				let h = l.minHeight;
+				if (l.heights) {
+					// Bilinear between the cell's four corner heights, as the surface mesh is drawn.
+					const w = l.width + 1;
+					const u = fx - col;
+					const v = fz - row;
+					const h00 = l.heights[j * w + i];
+					const h10 = l.heights[j * w + i + 1];
+					const h01 = l.heights[(j + 1) * w + i];
+					const h11 = l.heights[(j + 1) * w + i + 1];
+					h = (h00 * (1 - u) + h10 * u) * (1 - v) + (h01 * (1 - u) + h11 * u) * v;
+				}
+				if (surface === null || h > surface) surface = h;
+			}
+			return surface;
+		}
+		if (!chunk.water || !(chunk.water.coverage[row] & (1 << col))) return null;
+		return chunk.water.height;
+	}
+
 	private sample(x: number, z: number, ignoreHoles: boolean): number | null {
 		const tile = this.tileAt(x, z);
 		if (!tile) return null;

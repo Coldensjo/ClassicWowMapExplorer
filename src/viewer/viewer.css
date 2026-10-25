@@ -2493,6 +2493,26 @@ body.playing :is(#tool-rail, #tool-panel) {
 	display: none;
 }
 
+/* The target frame: the targeted NPC's name under the top bar, out of the mouse's way. */
+#target-frame {
+	position: fixed;
+	top: calc(var(--bar) + 10px);
+	left: 50%;
+	transform: translateX(-50%);
+	min-width: 160px;
+	padding: 6px 16px;
+	text-align: center;
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	pointer-events: none;
+}
+
+#target-frame #target-name {
+	font-weight: 600;
+	color: #ffd100;
+}
+
 #editor-bar #editor-undo:disabled,
 #editor-bar #editor-redo:disabled {
 	opacity: 0.4;

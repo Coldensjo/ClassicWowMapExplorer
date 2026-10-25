@@ -6,7 +6,8 @@ import type { AsyncStorageApi } from '../worker/protocol';
 import { FlyControls } from '../viewer/flyControls';
 import { WalkControls } from '../viewer/walkControls';
 import { Character } from '../viewer/character';
-import type { NpcAppearance } from '../scene/types';
+import type { NpcAppearance, PlacedNpc } from '../scene/types';
+import { Nameplates, NAMEPLATE_RANGE, type Plate } from './nameplates';
 import { createAlphaTexture, createSplatMaterial, seaMask } from '../viewer/terrainMaterials';
 import { TextureCache } from '../viewer/textureCache';
 import { supportsCompressedTextures } from '../viewer/textures';
@@ -129,6 +130,12 @@ export class SceneEditor {
 	private playerKey = '';
 	/** Called when scene.player changes (a command, undo or redo), for the NPCs tab. */
 	onPlayerChange: () => void = () => {};
+	/** NPC names over their heads while playing (spec 7.10). */
+	private readonly nameplates = new Nameplates();
+	/** The targeted NPC's id (spec 7.10), its selection circle, and whether a left press began on the view while playing. */
+	private target: string | null = null;
+	private readonly targetRing: THREE.Mesh;
+	private pressedPlaying = false;
 	private readonly textures: TextureCache;
 	private readonly tileMeshes = new Map<number, TileMesh>();
 	private readonly clock = new THREE.Clock();
@@ -261,7 +268,12 @@ export class SceneEditor {
 		this.character = new Character(storage, supportsCompressedTextures(this.renderer), this.renderer.capabilities.getMaxAnisotropy(), async (object) => {
 			await this.renderer.compileAsync(object, this.camera, this.scene);
 		});
-		this.scene.add(this.character.group);
+		this.scene.add(this.character.group, this.nameplates.group);
+		this.targetRing = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 48), new THREE.MeshBasicMaterial({ color: 0xffd100, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide }));
+		this.targetRing.rotation.x = -Math.PI / 2;
+		this.targetRing.renderOrder = 5;
+		this.targetRing.visible = false;
+		this.scene.add(this.targetRing);
 		this.objects.visibleAt = (x, z) => {
 			if (!this.streaming) return true;
 			const tx = Math.floor(x / TILE_SIZE);
@@ -840,6 +852,7 @@ export class SceneEditor {
 	setPlaying(on: boolean): boolean {
 		if (on === this.walker.active) return true;
 		if (!on) {
+			this.setTarget(null);
 			this.walker.stop();
 			this.controls.enabled = true;
 			const eye = this.walker.position.clone();
@@ -861,6 +874,54 @@ export class SceneEditor {
 		void this.dressPlayer();
 		this.onPlayChange(true);
 		return true;
+	}
+
+	/** Targets an NPC (spec 7.10): the selection circle at its feet and the target frame with its name; null clears. */
+	setTarget(id: string | null): void {
+		this.target = id && this.model.npc(id) ? id : null;
+		const npc = this.target ? this.model.npc(this.target) : null;
+		const frame = document.getElementById('target-frame');
+		if (frame) {
+			frame.hidden = !npc;
+			if (npc) {
+				frame.querySelector('#target-name')!.textContent = npc.name?.trim() || 'Unnamed NPC';
+				frame.querySelector('#target-sub')!.textContent = npc.subName?.trim() ? `<${npc.subName.trim()}>` : '';
+			}
+		}
+		this.targetRing.visible = !!npc;
+	}
+
+	/** A left click on the view while playing: targets the NPC under the mouse, or clears the target on nothing. */
+	private targetClick(): void {
+		if (Number.isNaN(this.mouse.x)) return;
+		this.raycaster.setFromCamera(this.mouse, this.camera);
+		const npc = this.objects.pickNpc(this.raycaster);
+		this.setTarget(npc?.id ?? null);
+	}
+
+	/** Names over NPCs within range of the player, and the selection circle under the target; each frame while playing. */
+	private updatePlay(): void {
+		const playing = this.walker.active;
+		this.nameplates.group.visible = playing;
+		if (!playing) return;
+		if (this.target && !this.model.npc(this.target)) this.setTarget(null);
+		const plates: Plate[] = [];
+		const feet = this.walker.position;
+		for (const n of this.model.npcs) {
+			const name = n.name?.trim();
+			if (!name || !this.objects.npcs.isSpawned(n.id)) continue;
+			const distance = Math.hypot(n.position[0] - feet.x, n.position[2] - feet.z);
+			if (distance > NAMEPLATE_RANGE) continue;
+			const capsule = this.objects.npcs.capsule(n);
+			plates.push({ id: n.id, name, sub: n.subName?.trim() ?? '', position: new THREE.Vector3(n.position[0], capsule.top + 0.25, n.position[2]), distance: this.camera.position.distanceTo(new THREE.Vector3(n.position[0], capsule.top, n.position[2])) });
+		}
+		this.nameplates.update(plates, this.camera, this.canvas.clientHeight || window.innerHeight, this.renderer.getPixelRatio());
+		const target: PlacedNpc | null = this.target ? this.model.npc(this.target) : null;
+		if (target) {
+			const capsule = this.objects.npcs.capsule(target);
+			this.targetRing.position.set(target.position[0], target.position[1] + 0.08, target.position[2]);
+			this.targetRing.scale.setScalar(capsule.radius + 0.25);
+		}
 	}
 
 	/** Changes who the user plays as (spec 7.10), as one undoable command; the avatar changes at once if playing. */
@@ -988,6 +1049,7 @@ export class SceneEditor {
 		if (this.walker.active) this.walker.update(dt);
 		else this.controls.update(dt, (x, z) => this.model.heightAt(x, z) ?? -Infinity, (x, z) => this.model.surfaceAt(x, z) ?? -Infinity);
 		this.character.update(dt, this.walker);
+		this.updatePlay();
 		this.updateRings();
 		this.updateStatus(dt);
 	}
@@ -1196,7 +1258,10 @@ export class SceneEditor {
 	}
 
 	private readonly onMouseDown = (e: MouseEvent): void => {
-		if (this.walker.active) return;
+		if (this.walker.active) {
+			this.pressedPlaying = e.button === 0;
+			return;
+		}
 		if (e.button === 2) {
 			this.endStroke();
 			this.controls.lock();
@@ -1206,6 +1271,11 @@ export class SceneEditor {
 	};
 
 	private readonly onMouseUp = (e: MouseEvent): void => {
+		if (e.button === 0 && this.pressedPlaying) {
+			this.pressedPlaying = false;
+			// A press that turned the camera isn't a click (see WalkControls.wasDrag).
+			if (this.walker.active && !this.walker.wasDrag) this.targetClick();
+		}
 		if (e.button === 0) this.endStroke();
 		if (e.button === 2 && this.controls.locked) document.exitPointerLock();
 	};
@@ -1226,6 +1296,7 @@ export class SceneEditor {
 	private readonly onKeyDown = (e: KeyboardEvent): void => {
 		if (this.disposed || e.altKey) return;
 		if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+		if (this.walker.active && e.code === 'Escape') return this.setTarget(null);
 		if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
 			e.preventDefault();
 			if (e.shiftKey) this.redo();
@@ -1277,6 +1348,10 @@ export class SceneEditor {
 		window.removeEventListener('keydown', this.onKeyDown);
 		window.removeEventListener('resize', this.onResize);
 		for (const index of [...this.tileMeshes.keys()]) this.dropTile(index);
+		this.setTarget(null);
+		this.nameplates.disposeAll();
+		this.targetRing.geometry.dispose();
+		(this.targetRing.material as THREE.Material).dispose();
 		this.objects.dispose();
 		this.ring.geometry.dispose();
 		(this.ring.material as THREE.Material).dispose();

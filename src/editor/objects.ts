@@ -321,6 +321,12 @@ export class SceneObjects {
 		return this.entity(id) ? id : null;
 	}
 
+	/** The NPC a pick ray hits (play-mode targeting, spec 7.10), or null for anything else. */
+	pickNpc(raycaster: THREE.Raycaster): PlacedNpc | null {
+		const hit = this.manager.pick(raycaster);
+		return hit ? this.model.npc(hit.key.split(':', 1)[0]) : null;
+	}
+
 	// ---- Placing (spec 7.8) ----
 
 	/**

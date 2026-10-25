@@ -3,7 +3,7 @@ import { parseAdtRoot, TILE_CELLS, TILE_SIZE, tileGrids } from '../formats/adt';
 import { parseAdtTex, scanTexEffects } from '../formats/adtTex';
 import { parseWdt } from '../formats/wdt';
 import type { ClutterEffect } from './groundEffects';
-import { blpTexture, decodeBlp, mipmapped, type Image, type TextureData } from '../formats/blp';
+import { blpTexture, decodeBlp, imageTexture, mipmapped, type Image, type TextureData } from '../formats/blp';
 import type { Db2 } from '../formats/db2';
 import type { LiquidKind } from '../formats/mh2o';
 import { parseWdl, WDL_CELLS } from '../formats/wdl';
@@ -15,10 +15,12 @@ import type { MapExplorer } from './maps';
 import { loadWorldMaps, type WorldMapInfo } from './worldMap';
 import { loadPlaces, type Place } from './places';
 import { KNOWN_MAPS } from './maps';
-import { globalWmoPlacement, globalWmoTiles, loadM2, loadWmo, parsePlacements, type ModelData, type ObjectKind, type Placement } from './objects';
+import { globalWmoPlacement, globalWmoTiles, loadM2, loadWmo, parsePlacements, type ModelData, type ModelKind, type Placement } from './objects';
 import { GroundEffects, type ClutterSource } from './groundEffects';
 import { loadCopyTile, type CopyMap, type CopyTile } from './copyWorld';
 import { DisplayResolver, type CharacterOutfit, type CharacterRace } from './display';
+import { NpcTables, type CharacterModelInfo, type CreatureDisplaySummary, type CustomizationOption, type GearDisplay, type HumanoidPreset } from './npcs';
+import type { NpcPreset } from '../scene/types';
 import { buildSplatTerrain, type SplatTerrain } from './splatMesh';
 import { buildTerrainMesh, type TerrainGeometry } from './terrainMesh';
 
@@ -343,14 +345,60 @@ export class WorldLoader {
 		return { model, displayId: character.displayId, looks: character.looks };
 	}
 
-	/** Renderable geometry for models; null where a model can't be read. */
-	async loadModels(models: { fdid: number; kind: ObjectKind }[]): Promise<(ModelData | null)[]> {
+	private npcTables: NpcTables | null = null;
+
+	/** The NPC data (spec 7.9), made on first use. */
+	private get npcs(): NpcTables {
+		this.npcTables ??= new NpcTables(this.storage, this.displays);
+		return this.npcTables;
+	}
+
+	listCreatureDisplays(): Promise<CreatureDisplaySummary[]> {
+		return this.npcs.listCreatureDisplays();
+	}
+
+	characterModels(): Promise<CharacterModelInfo[]> {
+		return this.npcs.characterModels();
+	}
+
+	customizationOptions(race: number, sex: number): Promise<CustomizationOption[]> {
+		return this.npcs.customizationOptions(race, sex);
+	}
+
+	gearDisplays(): Promise<GearDisplay[]> {
+		return this.npcs.gearDisplays();
+	}
+
+	gearNames(displays: number[]): Promise<(string | null)[]> {
+		return this.npcs.gearNames(displays);
+	}
+
+	humanoidPreset(displayId: number): Promise<HumanoidPreset | null> {
+		return this.npcs.humanoidPreset(displayId);
+	}
+
+	/** A custom NPC preset the page will ask for as model kind 'npcPreset' under this handle. */
+	defineNpcPreset(handle: number, preset: NpcPreset): void {
+		this.npcs.definePreset(handle, preset);
+	}
+
+	/**
+	 * Renderable geometry for models; null where a model can't be read. NPCs (spec 7.9) load by
+	 * creature display ID or preset handle, dressed by the display tables or the character builder.
+	 */
+	async loadModels(models: { fdid: number; kind: ModelKind }[]): Promise<(ModelData | null)[]> {
 		return Promise.all(models.map(async ({ fdid, kind }) => {
 			try {
 				if (kind === 'wmo') return await loadWmo(this.storage, fdid, await this.liquidKind());
+				if (kind === 'creature' || kind === 'npcPreset') {
+					const look = await this.npcs.look(kind === 'creature' ? { kind, displayId: fdid } : { kind, handle: fdid });
+					if (!look) return null;
+					const model = await loadM2(this.storage, look.fdid, look.options);
+					return look.missing?.length ? { ...model, missingGear: look.missing } : model;
+				}
 				return await loadM2(this.storage, fdid, { solid: true });
 			} catch (e) {
-				console.warn(`Model ${fdid}:`, e);
+				console.warn(`Model ${kind} ${fdid}:`, e);
 				return null;
 			}
 		}));
@@ -517,6 +565,9 @@ export class WorldLoader {
 		return this.liquidKindPromise;
 	}
 	private async readTexture(fdid: number, maxSize: number, compressed: boolean): Promise<TextureData | null> {
+		// A custom NPC's composited skin, made here rather than read (spec 7.9.3).
+		const virtual = this.npcTables?.virtualTexture(fdid);
+		if (virtual) return imageTexture(virtual, compressed);
 		if (fdid === 0 || this.storage.status(fdid) !== 'ok') return null;
 		try {
 			return blpTexture(await this.storage.readFile(fdid), maxSize, compressed);

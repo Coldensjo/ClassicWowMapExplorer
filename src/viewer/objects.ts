@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { acceleratedRaycast, MeshBVH } from 'three-mesh-bvh';
-import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
+import type { ModelData, ModelKind, Placement } from '../explorer/objects';
 import type { AsyncStorageApi } from '../worker/protocol';
 import { createModelMaterial, createSkinnedDepthMaterial, type SkinUniforms } from './modelMaterials';
 import { applyWalkable } from './walkable';
@@ -12,7 +12,7 @@ import { useShadows, type ShadowRole } from './shadows';
 import { liquidMaterial } from './terrainMaterials';
 import { TextureCache } from './textureCache';
 
-type Kind = ObjectKind;
+type Kind = ModelKind;
 
 // Ray casts use a model's BVH when it has one (buildings); InstancedMesh casts go through this too.
 THREE.Mesh.prototype.raycast = acceleratedRaycast;

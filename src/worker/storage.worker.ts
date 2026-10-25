@@ -71,6 +71,27 @@ const api: AsyncStorageApi = {
 	async loadModels(models) {
 		return requireWorld().loadModels(models);
 	},
+	async listCreatureDisplays() {
+		return requireWorld().listCreatureDisplays();
+	},
+	async characterModels() {
+		return requireWorld().characterModels();
+	},
+	async customizationOptions(race, sex) {
+		return requireWorld().customizationOptions(race, sex);
+	},
+	async gearDisplays() {
+		return requireWorld().gearDisplays();
+	},
+	async gearNames(displays) {
+		return requireWorld().gearNames(displays);
+	},
+	async humanoidPreset(displayId) {
+		return requireWorld().humanoidPreset(displayId);
+	},
+	async defineNpcPreset(handle, preset) {
+		requireWorld().defineNpcPreset(handle, preset);
+	},
 	async characterRaces() {
 		return requireWorld().characterRaces();
 	},

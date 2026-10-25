@@ -161,8 +161,25 @@ export class DisplayResolver {
 		return best;
 	}
 
+	/** Material resource ID -> texture file, from TextureFileData. */
+	async materialTextures(): Promise<Map<number, number>> {
+		return (await this.load()).materials;
+	}
+
+	/** Whether the client's ItemDisplayInfo has a display (a preset may name one from another build). */
+	async itemExists(display: number): Promise<boolean> {
+		return (await this.loadItems()).items.has(display);
+	}
+
+	/** An item display's model file for a race and sex (0 when it has none), for the gear browser's labels and status. */
+	async itemFile(display: number, race = 0, sex = 0): Promise<number> {
+		const { items } = await this.loadItems();
+		if (!items.has(display)) return 0;
+		return this.itemModel(items.getInt(display, 10, 0) ?? 0, race, sex);
+	}
+
 	/** Weapons held in the hands (or a shield on the arm). */
-	private async weaponAttachments([mainHand, offHand, offHandIsShield]: Weapons): Promise<GearAttachment[]> {
+	async weaponAttachments([mainHand, offHand, offHandIsShield]: Weapons): Promise<GearAttachment[]> {
 		const { items, materials } = await this.loadItems();
 		const out: GearAttachment[] = [];
 		const add = async (display: number, point: number) => {
@@ -182,12 +199,19 @@ export class DisplayResolver {
 	 * race (HelmetGeosetData): a hood the hair, a mask only the beard, a bandana nothing.
 	 */
 	private async armor(extra: number, race: number, sex: number): Promise<{ attachments: GearAttachment[]; geosets: number[]; cape: number }> {
+		return this.gear((await this.itemSlots()).get(extra) ?? [], race, sex);
+	}
+
+	/**
+	 * Gear worn in NPC slots (see armor), for any list of [item display, slot]: the custom NPCs
+	 * (spec 7.9.3) dress the same way a baked humanoid does, from the preset's equipment.
+	 */
+	async gear(worn: [number, number][], race: number, sex: number): Promise<{ attachments: GearAttachment[]; geosets: number[]; cape: number }> {
 		const { items, materials, helmetHides } = await this.loadItems();
-		const slots = await this.itemSlots();
 		const attachments: GearAttachment[] = [];
 		const geosets: number[] = [];
 		let cape = 0;
-		for (const [display, slot] of slots.get(extra) ?? []) {
+		for (const [display, slot] of worn) {
 			if (!items.has(display)) continue;
 			const group = (k: number) => items.getInt(display, 13, k) ?? 0;
 			const texture = (k: number) => materials.get(items.getInt(display, 11, k) ?? 0) ?? 0;

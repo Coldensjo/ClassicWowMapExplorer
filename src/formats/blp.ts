@@ -235,15 +235,35 @@ export function mipmapped(image: Image, size: number, compressed: boolean): Text
 	return { format: compressed ? 'dxt1' : 'rgba', width: size, height: size, mips };
 }
 
+/**
+ * A picture as a texture of its own size with a full mip chain down to 1x1 (the editor's
+ * composited character skins, which are wider than tall); DXT1 when compressed, else RGBA.
+ */
+export function imageTexture(image: Image, compressed: boolean): TextureData {
+	let level = image;
+	const mips: TextureData['mips'] = [];
+	for (;;) {
+		mips.push({ width: level.width, height: level.height, data: compressed ? encodeDxt1(level) : level.rgba });
+		if (level.width === 1 && level.height === 1) break;
+		level = resizeTo(level, Math.max(1, level.width >> 1), Math.max(1, level.height >> 1));
+	}
+	return { format: compressed ? 'dxt1' : 'rgba', width: image.width, height: image.height, mips };
+}
+
 /** Scaled to size x size, each texel the average of the source texels it covers. */
 function resize(image: Image, size: number): Image {
-	const rgba = new Uint8Array(size * size * 4);
+	return resizeTo(image, size, size);
+}
+
+/** Scaled to width x height, each texel the average of the source texels it covers. */
+export function resizeTo(image: Image, width: number, height: number): Image {
+	const rgba = new Uint8Array(width * height * 4);
 	const src = image.rgba;
-	const sx = image.width / size;
-	const sy = image.height / size;
-	for (let y = 0; y < size; y++) {
+	const sx = image.width / width;
+	const sy = image.height / height;
+	for (let y = 0; y < height; y++) {
 		const y0 = Math.floor(y * sy), y1 = Math.max(y0 + 1, Math.floor((y + 1) * sy));
-		for (let x = 0; x < size; x++) {
+		for (let x = 0; x < width; x++) {
 			const x0 = Math.floor(x * sx), x1 = Math.max(x0 + 1, Math.floor((x + 1) * sx));
 			let r = 0, g = 0, b = 0, a = 0;
 			for (let v = y0; v < y1; v++) {
@@ -255,14 +275,14 @@ function resize(image: Image, size: number): Image {
 				}
 			}
 			const n = (y1 - y0) * (x1 - x0);
-			const o = (y * size + x) * 4;
+			const o = (y * width + x) * 4;
 			rgba[o] = Math.round(r / n);
 			rgba[o + 1] = Math.round(g / n);
 			rgba[o + 2] = Math.round(b / n);
 			rgba[o + 3] = Math.round(a / n);
 		}
 	}
-	return { width: size, height: size, rgba };
+	return { width, height, rgba };
 }
 
 /**

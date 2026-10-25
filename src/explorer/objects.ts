@@ -20,6 +20,13 @@ const MODF_HAS_SCALE = 0x4;
 
 export type ObjectKind = 'm2' | 'wmo';
 
+/**
+ * What the object manager can draw: placed doodads and buildings, and the editor's NPCs (spec
+ * 7.9), whose "file ID" is a CreatureDisplayInfo ID for 'creature' and a preset handle the page
+ * defined in the worker for 'npcPreset' (see WorldLoader.defineNpcPreset).
+ */
+export type ModelKind = ObjectKind | 'creature' | 'npcPreset';
+
 export interface Placement {
 	kind: ObjectKind;
 	/** Unique across the continent; objects spanning tiles are listed by each tile. */
@@ -80,6 +87,8 @@ export interface ModelData {
 	emitters?: ParticleEmitter[];
 	/** Creatures: which footsteps they make (FootstepTerrainLookup's creature column; 0 none). */
 	footstep?: number;
+	/** Custom NPCs: gear the client lacks, left off the model (spec 7.11), e.g. "chest: item display 1234". */
+	missingGear?: string[];
 	/** WMOs only: a serialised ray-cast acceleration structure (three-mesh-bvh, indirect), for line of sight. */
 	bvh?: SerializedBvh;
 	/**

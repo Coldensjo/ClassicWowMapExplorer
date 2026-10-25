@@ -7,7 +7,9 @@ import type { LiquidLooks } from '../explorer/clientDb';
 import type { WmoArea } from '../explorer/wmoArea';
 import type { Place } from '../explorer/places';
 import type { WorldMapInfo } from '../explorer/worldMap';
-import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
+import type { ModelData, ModelKind, Placement } from '../explorer/objects';
+import type { CharacterModelInfo, CreatureDisplaySummary, CustomizationOption, GearDisplay, HumanoidPreset } from '../explorer/npcs';
+import type { NpcPreset } from '../scene/types';
 import type { CopyMap, CopyTile } from '../explorer/copyWorld';
 import type { CharacterModel, FarTile, InstanceMap, LoadedTexture, MapListing, NearTile, TileTexture } from '../explorer/world';
 import type { CharacterOutfit, CharacterRace } from '../explorer/display';
@@ -37,7 +39,22 @@ export interface StorageApi {
 	listCopyMaps(): CopyMap[];
 	/** One source tile's terrain, water and placements for Copy from world (spec 6.5). */
 	loadCopyTile(wdtFdid: number, x: number, y: number): CopyTile;
-	loadModels(models: { fdid: number; kind: ObjectKind }[]): (ModelData | null)[];
+	/** Models to draw; NPCs by creature display ID ('creature') or preset handle ('npcPreset', see defineNpcPreset). */
+	loadModels(models: { fdid: number; kind: ModelKind }[]): (ModelData | null)[];
+	/** Every creature display with a model, for the NPCs tab (spec 7.9.2). */
+	listCreatureDisplays(): CreatureDisplaySummary[];
+	/** The playable race and sex models the custom NPC editor can dress (spec 7.9.3). */
+	characterModels(): CharacterModelInfo[];
+	/** A race and sex's customization options and choices (spec 7.9.3). */
+	customizationOptions(race: number, sex: number): CustomizationOption[];
+	/** The gear browser's item displays per slot, named where the client names them (Q8). */
+	gearDisplays(): GearDisplay[];
+	/** Names of the item displays given, null where unnamed. */
+	gearNames(displays: number[]): (string | null)[];
+	/** A humanoid display as preset fields for "Customize as new" (Q9), or null. */
+	humanoidPreset(displayId: number): HumanoidPreset | null;
+	/** Defines a custom preset under a handle, for loadModels kind 'npcPreset'. */
+	defineNpcPreset(handle: number, preset: NpcPreset): void;
 	/** The walking character: the races it can be, and one dressed as a look with the clips given. */
 	characterRaces(): CharacterRace[];
 	loadCharacter(race: number, sex: number, hd: boolean, look: number, clips: number[], outfit: CharacterOutfit | null, torch: boolean): CharacterModel | null;

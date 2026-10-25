@@ -11,7 +11,7 @@ import { NpcBrowser, presetThumbKey } from './npcBrowser';
 import { NpcEditor } from './npcEditor';
 import type { NpcAsset } from './npcs';
 import { PresetLibrary } from '../scene/presetLibrary';
-import type { NpcPreset } from '../scene/types';
+import { SCENE_WEATHERS, type NpcPreset } from '../scene/types';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -624,6 +624,7 @@ export class EditorPanels {
 	private wireEnvironment(): void {
 		const time = $<HTMLInputElement>('env-time');
 		const fog = $<HTMLInputElement>('env-fog');
+		const weather = $<HTMLSelectElement>('env-weather');
 		const sync = () => {
 			const env = this.editor.environment;
 			// The slider is in minutes, on quarter hours; the scene keeps half-minutes.
@@ -631,8 +632,13 @@ export class EditorPanels {
 			time.value = String(minutes % 1440);
 			$('env-time-out').textContent = clock(env.timeOfDay / 2);
 			fog.checked = env.fogOn !== false;
+			weather.value = env.weather ?? '';
 		};
 		this.listen(fog, 'change', () => this.editor.setEnvironment({ fogOn: fog.checked }, fog.checked ? 'Turn fog on' : 'Turn fog off'));
+		this.listen(weather, 'change', () => {
+			const kind = SCENE_WEATHERS.find((k) => k === weather.value);
+			this.editor.setEnvironment({ weather: kind }, kind ? `Set weather: ${kind}` : 'Clear the weather');
+		});
 		// Dragging previews each value; letting go records the whole drag as one command.
 		let timeBefore: typeof this.editor.environment | null = null;
 		this.listen(time, 'input', () => {

@@ -10,9 +10,10 @@ import type { NpcAppearance, PlacedNpc, Scene } from '../scene/types';
 import { Nameplates, NAMEPLATE_RANGE, type Plate } from './nameplates';
 import { createAlphaTexture, createSplatMaterial, seaMask } from '../viewer/terrainMaterials';
 import { TextureCache } from '../viewer/textureCache';
-import { supportsClipControl, supportsCompressedTextures } from '../viewer/textures';
+import { createTexture, supportsClipControl, supportsCompressedTextures } from '../viewer/textures';
 import { DAY, Lighting, Sky, sunDirection } from '../viewer/lighting';
 import { PostPass, type FogSettings } from '../viewer/post';
+import { SNOWFLAKE_TEXTURE, Weather } from '../viewer/weather';
 import { CommandStack } from './commands';
 import { HoleStroke, WaterStroke, type HoleSettings, type WaterSettings } from './cells';
 import { PaintStroke, type PaintSettings } from './paint';
@@ -179,6 +180,10 @@ export class SceneEditor {
 	private fogBase: number | null = null;
 	/** Whether the camera is under the scene's water, where the sky and fog don't show. */
 	private underwater = false;
+	/** Rain, snow or a sandstorm round the camera (spec 6.1), outdoors and above water. */
+	private readonly weather = new Weather();
+	private lastRoomCheck = 0;
+	private indoors = false;
 	/** Called when the environment changes (a command, undo or redo), for the panel. */
 	onEnvironmentChange: () => void = () => {};
 	/** Something the user should know, shown by the editor bar. */
@@ -288,7 +293,7 @@ export class SceneEditor {
 		// light tables are read (see updateLighting); plain daylight until then.
 		this.sun.position.set(-0.6, 1, 0.45);
 		this.sky.mesh.visible = false;
-		this.scene.add(this.sun, this.ambient, this.sky.mesh, this.terrain, this.ring, this.rampRing);
+		this.scene.add(this.sun, this.ambient, this.sky.mesh, this.weather.group, this.terrain, this.ring, this.rampRing);
 		this.groundPass = new GroundDistancePass(this.renderer);
 		this.clutter = new ClutterManager(storage, supportsCompressedTextures(this.renderer), this.renderer.capabilities.getMaxAnisotropy(), async (object) => {
 			await this.renderer.compileAsync(object, this.camera, this.scene);
@@ -351,6 +356,12 @@ export class SceneEditor {
 		// Water colours come from LiquidType.db2; the materials update when they arrive.
 		void this.storage.loadLiquidLooks().then(setLiquidLooks).catch(() => {});
 		void this.loadLighting();
+		this.storage.loadTextures([SNOWFLAKE_TEXTURE], supportsCompressedTextures(this.renderer)).then(
+			([flake]) => {
+				if (flake?.texture && !this.disposed) this.weather.setSnowflake(createTexture(flake.texture, 1));
+			},
+			(e) => console.warn('Snowflake texture unavailable:', e),
+		);
 		// Large scenes build the tiles around the camera now and stream the rest as it moves.
 		const first = this.streaming ? this.wantedTiles(STREAM_IN) : this.model.tiles.map((_, i) => i);
 		await Promise.all(first.map((index) => this.buildTile(this.model.tiles[index])));
@@ -1066,10 +1077,15 @@ export class SceneEditor {
 			this.fog.color.copy(SKY);
 			background.copy(SKY);
 		}
+		this.fog.near = fogNear;
+		this.fog.far = fogFar;
+		this.applyWeatherLight(state?.colors.skyFog ?? null);
 		// Fog off: the distance fog pushed out past everything drawn (near and far apart, as smoothstep needs).
 		const fogOn = env.fogOn !== false;
-		this.fog.near = fogOn ? fogNear : FAR * 2;
-		this.fog.far = fogOn ? fogFar : FAR * 3;
+		if (!fogOn) {
+			this.fog.near = FAR * 2;
+			this.fog.far = FAR * 3;
+		}
 
 		// Under the scene's water the sky and fog don't show; the fog lies at the lowest ground around.
 		const pos = this.camera.position;
@@ -1080,6 +1096,44 @@ export class SceneEditor {
 		this.fogBase = this.fogBase === null ? base : this.fogBase + (base - this.fogBase) * 0.15;
 		this.fogLook.base = this.fogBase;
 		this.post.setFog(state && fogOn && !this.underwater ? this.fogLook : null);
+	}
+
+	/**
+	 * Rain, snow and sandstorms dim the sun, cloud the sky over and bring the fog in, its colour
+	 * as bright as the sky's fog would be (so a rainy night stays dark). Without the light tables
+	 * the plain daylight's own sky colour stands in.
+	 */
+	private applyWeatherLight(skyFog: THREE.Color | null): void {
+		const look = this.weather.lightLook;
+		if (!look) return;
+		const sky = skyFog ?? SKY;
+		const brightness = THREE.MathUtils.clamp((sky.r * 0.3 + sky.g * 0.59 + sky.b * 0.11) * 2.5, 0.06, 1);
+		const color = look.fogColor.clone().multiplyScalar(brightness);
+		this.sun.color.multiplyScalar(1 - look.darken);
+		this.ambient.color.multiplyScalar(1 - look.darken * 0.4);
+		this.sky.overcast(color, look.fogMix);
+		const fog = this.fogLook;
+		fog.color.lerp(color, look.fogMix);
+		fog.sunColor.multiplyScalar(1 - look.darken);
+		fog.density *= look.fogDensity;
+		this.fog.color.lerp(color, look.fogMix);
+		(this.scene.background as THREE.Color).lerp(color, look.fogMix);
+		// From high above the view stays open, so the whole scene can still be seen through the weather.
+		const pos = this.camera.position;
+		const altitude = Math.max(0, pos.y - (this.model.surfaceAt(pos.x, pos.z) ?? pos.y));
+		this.fog.far = Math.min(this.fog.far, look.fogFar + altitude * 4);
+		this.fog.near = Math.min(this.fog.near, this.fog.far * 0.15);
+	}
+
+	/** The scene's weather, drawn round the camera outdoors (not in a placed building's rooms) and above water. */
+	private updateWeather(dt: number, now: number): void {
+		this.weather.setting = this.model.meta.environment.weather ?? 'off';
+		const pos = this.camera.position;
+		if (now - this.lastRoomCheck > 250) {
+			this.lastRoomCheck = now;
+			this.indoors = !!this.objects.manager.roomAt(pos);
+		}
+		this.weather.update(dt, this.camera, null, null, !this.underwater && !this.indoors);
 	}
 
 	/** Changes who the user plays as (spec 7.10), as one undoable command; the avatar changes at once if playing. */
@@ -1208,6 +1262,7 @@ export class SceneEditor {
 		else this.controls.update(dt, (x, z) => this.model.heightAt(x, z) ?? -Infinity, (x, z) => this.model.surfaceAt(x, z) ?? -Infinity);
 		this.character.update(dt, this.walker);
 		this.updatePlay();
+		this.updateWeather(dt, now);
 		this.updateLighting();
 		this.updateRings();
 		this.updateStatus(dt);
@@ -1518,6 +1573,12 @@ export class SceneEditor {
 		(this.rampRing.material as THREE.Material).dispose();
 		this.sky.mesh.geometry.dispose();
 		(this.sky.mesh.material as THREE.Material).dispose();
+		this.weather.group.traverse((o) => {
+			if (o instanceof THREE.Points || o instanceof THREE.LineSegments) {
+				o.geometry.dispose();
+				(o.material as THREE.Material).dispose();
+			}
+		});
 		this.renderer.dispose();
 	}
 }
@@ -1527,5 +1588,6 @@ function tidyEnvironment(e: Scene['environment']): Scene['environment'] {
 	const out: Scene['environment'] = { lightPreset: e.lightPreset, timeOfDay: THREE.MathUtils.euclideanModulo(Math.round(e.timeOfDay), DAY) };
 	if (e.fog) out.fog = e.fog;
 	if (e.fogOn === false) out.fogOn = false;
+	if (e.weather) out.weather = e.weather;
 	return out;
 }

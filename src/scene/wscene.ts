@@ -4,7 +4,7 @@ import { CHUNK_HEIGHTS, CHUNKS_PER_TILE } from '../formats/adt';
 import { ALPHA_SIZE } from '../formats/adtTex';
 import { baseObjectsFromCopy, baseTileFromCopy, cloneChunk, composeObjects, matchesTemplate } from './copyScene';
 import { sameWater, SceneModel, type SceneBaseData, type SceneChunk, type SceneTile, type SceneWater } from './sceneModel';
-import { MAX_COPIED_TILES, SCENE_VERSION, type BinRef, type Chunk, type ChunkLayer, type ChunkOverride, type EquipSlot, type NpcAppearance, type NpcPreset, type PlacedNpc, type PlacedObject, type Scene, type Tile, type Vec3, type WaterSettings } from './types';
+import { MAX_COPIED_TILES, SCENE_VERSION, SCENE_WEATHERS, type BinRef, type Chunk, type ChunkLayer, type ChunkOverride, type EquipSlot, type NpcAppearance, type NpcPreset, type PlacedNpc, type PlacedObject, type Scene, type Tile, type Vec3, type WaterSettings } from './types';
 
 /**
  * The .wscene container (spec 6.2): a zip holding scene.json plus the binary arrays it references
@@ -396,6 +396,7 @@ export function readEnvironment(environment: Partial<Scene['environment']> | und
 	};
 	if (e.fog && Number.isFinite(e.fog.start) && Number.isFinite(e.fog.end)) out.fog = { start: e.fog.start, end: e.fog.end };
 	if (e.fogOn === false) out.fogOn = false;
+	if (e.weather && SCENE_WEATHERS.includes(e.weather)) out.weather = e.weather;
 	return out;
 }
 

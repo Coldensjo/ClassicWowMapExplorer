@@ -6,6 +6,10 @@
 
 export type Vec3 = [number, number, number];
 
+/** The kinds of weather a scene can have (the game's three). */
+export type SceneWeather = 'rain' | 'snow' | 'sandstorm';
+export const SCENE_WEATHERS: readonly SceneWeather[] = ['rain', 'snow', 'sandstorm'];
+
 /** Where a binary array lives in the container: a byte range of one of the .bin files. */
 export interface BinRef {
 	buf: string;
@@ -41,6 +45,8 @@ export interface Scene {
 		fog?: { start: number; end: number };
 		/** Whether fog is drawn at all (the preset's distance fog and the valley fog); left out when it is. */
 		fogOn?: boolean;
+		/** Rain, snow or a sandstorm over the whole scene; left out for clear skies. */
+		weather?: SceneWeather;
 	};
 	/** Play-mode avatar; null = default. */
 	player: NpcAppearance | null;

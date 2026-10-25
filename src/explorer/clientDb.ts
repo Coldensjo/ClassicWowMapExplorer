@@ -2,6 +2,7 @@ import type { CascStorage } from '../casc/storage';
 import { Db2 } from '../formats/db2';
 import { fieldMap } from './db2Layouts';
 import type { LiquidKind } from '../formats/mh2o';
+import { SPARSE_STRINGS } from './npcTables';
 
 /** File IDs of client database tables (DBFilesClient/*.db2); they're unnamed in the root. */
 export const DB2_FILES = {
@@ -35,7 +36,8 @@ export function loadTable(storage: CascStorage, fdid: number): Promise<Db2> {
 	let table = cache.get(fdid);
 	if (!table) {
 		table = storage.readFileWithStatus(fdid, true).then(({ data }) => {
-			const db = new Db2(data);
+			// A sparse table's inline string fields are listed per table (ItemSparse's name).
+			const db = new Db2(data, { inlineStrings: SPARSE_STRINGS[fdid] });
 			// Another game version's layout, read with Forever's field numbers.
 			const map = fieldMap(fdid, db.layoutHash);
 			if (map) db.mapFields(map);

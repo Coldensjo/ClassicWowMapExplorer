@@ -10,6 +10,7 @@
 		"test": "bun test",
 		"probe": "bun tools/probe.ts",
 		"compat": "bun tools/compat.ts",
+		"npccheck": "bun tools/npcCheck.ts",
 		"portable": "bun tools/buildPortable.ts"
 	},
 	"dependencies": {

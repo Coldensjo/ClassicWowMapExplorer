@@ -182,7 +182,71 @@ test('a field map reads fields by another layout\'s numbers, those it hasn\'t as
 	expect(db.getInt(20, 5)).toBeNull();
 });
 
-test('rejects other formats and sparse tables', () => {
+test('rejects other formats', () => {
 	expect(() => new Db2(build(recs, { magic: 'WDC3' }))).toThrow(/Unsupported DB2 format WDC3/);
-	expect(() => new Db2(build(recs, { flags: 1 }))).toThrow(/Sparse/);
+});
+
+/**
+ * A sparse (offset map) table, as ItemSparse is: three fields, the middle one a string kept
+ * inline, so records vary in length and are found through the offset map and its own ID list.
+ */
+function buildSparse(rows: { id: number; a: number; str: string; b: number }[]): Uint8Array {
+	const FIELDS = 3;
+	const encoder = new TextEncoder();
+	const bodies = rows.map((r) => {
+		const s = encoder.encode(r.str);
+		const rec = new Uint8Array(4 + s.length + 1 + 4);
+		const dv = new DataView(rec.buffer);
+		dv.setUint32(0, r.a, true);
+		rec.set(s, 4);
+		dv.setUint32(4 + s.length + 1, r.b, true);
+		return rec;
+	});
+	const recordBytes = bodies.reduce((n, b) => n + b.length, 0);
+	const headerSize = 136 + 36 + 2 + 2 + 4 * 7 + 40 + FIELDS * 4 + FIELDS * 24;
+	const bytes = new Uint8Array(headerSize + recordBytes + rows.length * 4 + rows.length * 6 + rows.length * 4);
+	const v = new DataView(bytes.buffer);
+	let p = 0;
+	const u32 = (x: number) => { v.setUint32(p, x, true); p += 4; };
+	const u16 = (x: number) => { v.setUint16(p, x, true); p += 2; };
+	bytes.set(encoder.encode('WDC5'), 0);
+	p = 136;
+	u32(rows.length); u32(FIELDS); u32(12); u32(0);
+	u32(0); u32(0); u32(0); u32(0); u32(0);
+	u16(1); u16(0); // flags: sparse
+	u32(FIELDS); u32(0); u32(0);
+	u32(FIELDS * 24); u32(0); u32(0);
+	u32(1);
+	p += 8;
+	u32(headerSize); u32(rows.length); u32(0); u32(headerSize + recordBytes);
+	u32(rows.length * 4); u32(0); u32(rows.length); u32(0);
+	for (const byteOffset of [0, 4, 8]) { u16(0); u16(byteOffset); }
+	for (const offsetBits of [0, 32, 64]) { u16(offsetBits); u16(32); u32(0); u32(0); u32(0); u32(0); u32(0); }
+	const offsets: number[] = [];
+	for (const body of bodies) {
+		offsets.push(p);
+		bytes.set(body, p);
+		p += body.length;
+	}
+	for (const r of rows) u32(r.id);
+	bodies.forEach((body, i) => { u32(offsets[i]); u16(body.length); });
+	for (const r of rows) u32(r.id);
+	return bytes;
+}
+
+test('sparse tables read variable-length records with their strings inline', () => {
+	const rows = [
+		{ id: 25, a: 1, str: 'Worn Shortsword', b: 300 },
+		{ id: 38, a: 2, str: '', b: 400 },
+		{ id: 6948, a: 3, str: 'Hearthstone', b: 500 },
+	];
+	const db = new Db2(buildSparse(rows), { inlineStrings: [1] });
+	expect(db.sparse).toBe(true);
+	expect(db.ids()).toEqual([25, 38, 6948]);
+	for (const r of rows) {
+		expect(db.getInt(r.id, 0)).toBe(r.a);
+		expect(db.getString(r.id, 1)).toBe(r.str);
+		expect(db.getInt(r.id, 2)).toBe(r.b);
+	}
+	expect(db.getString(99, 1)).toBeNull();
 });

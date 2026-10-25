@@ -33,14 +33,26 @@ interface Row {
 	index: number;
 	/** Foreign key from the relationship map, for tables that have one. */
 	parent?: number;
+	/** Sparse tables: the record's length, which varies with its inline strings. */
+	size?: number;
+}
+
+export interface Db2Options {
+	/**
+	 * Sparse tables (ItemSparse) keep their strings inline in variable-length records, and the
+	 * file doesn't say which fields those are: list them here (in-record field numbers, in order),
+	 * so the fields after each can be found. Without it a sparse table's fields read as fixed.
+	 */
+	inlineStrings?: number[];
 }
 
 const decoder = new TextDecoder();
 
 /**
  * Reader for WDC5 client database tables (DBFilesClient/*.db2). Supports the storage types
- * used by normal (non-sparse) tables; sections encrypted with a missing key read as zeros
- * and are skipped.
+ * used by normal tables, and sparse (offset map) tables whose records vary in length because
+ * their strings are inline (see Db2Options); sections encrypted with a missing key read as
+ * zeros and are skipped.
  */
 export class Db2 {
 	private readonly view: DataView;
@@ -57,8 +69,13 @@ export class Db2 {
 	readonly layoutHash: number;
 	/** Field numbers as asked for, to this file's own (see mapFields); null for one it hasn't. */
 	private fieldMap: (number | null)[] | null = null;
+	/** A sparse (offset map) table: variable-length records found through the offset map. */
+	readonly sparse: boolean;
+	/** Sparse tables: the fields holding inline strings (see Db2Options). */
+	private readonly inlineStrings: Set<number>;
 
-	constructor(private readonly bytes: Uint8Array) {
+	constructor(private readonly bytes: Uint8Array, options: Db2Options = {}) {
+		this.inlineStrings = new Set(options.inlineStrings ?? []);
 		this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 		const v = this.view;
 		const magic = decoder.decode(bytes.subarray(0, 4));
@@ -83,21 +100,21 @@ export class Db2 {
 		u32(); // common data size
 		const palletSize = u32();
 		const sectionCount = u32();
-		if (flags & FLAG_SPARSE) throw new Error('Sparse DB2 tables are not supported');
+		this.sparse = (flags & FLAG_SPARSE) !== 0;
 
-		const sections: { keyHash: bigint; offset: number; records: number; stringSize: number; idListSize: number; copyCount: number; relationshipSize: number }[] = [];
+		const sections: { keyHash: bigint; offset: number; records: number; stringSize: number; recordsEnd: number; idListSize: number; copyCount: number; relationshipSize: number; offsetMapCount: number }[] = [];
 		for (let s = 0; s < sectionCount; s++) {
 			const keyHash = v.getBigUint64(p, true);
 			p += 8;
 			const offset = u32();
 			const records = u32();
 			const stringSize = u32();
-			u32(); // offset records end
+			const recordsEnd = u32();
 			const idListSize = u32();
 			const relationshipSize = u32();
-			u32(); // offset map id count
+			const offsetMapCount = u32();
 			const copyCount = u32();
-			sections.push({ keyHash, offset, records, stringSize, idListSize, copyCount, relationshipSize });
+			sections.push({ keyHash, offset, records, stringSize, recordsEnd, idListSize, copyCount, relationshipSize, offsetMapCount });
 		}
 
 		const structure: number[] = [];
@@ -148,7 +165,8 @@ export class Db2 {
 		let skipped = 0;
 		for (const section of sections) {
 			const recordsStart = section.offset;
-			const stringStart = recordsStart + section.records * this.recordSize;
+			// Sparse sections hold variable-length records up to offset_records_end and no string table.
+			const stringStart = this.sparse ? section.recordsEnd : recordsStart + section.records * this.recordSize;
 			this.recordsStart.push(recordsStart);
 			this.stringTables.push({ start: stringStart, size: section.stringSize, before: stringsBefore });
 
@@ -159,6 +177,10 @@ export class Db2 {
 			const copies: [number, number][] = [];
 			for (let i = 0; i < section.copyCount; i++) copies.push([v.getUint32(q + i * 8, true), v.getUint32(q + i * 8 + 4, true)]);
 			q += section.copyCount * 8;
+			// The offset map (sparse tables): where each record is and how long it is.
+			const offsetMap: { offset: number; size: number }[] = [];
+			for (let i = 0; i < section.offsetMapCount; i++) offsetMap.push({ offset: v.getUint32(q + i * 6, true), size: v.getUint16(q + i * 6 + 4, true) });
+			q += section.offsetMapCount * 6;
 			// Relationship map: each record's parent (foreign key), kept outside the record data.
 			// Layout: count, min id, max id, then (foreign id, record index) pairs.
 			const parents = new Map<number, number>();
@@ -168,12 +190,23 @@ export class Db2 {
 					const e = q + 12 + i * 8;
 					parents.set(v.getUint32(e + 4, true), v.getUint32(e, true));
 				}
+				q += section.relationshipSize;
 			}
+			// The offset map's own ID list follows it (after the relationships).
+			const offsetIds: number[] = [];
+			for (let i = 0; i < section.offsetMapCount; i++) offsetIds.push(v.getUint32(q + i * 4, true));
 
 			// An encrypted section whose key we don't have decodes to zeros.
-			const encrypted = section.keyHash !== 0n && section.records > 0 && isZero(bytes, recordsStart, Math.min(64, section.records * this.recordSize));
+			const encrypted = section.keyHash !== 0n && section.records > 0 && isZero(bytes, recordsStart, Math.min(64, this.sparse ? section.recordsEnd - recordsStart : section.records * this.recordSize));
 			if (encrypted) {
 				skipped++;
+			} else if (this.sparse) {
+				offsetMap.forEach((entry, i) => {
+					if (!entry.offset || !entry.size) return;
+					const row: Row = { id: offsetIds[i] ?? ids[i] ?? 0, offset: entry.offset, index: globalIndex + i, size: entry.size };
+					row.parent = parents.get(i);
+					this.rows.set(row.id, row);
+				});
 			} else {
 				for (let i = 0; i < section.records; i++) {
 					const offset = recordsStart + i * this.recordSize;
@@ -243,12 +276,31 @@ export class Db2 {
 		return value;
 	}
 
+	/**
+	 * Where a field starts in a sparse record: the fields before it are walked, inline strings
+	 * (whose length varies) by their terminator and the rest by their size. An inline string field
+	 * itself returns the offset of its first byte.
+	 */
+	private sparseOffset(row: Row, fieldIndex: number): number {
+		let o = row.offset;
+		for (let k = 0; k < fieldIndex; k++) {
+			if (this.inlineStrings.has(k)) {
+				while (o < this.bytes.length && this.bytes[o] !== 0) o++;
+				o++;
+			} else {
+				const f = this.fields[k];
+				o += (f.elementBits / 8) * f.arrayCount;
+			}
+		}
+		return o;
+	}
+
 	private fieldValue(row: Row, fieldIndex: number, arrayIndex = 0): number {
 		const f = this.fields[fieldIndex];
 		switch (f.storage) {
 			case STORAGE_NONE: {
 				const elementBytes = f.elementBits / 8;
-				const o = row.offset + f.offsetBits / 8 + arrayIndex * elementBytes;
+				const o = (this.sparse ? this.sparseOffset(row, fieldIndex) : row.offset + f.offsetBits / 8) + arrayIndex * elementBytes;
 				if (elementBytes === 1) return this.bytes[o];
 				if (elementBytes === 2) return this.view.getUint16(o, true);
 				return this.view.getUint32(o, true);
@@ -286,11 +338,17 @@ export class Db2 {
 		return tmp.getFloat32(0, true);
 	}
 
-	/** String fields hold an offset from the field's own position into the string tables. */
+	/** String fields hold an offset from the field's own position into the string tables (sparse tables: the string itself). */
 	getString(id: number, field: number, arrayIndex = 0): string | null {
 		const row = this.rows.get(id);
 		const local = this.local(field);
 		if (!row || local === null) return null;
+		if (this.sparse && this.inlineStrings.has(local)) {
+			const start = this.sparseOffset(row, local);
+			let end = start;
+			while (end < this.bytes.length && this.bytes[end] !== 0) end++;
+			return decoder.decode(this.bytes.subarray(start, end));
+		}
 		const f = this.fields[local];
 		const fieldPos = row.offset + f.offsetBits / 8 + arrayIndex * 4;
 		const target = fieldPos + this.fieldValue(row, local, arrayIndex);

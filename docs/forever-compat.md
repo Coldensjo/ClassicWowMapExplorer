@@ -9,9 +9,9 @@ Forever client before Phase 2 starts. `bun run compat -- [wowDir] [product]` run
 | | |
 |---|---|
 | Product | `wow_classic_beta` (Forever beta) |
-| Version | 1.60.1.70450 (`WOW-70450patch1.60.1_ForeverBeta`) |
-| Date | 2026-10-20 |
-| Result | **40/40 checks pass** |
+| Version | 1.60.1.70532 (`WOW-70532patch1.60.1_Beta`); first checked on 70450 (2026-10-20) |
+| Date | 2026-10-25 |
+| Result | **40/40 checks pass** (on both builds) |
 
 ## What was verified
 

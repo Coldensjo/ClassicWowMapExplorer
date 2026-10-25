@@ -4,7 +4,7 @@ import { CHUNK_HEIGHTS, CHUNKS_PER_TILE } from '../formats/adt';
 import { ALPHA_SIZE } from '../formats/adtTex';
 import { baseObjectsFromCopy, baseTileFromCopy, cloneChunk, composeObjects, matchesTemplate } from './copyScene';
 import { sameWater, SceneModel, type SceneBaseData, type SceneChunk, type SceneTile, type SceneWater } from './sceneModel';
-import { MAX_COPIED_TILES, SCENE_VERSION, type BinRef, type Chunk, type ChunkLayer, type ChunkOverride, type PlacedObject, type Scene, type Tile, type Vec3, type WaterSettings } from './types';
+import { MAX_COPIED_TILES, SCENE_VERSION, type BinRef, type Chunk, type ChunkLayer, type ChunkOverride, type EquipSlot, type NpcAppearance, type NpcPreset, type PlacedNpc, type PlacedObject, type Scene, type Tile, type Vec3, type WaterSettings } from './types';
 
 /**
  * The .wscene container (spec 6.2): a zip holding scene.json plus the binary arrays it references
@@ -150,6 +150,8 @@ export function encodeScene(model: SceneModel, thumbnail: Uint8Array | null = nu
 		tiles = model.tiles.map((tile) => ({ x: tile.x, y: tile.y, chunks: tile.chunks.map(encodeChunk) }));
 	}
 
+	// Only presets an NPC (or the player) wears travel with the scene (spec 6.6).
+	model.pruneUnusedPresets();
 	const scene: Scene = {
 		format: 'wscene',
 		version: SCENE_VERSION,
@@ -316,7 +318,8 @@ function toModel(scene: Scene, files: Record<string, Uint8Array>, copyTiles?: Co
 			return { x: tile.x, y: tile.y, chunks };
 		});
 
-		const model = new SceneModel(meta, scene.textures, tiles, validObjects(scene.objects ?? []), scene.npcPresets ?? [], scene.npcs ?? []);
+		const presets = validPresets(scene.npcPresets ?? []);
+		const model = new SceneModel(meta, scene.textures, tiles, validObjects(scene.objects ?? []), presets, validNpcs(scene.npcs ?? [], presets));
 		return { model, missingObjects: 0 };
 	}
 
@@ -375,10 +378,70 @@ function toModel(scene: Scene, files: Record<string, Uint8Array>, copyTiles?: Co
 	});
 
 	const { objects, missing } = composeObjects(validObjects(scene.objects ?? []), baseData.objects, base.removedObjects);
-	const model = new SceneModel(meta, scene.textures, tiles, objects, scene.npcPresets ?? [], scene.npcs ?? [], baseData);
+	const presets = validPresets(scene.npcPresets ?? []);
+	const model = new SceneModel(meta, scene.textures, tiles, objects, presets, validNpcs(scene.npcs ?? [], presets), baseData);
 	// Loaded overrides count as touched, so the next save's sweep re-checks them (spec 6.5).
 	for (const [index, set] of touched) model.touchedChunks.set(index, set);
 	return { model, missingObjects: missing };
+}
+
+const EQUIP_SLOTS: EquipSlot[] = ['head', 'shoulder', 'back', 'chest', 'shirt', 'tabard', 'wrist', 'hands', 'waist', 'legs', 'feet', 'mainHand', 'offHand', 'ranged'];
+
+/** Checks the embedded custom NPC presets (spec 6.6) and keeps only the fields the format defines. */
+export function validPresets(presets: NpcPreset[]): NpcPreset[] {
+	if (!Array.isArray(presets)) throw new Error('Bad NPC preset list');
+	const seen = new Set<string>();
+	return presets.map((p, i) => {
+		const what = `NPC preset ${i}`;
+		if (typeof p?.id !== 'string' || !p.id || seen.has(p.id)) throw new Error(`${what} has a missing or repeated id`);
+		seen.add(p.id);
+		if (!Number.isInteger(p.race) || p.race <= 0) throw new Error(`${what} has a bad race`);
+		if (p.sex !== 0 && p.sex !== 1) throw new Error(`${what} has a bad sex`);
+		const customization: Record<string, number> = {};
+		for (const [option, choice] of Object.entries(p.customization ?? {})) {
+			if (!/^\d+$/.test(option) || !Number.isInteger(choice) || choice < 0) throw new Error(`${what} has a bad customization choice`);
+			customization[option] = choice;
+		}
+		const equipment: Partial<Record<EquipSlot, number>> = {};
+		for (const [slot, display] of Object.entries(p.equipment ?? {})) {
+			if (!EQUIP_SLOTS.includes(slot as EquipSlot)) throw new Error(`${what} dresses an unknown slot "${slot}"`);
+			if (!Number.isInteger(display) || display <= 0) throw new Error(`${what} has a bad item display in ${slot}`);
+			equipment[slot as EquipSlot] = display;
+		}
+		return { id: p.id, name: typeof p.name === 'string' ? p.name : '', race: p.race, sex: p.sex, customization, equipment };
+	});
+}
+
+/** Checks placed NPCs (spec 7.9): custom ones must wear a preset embedded in the scene. */
+export function validNpcs(npcs: PlacedNpc[], presets: NpcPreset[]): PlacedNpc[] {
+	if (!Array.isArray(npcs)) throw new Error('Bad NPC list');
+	const presetIds = new Set(presets.map((p) => p.id));
+	const seen = new Set<string>();
+	return npcs.map((n, i) => {
+		const what = `NPC ${i}`;
+		if (typeof n?.id !== 'string' || !n.id || seen.has(n.id)) throw new Error(`${what} has a missing or repeated id`);
+		seen.add(n.id);
+		const a = n.appearance as NpcAppearance | undefined;
+		let appearance: NpcAppearance;
+		if (a?.kind === 'creature' && Number.isInteger(a.displayId) && a.displayId > 0) appearance = { kind: 'creature', displayId: a.displayId };
+		else if (a?.kind === 'custom' && typeof a.presetId === 'string' && presetIds.has(a.presetId)) appearance = { kind: 'custom', presetId: a.presetId };
+		else throw new Error(`${what} has a bad appearance`);
+		if (!Array.isArray(n.position) || n.position.length !== 3 || !n.position.every(Number.isFinite)) throw new Error(`${what} has a bad position`);
+		if (!Number.isFinite(n.facing)) throw new Error(`${what} has a bad facing`);
+		if (!Number.isFinite(n.scale) || n.scale <= 0) throw new Error(`${what} has a bad scale`);
+		return {
+			id: n.id,
+			appearance,
+			...(typeof n.name === 'string' && n.name ? { name: n.name } : {}),
+			...(typeof n.subName === 'string' && n.subName ? { subName: n.subName } : {}),
+			position: [n.position[0], n.position[1], n.position[2]],
+			facing: n.facing,
+			scale: n.scale,
+			animation: 'idle',
+			...(n.locked === true ? { locked: true } : {}),
+			...(typeof n.group === 'string' && n.group ? { group: n.group } : {}),
+		};
+	});
 }
 
 /** Checks placed objects (spec 7.8) and keeps only the fields the format defines. */

@@ -44,11 +44,23 @@ function wantedWmo(path: string): boolean {
 	return path.endsWith('.wmo') && !/(_\d{3}(_lod\d+)?|_lod\d*)\.wmo$/.test(path);
 }
 
+/** Keeps creature and character models, for naming the NPCs tab's displays (spec 7.9.2). */
+function wantedCreature(path: string): boolean {
+	return (path.startsWith('creature/') || path.startsWith('character/')) && path.endsWith('.m2');
+}
+
+/** Keeps item models and texture components, for labelling nameless gear by path (spec 7.9.3, Q8). */
+function wantedItem(path: string): boolean {
+	return path.startsWith('item/') && (path.endsWith('.m2') || path.endsWith('.blp'));
+}
+
 /** What each cached list is built from: the part files it needs, and the paths it keeps. */
 const KINDS = {
 	tileset: { key: 'listfile:tileset:2', parts: ['misc.csv', 'placeholder.csv'], wanted: wantedTexture },
 	doodad: { key: 'listfile:doodads:1', parts: ['world.csv', 'placeholder.csv'], wanted: wantedDoodad },
 	wmo: { key: 'listfile:wmos:1', parts: ['world-wmo.csv', 'placeholder.csv'], wanted: wantedWmo },
+	creature: { key: 'listfile:creatures:1', parts: ['creature.csv', 'misc.csv'], wanted: wantedCreature },
+	item: { key: 'listfile:items:1', parts: ['item.csv'], wanted: wantedItem },
 } as const;
 
 export type ListfileKind = keyof typeof KINDS;

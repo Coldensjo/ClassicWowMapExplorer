@@ -7,19 +7,29 @@ import type { SceneEditor } from './sceneEditor';
 import type { Falloff, SculptMode } from './sculpt';
 import { ModelBrowser } from './modelBrowser';
 import { TextureBrowser } from './textureBrowser';
+import { NpcBrowser, presetThumbKey } from './npcBrowser';
+import { NpcEditor } from './npcEditor';
+import type { NpcAsset } from './npcs';
+import { PresetLibrary } from '../scene/presetLibrary';
+import type { NpcPreset } from '../scene/types';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-/** Tools on the rail (spec 8): the ones Phase 2 hasn't delivered yet are disabled. */
+/** Tools on the rail (spec 8), with their number keys. */
 const TOOLS: { id: string; key: string; ready: boolean }[] = [
 	{ id: 'sculpt', key: 'Digit1', ready: true },
 	{ id: 'paint', key: 'Digit2', ready: true },
 	{ id: 'holes', key: 'Digit3', ready: true },
 	{ id: 'water', key: 'Digit4', ready: true },
 	{ id: 'place', key: 'Digit5', ready: true },
-	{ id: 'npcs', key: 'Digit6', ready: false },
+	{ id: 'npcs', key: 'Digit6', ready: true },
 	{ id: 'revert', key: 'Digit7', ready: true },
 ];
+
+const NPC_HINTS: Record<'place' | 'select', string> = {
+	place: 'Pick a creature or custom NPC, then click the ground to place it facing you. It snaps to the ground.',
+	select: 'Click an NPC or object to select it; Shift+click adds. W/E/R move, turn and scale; Del deletes.',
+};
 
 const HOLE_HINTS: Record<HoleMode, string> = {
 	cut: 'Hold the left button to cut cells out of the ground, for caves and stairwells.',
@@ -64,6 +74,10 @@ export class EditorPanels {
 	private readonly textures: TextureBrowser;
 	/** Made when the Place tool first opens, so its listfile parts aren't fetched before then. */
 	private models: ModelBrowser | null = null;
+	/** Made when the NPCs tool first opens (spec 7.9). */
+	private npcBrowser: NpcBrowser | null = null;
+	private npcEditor: NpcEditor | null = null;
+	private readonly presets = new PresetLibrary();
 
 	constructor(
 		private readonly editor: SceneEditor,
@@ -76,6 +90,7 @@ export class EditorPanels {
 		this.wireHoles();
 		this.wireWater();
 		this.wirePlace();
+		this.wireNpcs();
 		this.wireRevert();
 		this.wireClutter();
 		this.wireUndo();
@@ -132,6 +147,7 @@ export class EditorPanels {
 		$('holes-props').hidden = id !== 'holes';
 		$('water-props').hidden = id !== 'water';
 		$('place-props').hidden = id !== 'place';
+		$('npcs-props').hidden = id !== 'npcs';
 		$('revert-props').hidden = id !== 'revert';
 		if (id === 'place' && !this.models) {
 			this.models = new ModelBrowser(this.storage, this.editor.model.meta.client.build, (asset) => {
@@ -139,6 +155,8 @@ export class EditorPanels {
 				this.syncPlace();
 			}, (text) => this.editor.onNotice(text));
 		}
+		if (id === 'npcs' && !this.npcBrowser) this.makeNpcBrowser();
+		this.syncSelection();
 	}
 
 	// ---- Sculpt properties ----
@@ -334,17 +352,34 @@ export class EditorPanels {
 	/** Brings the selection block in line with what's selected and the gizmo mode. */
 	private syncSelection(): void {
 		const objects = this.editor.objects;
+		const entities = objects.selectedEntities();
 		const selected = objects.selectedObjects();
-		$('place-selection').hidden = selected.length === 0;
+		const npcs = objects.selectedNpcs();
+		const objectTool = this.editor.tool === 'place' || this.editor.tool === 'npcs';
+		$('selection-props').hidden = entities.length === 0 || !objectTool;
 		const deleted = objects.deletedBaseCount;
 		$('place-restore').hidden = deleted === 0;
 		$('place-restore').textContent = `Restore ${deleted} deleted copied object${deleted === 1 ? '' : 's'}`;
 		for (const mode of ['translate', 'rotate', 'scale'] as const) {
 			$(`gizmo-${mode}`).classList.toggle('active', objects.gizmoMode === mode);
 		}
-		if (!selected.length) return;
+		if (!entities.length) return;
+		// NPC properties (spec 7.9.1) show while any NPC is selected; the fields follow the last one.
+		$('sel-npc').hidden = npcs.length === 0;
+		if (npcs.length) {
+			const npc = npcs[npcs.length - 1];
+			const active = document.activeElement;
+			if (active !== $('sel-npc-name')) $<HTMLInputElement>('sel-npc-name').value = npcs.every((n) => n.name === npc.name) ? npc.name ?? '' : '';
+			if (active !== $('sel-npc-subname')) $<HTMLInputElement>('sel-npc-subname').value = npcs.every((n) => n.subName === npc.subName) ? npc.subName ?? '' : '';
+			if (active !== $('sel-npc-facing')) $<HTMLInputElement>('sel-npc-facing').value = String(Math.round(((npc.facing % 360) + 360) % 360));
+			if (active !== $('sel-npc-scale')) $<HTMLInputElement>('sel-npc-scale').value = String(Math.round(npc.scale * 100) / 100);
+			const picked = objects.npcPlace.asset;
+			$<HTMLButtonElement>('sel-npc-appearance').disabled = !picked;
+			$('sel-npc-appearance').title = picked ? `Give the selected NPC${npcs.length === 1 ? '' : 's'} the look picked in the NPCs tab: ${picked.label}` : 'Pick a creature or custom NPC in the NPCs tab first';
+			$('sel-npc-look').textContent = this.npcBrowser?.describe(npc.appearance) ?? (npc.appearance.kind === 'creature' ? `Creature display ${npc.appearance.displayId}` : 'Custom NPC');
+		}
 		// The WMO set choices show for a single selected building (spec 7.8).
-		const wmo = selected.length === 1 && selected[0].kind === 'wmo' ? selected[0] : null;
+		const wmo = selected.length === 1 && !npcs.length && selected[0].kind === 'wmo' ? selected[0] : null;
 		$('sel-doodadset-row').hidden = !wmo;
 		$('sel-nameset-row').hidden = !wmo;
 		if (wmo) {
@@ -358,14 +393,120 @@ export class EditorPanels {
 			$<HTMLInputElement>('sel-nameset').value = String(wmo.nameSet ?? 0);
 		}
 		$('sel-revert').hidden = objects.revertableCount === 0;
+		const items = entities.map((e) => (e.kind === 'npc' ? e.n : e.o));
 		const lock = $<HTMLInputElement>('sel-lock');
-		lock.checked = selected.every((o) => o.locked);
-		lock.indeterminate = !lock.checked && selected.some((o) => o.locked);
-		const groups = new Set(selected.map((o) => o.group ?? ''));
+		lock.checked = items.every((o) => o.locked);
+		lock.indeterminate = !lock.checked && items.some((o) => o.locked);
+		const groups = new Set(items.map((o) => o.group ?? ''));
 		const group = $<HTMLInputElement>('sel-group');
 		if (document.activeElement !== group) group.value = groups.size === 1 ? [...groups][0] : '';
 		group.placeholder = groups.size > 1 ? 'mixed' : 'none';
-		$('sel-count').textContent = `${selected.length} selected · ${this.editor.objects.count} in the scene`;
+		const parts: string[] = [];
+		if (selected.length) parts.push(`${selected.length} object${selected.length === 1 ? '' : 's'}`);
+		if (npcs.length) parts.push(`${npcs.length} NPC${npcs.length === 1 ? '' : 's'}`);
+		$('sel-count').textContent = `${parts.join(' and ')} selected · ${objects.count} objects and ${objects.npcCount} NPCs in the scene`;
+	}
+
+	// ---- NPCs (spec 7.9) ----
+
+	private wireNpcs(): void {
+		const settings = this.editor.objects.npcPlace;
+		for (const mode of ['place', 'select'] as const) {
+			this.listen($(`npcs-${mode}`), 'click', () => {
+				settings.mode = mode;
+				this.syncNpcs();
+			});
+		}
+		const objects = this.editor.objects;
+		const names = () => objects.setNpcName($<HTMLInputElement>('sel-npc-name').value, $<HTMLInputElement>('sel-npc-subname').value);
+		this.listen($('sel-npc-name'), 'change', names);
+		this.listen($('sel-npc-subname'), 'change', names);
+		this.listen($('sel-npc-facing'), 'change', () => objects.setNpcFacing(Number($<HTMLInputElement>('sel-npc-facing').value) || 0));
+		this.listen($('sel-npc-scale'), 'change', () => objects.setNpcScale(Number($<HTMLInputElement>('sel-npc-scale').value) || 1));
+		this.listen($('sel-npc-appearance'), 'click', () => {
+			const picked = objects.npcPlace.asset;
+			if (picked) objects.setNpcAppearance(picked.appearance, picked.label);
+		});
+		this.syncNpcs();
+	}
+
+	private syncNpcs(): void {
+		const settings = this.editor.objects.npcPlace;
+		$('npcs-place').classList.toggle('active', settings.mode === 'place');
+		$('npcs-select').classList.toggle('active', settings.mode === 'select');
+		$('npc-picked').textContent = settings.asset ? `Placing ${settings.asset.label}` : 'Nothing picked yet';
+		$('npcs-hint').textContent = NPC_HINTS[settings.mode];
+		this.syncSelection();
+	}
+
+	/** Arms an appearance for placing; a custom one is embedded in the scene first (spec 6.6). */
+	private pickNpc(asset: NpcAsset | null, presets: NpcPreset[]): void {
+		if (asset?.appearance.kind === 'custom') {
+			const preset = presets.find((p) => p.id === (asset.appearance as { presetId: string }).presetId);
+			if (preset) this.editor.model.setPreset(preset);
+		}
+		this.editor.objects.npcPlace.asset = asset;
+		this.syncNpcs();
+	}
+
+	private makeNpcBrowser(): void {
+		const editor = this.editor;
+		let library: NpcPreset[] = [];
+		const refreshPresets = async () => {
+			try {
+				library = await this.presets.list();
+			} catch (e) {
+				editor.onNotice(`The NPC preset library can't be read: ${e instanceof Error ? e.message : e}`);
+			}
+			// Presets embedded in this scene but gone from the library stay offered, so the scene's NPCs can still be re-dressed.
+			const embedded = editor.model.npcPresets.filter((p) => !library.some((l) => l.id === p.id));
+			this.npcBrowser?.setPresets([...library, ...embedded]);
+		};
+		const browser = new NpcBrowser(this.storage, editor.model.meta.client.build, (asset) => this.pickNpc(asset, [...library, ...editor.model.npcPresets]), (text) => editor.onNotice(text), {
+			handleOf: (preset) => editor.objects.npcs.handle(preset),
+			onNew: () => void this.openNpcEditor(null),
+			onEdit: (preset) => void this.openNpcEditor(preset),
+			onDelete: (preset) => {
+				if (!confirm(`Delete "${preset.name}" from your NPC library? Scenes that use it keep their own copy.`)) return;
+				void this.presets.delete(preset.id).then(refreshPresets, (e) => editor.onNotice(`Deleting failed: ${e instanceof Error ? e.message : e}`));
+			},
+			onExport: (preset) => download(`${preset.name || 'npc'}.wnpc`, PresetLibrary.export(preset), 'application/json'),
+			onImport: (file) => {
+				void file.arrayBuffer().then((bytes) => this.presets.import(new Uint8Array(bytes))).then(refreshPresets, (e) => editor.onNotice(e instanceof Error ? e.message : String(e)));
+			},
+			onCustomize: (displayId) => {
+				void this.storage.humanoidPreset(displayId).then((prefill) => {
+					if (!prefill) {
+						editor.onNotice('That display has no character race and sex to customize');
+						return;
+					}
+					return this.openNpcEditor(null, prefill, `${browser.describe({ kind: 'creature', displayId }).split(' (')[0]} (custom)`);
+				}, (e) => editor.onNotice(`Customize as new failed: ${e instanceof Error ? e.message : e}`));
+			},
+		});
+		this.npcBrowser = browser;
+		void refreshPresets();
+		this.npcEditor = new NpcEditor(this.storage, {
+			handleOf: (preset) => editor.objects.npcs.handle(preset),
+			onNotice: (text) => editor.onNotice(text),
+			onSave: (preset) => {
+				void this.presets.save(preset).catch((e) => editor.onNotice(`Saving the preset failed: ${e instanceof Error ? e.message : e}. It is still embedded in this scene.`));
+				browser.forgetThumb(presetThumbKey(preset));
+				// NPCs wearing an edited preset change with it (spec 6.6: the scene keeps its own copy).
+				if (editor.model.preset(preset.id)) {
+					editor.model.setPreset(preset);
+					editor.objects.refreshPreset(preset.id);
+				}
+				void refreshPresets().then(() => {
+					browser.showCustom();
+					this.pickNpc({ appearance: { kind: 'custom', presetId: preset.id }, label: preset.name }, [preset, ...library]);
+				});
+			},
+		});
+	}
+
+	private async openNpcEditor(preset: NpcPreset | null, prefill: Parameters<NpcEditor['open']>[1] = null, name = ''): Promise<void> {
+		await this.npcEditor?.open(preset, prefill, name);
 	}
 
 	private syncPlace(): void {
@@ -511,8 +652,21 @@ export class EditorPanels {
 		this.textures.dispose();
 		this.models?.dispose();
 		this.models = null;
+		this.npcEditor?.dispose();
+		this.npcEditor = null;
+		this.npcBrowser?.dispose();
+		this.npcBrowser = null;
 		for (const cleanup of this.cleanups) cleanup();
 		this.cleanups.length = 0;
 		this.show(false);
 	}
+}
+
+function download(name: string, bytes: Uint8Array, type: string): void {
+	const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type }));
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = name;
+	a.click();
+	setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }

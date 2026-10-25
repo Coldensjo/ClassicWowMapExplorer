@@ -341,6 +341,56 @@ export class SceneModel {
 		this.meta.modified = new Date().toISOString();
 	}
 
+	// ---- NPCs (spec 7.9) ----
+
+	/** Adds a placed NPC (place, paste, redo) and touches the modified date. */
+	addNpc(npc: PlacedNpc): void {
+		this.npcs.push(npc);
+		this.meta.modified = new Date().toISOString();
+	}
+
+	/** Removes a placed NPC by id (delete, undo); returns it for the command's snapshot. */
+	removeNpc(id: string): PlacedNpc | null {
+		const index = this.npcs.findIndex((n) => n.id === id);
+		if (index < 0) return null;
+		this.meta.modified = new Date().toISOString();
+		return this.npcs.splice(index, 1)[0];
+	}
+
+	npc(id: string): PlacedNpc | null {
+		return this.npcs.find((n) => n.id === id) ?? null;
+	}
+
+	/** An NPC changed in place (moved, renamed, re-dressed); keeps autosave aware. */
+	touchNpcs(): void {
+		this.meta.modified = new Date().toISOString();
+	}
+
+	/** A custom preset embedded in the scene (spec 6.6), or null. */
+	preset(id: string): NpcPreset | null {
+		return this.npcPresets.find((p) => p.id === id) ?? null;
+	}
+
+	/**
+	 * Embeds a custom preset so the file stays self-contained (spec 6.6), replacing an older copy
+	 * of the same preset; NPCs wearing it pick the change up through their appearance.
+	 */
+	setPreset(preset: NpcPreset): void {
+		const copy = structuredClone(preset);
+		const index = this.npcPresets.findIndex((p) => p.id === preset.id);
+		if (index >= 0) this.npcPresets[index] = copy;
+		else this.npcPresets.push(copy);
+		this.meta.modified = new Date().toISOString();
+	}
+
+	/** Drops embedded presets no NPC (and not the player) wears any more, before saving. */
+	pruneUnusedPresets(): void {
+		const used = new Set<string>();
+		for (const n of this.npcs) if (n.appearance.kind === 'custom') used.add(n.appearance.presetId);
+		if (this.meta.player?.kind === 'custom') used.add(this.meta.player.presetId);
+		for (let i = this.npcPresets.length - 1; i >= 0; i--) if (!used.has(this.npcPresets[i].id)) this.npcPresets.splice(i, 1);
+	}
+
 	/** Puts back a chunk's vertex shading whole (revert, undo); shading is baked into the mesh, so the tile rebuilds. */
 	restoreShade(tileIndex: number, chunkId: number, shade: Uint8Array | null): void {
 		this.tiles[tileIndex].chunks[chunkId].vertexShade = shade ? shade.slice() : null;

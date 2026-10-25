@@ -60,6 +60,9 @@ interface TileMesh {
 	water: THREE.Mesh[];
 }
 
+/** The tools on the rail (spec 8). */
+export type Tool = 'sculpt' | 'paint' | 'holes' | 'water' | 'place' | 'npcs' | 'revert';
+
 /** What the status bar shows each frame. */
 export interface EditorStatus {
 	cursor: { x: number; z: number; height: number } | null;
@@ -125,17 +128,25 @@ export class SceneEditor {
 	/** The editor core (spec 7.11): every change goes through a command. */
 	readonly commands = new CommandStack();
 	/** Which tool the left mouse button drives. */
-	private activeTool: 'sculpt' | 'paint' | 'holes' | 'water' | 'place' | 'revert' = 'sculpt';
-	/** The placed doodads and buildings (spec 7.8). */
+	private activeTool: Tool = 'sculpt';
+	/** The placed doodads, buildings and NPCs (spec 7.8, 7.9). */
 	readonly objects: SceneObjects;
+	/** Whether the NPC load summary (spec 7.11) has been shown for this scene. */
+	private npcsReported = false;
+	private lastNpcCheck = 0;
 
-	get tool(): 'sculpt' | 'paint' | 'holes' | 'water' | 'place' | 'revert' {
+	get tool(): Tool {
 		return this.activeTool;
 	}
 
-	set tool(tool: 'sculpt' | 'paint' | 'holes' | 'water' | 'place' | 'revert') {
+	set tool(tool: Tool) {
 		this.activeTool = tool;
-		this.objects?.setActive(tool === 'place');
+		this.objects?.setActive(tool === 'place' || tool === 'npcs');
+	}
+
+	/** The tools whose clicks go to the placed objects and NPCs rather than a brush. */
+	private get objectTool(): boolean {
+		return this.tool === 'place' || this.tool === 'npcs';
 	}
 	/** The hole brush (spec 7.6), edited by the properties panel. */
 	readonly holes: HoleSettings = { radius: 4, mode: 'cut' };
@@ -196,12 +207,13 @@ export class SceneEditor {
 			terrain: (x, z) => this.model.heightAt(x, z) ?? -Infinity,
 			surface: (x, z) => this.model.surfaceAt(x, z) ?? -Infinity,
 			ready: () => true,
-			// Placed buildings and solid doodads block and carry the walker (Phase 3); the manager
-			// is read through `this.objects`, which the constructor makes a few lines below.
-			nearBuilding: (at, margin) => this.objects.manager.nearBuilding(at, margin),
+			// Placed buildings and solid doodads block and carry the walker (Phase 3), and NPCs'
+			// capsules block it (spec 7.9.1); the manager is read through `this.objects`, which the
+			// constructor makes a few lines below.
+			nearBuilding: (at, margin) => this.objects.manager.nearBuilding(at, margin) || this.objects.npcs.near(at, margin),
 			cast: (from, direction, far) => this.objects.manager.castBuildings(from, direction, far),
-			sweep: (from, move, radius) => this.objects.manager.sweep(from, move, radius, true),
-			pushOut: (at, radius) => this.objects.manager.pushOut(at, radius, true),
+			sweep: (from, move, radius) => this.objects.npcs.sweep(from, this.objects.manager.sweep(from, move, radius, true), radius),
+			pushOut: (at, radius) => this.objects.manager.pushOut(at, radius, true).add(this.objects.npcs.pushOut(at, radius)),
 			// Swimming in scene water arrives with play mode (Phase 6).
 			liquid: () => null,
 		};
@@ -849,9 +861,21 @@ export class SceneEditor {
 		const ground = this.model.surfaceAt(this.camera.position.x, this.camera.position.z);
 		this.clutter.update(performance.now(), this.camera.position, ground ?? -Infinity);
 		// The gizmo and boxes hide while walking or looking around, like the other overlays.
-		this.objects.setActive(this.tool === 'place' && !this.walker.active && !this.controls.locked);
+		this.objects.setActive(this.objectTool && !this.walker.active && !this.controls.locked);
 		this.objects.update(performance.now(), this.camera.position);
 		const now = performance.now();
+		// Once every placed NPC's model has loaded or failed, say what the client lacks (spec 7.11).
+		if (!this.npcsReported && this.model.npcs.length && now - this.lastNpcCheck > 1000) {
+			this.lastNpcCheck = now;
+			const report = this.objects.npcs.loadReport();
+			if (report) {
+				this.npcsReported = true;
+				const parts: string[] = [];
+				if (report.missing) parts.push(`${report.missing} NPC${report.missing === 1 ? ' isn\u2019t' : 's aren\u2019t'} in your client (${this.model.meta.client.build}) and ${report.missing === 1 ? 'stands' : 'stand'} as a placeholder`);
+				if (report.gear.length) parts.push(`gear left off custom NPCs: ${report.gear.slice(0, 4).join(', ')}${report.gear.length > 4 ? ` and ${report.gear.length - 4} more` : ''}`);
+				if (parts.length) this.onNotice(parts.join('; '));
+			}
+		}
 		for (let i = this.flags.length - 1; i >= 0; i--) {
 			if (now < this.flags[i].until) continue;
 			const [flag] = this.flags.splice(i, 1);
@@ -916,7 +940,7 @@ export class SceneEditor {
 	/** Lays the brush ring (and the ramp's anchor ring) on the terrain. */
 	private updateRings(): void {
 		if (this.tool !== 'sculpt' || this.brush.mode !== 'ramp') this.rampStart = null;
-		const show = this.cursor !== null && !this.walker.active && !this.controls.locked && this.tool !== 'place';
+		const show = this.cursor !== null && !this.walker.active && !this.controls.locked && !this.objectTool;
 		this.ring.visible = show;
 		const radius =
 			this.tool === 'paint' ? (this.paint.mode === 'paint' || this.paint.mode === 'erase' ? this.paint.radius : 2)
@@ -969,12 +993,14 @@ export class SceneEditor {
 	/** Starts the active tool at the cursor (left button). */
 	private beginStroke(event?: MouseEvent): void {
 		if (this.walker.active || this.controls.locked) return;
-		if (this.tool === 'place') {
+		if (this.objectTool) {
 			// A press on the gizmo belongs to it, not to placing or selecting.
 			if (Number.isNaN(this.mouse.x) || this.objects.gizmoBusy || !event) return;
 			this.raycaster.setFromCamera(this.mouse, this.camera);
-			if (this.objects.place.mode === 'place') this.objects.placeClick(this.raycaster, this.cursor);
-			else this.objects.selectClick(this.raycaster, event);
+			const placing = this.tool === 'place' ? this.objects.place.mode === 'place' : this.objects.npcPlace.mode === 'place';
+			if (!placing) this.objects.selectClick(this.raycaster, event);
+			else if (this.tool === 'place') this.objects.placeClick(this.raycaster, this.cursor);
+			else this.objects.placeNpcClick(this.raycaster, this.cursor);
 			return;
 		}
 		if (!this.cursor) return;
@@ -1114,8 +1140,8 @@ export class SceneEditor {
 			this.redo();
 			return;
 		}
-		// The Place tool's editing keys (spec 8): copy/paste/duplicate, gizmo modes, delete.
-		if (this.tool === 'place' && !this.walker.active && !this.controls.locked) {
+		// The Place and NPCs tools' editing keys (spec 8): copy/paste/duplicate, gizmo modes, delete.
+		if (this.objectTool && !this.walker.active && !this.controls.locked) {
 			if (e.ctrlKey || e.metaKey) {
 				if (e.code === 'KeyC') this.objects.copySelection();
 				else if (e.code === 'KeyV') this.objects.paste();

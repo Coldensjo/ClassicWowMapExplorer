@@ -176,3 +176,31 @@ test('tileRenderData shapes a tile like parsed ADT data', () => {
 	expect(tex.chunks[20].alpha.length).toBe(1);
 	expect(tex.chunks[20].alpha[0][0]).toBe(128);
 });
+
+test('NPCs and their presets round-trip, unused presets are dropped, and bad NPCs are refused', () => {
+	const scene = blank(1, 1);
+	const worn = { id: 'preset-1', name: 'Guard', race: 1, sex: 0 as const, customization: { '9': 1, '11': 44 }, equipment: { head: 14964, chest: 7223 } };
+	const spare = { ...worn, id: 'preset-2', name: 'Spare' };
+	scene.setPreset(worn);
+	scene.setPreset(spare);
+	scene.npcs.push({ id: 'npc-1', appearance: { kind: 'custom', presetId: 'preset-1' }, name: 'Thomas', subName: '<Guard>', position: [3, 0, 4], facing: 90, scale: 1.1, animation: 'idle', group: 'gate' });
+	scene.npcs.push({ id: 'npc-2', appearance: { kind: 'creature', displayId: 31 }, position: [6, 0, 4], facing: 0, scale: 1, animation: 'idle' });
+	const loaded = decodeScene(encodeScene(scene)).model;
+	// Only the preset an NPC wears travels with the scene (spec 6.6).
+	expect(loaded.npcPresets.map((p) => p.id)).toEqual(['preset-1']);
+	expect(loaded.npcPresets[0]).toEqual(worn);
+	expect(loaded.npcs).toEqual(scene.npcs);
+
+	const tamper = (edit: (json: { npcs: unknown[]; npcPresets: unknown[] }) => void) => {
+		const files = unzipSync(encodeScene(scene));
+		const json = JSON.parse(strFromU8(files['scene.json']));
+		edit(json);
+		files['scene.json'] = strToU8(JSON.stringify(json)) as Uint8Array<ArrayBuffer>;
+		return zipSync(files);
+	};
+	// A custom NPC must wear a preset embedded in the scene; a creature needs a display id.
+	expect(() => decodeScene(tamper((j) => ((j.npcs[0] as { appearance: unknown }).appearance = { kind: 'custom', presetId: 'nowhere' })))).toThrow(/appearance/);
+	expect(() => decodeScene(tamper((j) => ((j.npcs[1] as { appearance: unknown }).appearance = { kind: 'creature', displayId: -3 })))).toThrow(/appearance/);
+	expect(() => decodeScene(tamper((j) => ((j.npcs[1] as { scale: number }).scale = 0)))).toThrow(/scale/);
+	expect(() => decodeScene(tamper((j) => ((j.npcPresets[0] as { equipment: unknown }).equipment = { hat: 1 })))).toThrow(/slot/);
+});

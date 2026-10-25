@@ -873,6 +873,21 @@ export class ObjectManager {
 		return best;
 	}
 
+	/** Where a model's load stands; undefined for one never asked for. */
+	modelState(kind: Kind, fdid: number): ModelEntry['state'] | undefined {
+		return this.models.get(`${kind}:${fdid}`)?.state;
+	}
+
+	/** Whether a model could not be loaded (not in the client, or nothing to draw): the editor shows a placeholder. */
+	modelFailed(kind: Kind, fdid: number): boolean {
+		return this.models.get(`${kind}:${fdid}`)?.state === 'failed';
+	}
+
+	/** Gear a custom NPC's model left off because the client lacks it (ModelData.missingGear), once loaded. */
+	missingGear(kind: Kind, fdid: number): string[] {
+		return this.models.get(`${kind}:${fdid}`)?.data?.missingGear ?? [];
+	}
+
 	/**
 	 * A loaded model's local bounds and (for WMOs) its doodad set names, for the editor's selection
 	 * box and properties; null until the model is ready.

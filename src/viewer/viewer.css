@@ -2345,7 +2345,7 @@ body.wow-ui {
 
 /* --- The dungeon builder: the scene library, the new-scene dialog and the editor bar. --- */
 
-#scenes, #scene-create {
+#scenes, #scene-create, #npc-editor {
 	position: fixed;
 	inset: 0;
 	display: grid;
@@ -2718,4 +2718,277 @@ body.wow-ui {
 
 #texture-count {
 	margin-top: 4px;
+}
+
+/* ---- The NPCs tab (spec 7.9) ---- */
+
+#npc-browser .browser-top {
+	display: flex;
+	gap: 4px;
+	margin-top: 6px;
+}
+
+#npc-browser .browser-top input {
+	flex: 1;
+	min-width: 0;
+}
+
+.tool-props .mode-row.two {
+	grid-template-columns: 1fr 1fr;
+}
+
+/* Creature displays grouped by model: a name, then its skin variants as pictures. */
+.npc-grid {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	max-height: 260px;
+	overflow: auto;
+	margin-top: 6px;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	padding: 4px;
+}
+
+.npc-model-name {
+	font-size: 11px;
+	color: var(--muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.npc-variants {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 3px;
+}
+
+.npc-variants .texture-item {
+	width: 62px;
+	padding: 2px;
+}
+
+.npc-variants .texture-item img {
+	width: 48px;
+	height: 48px;
+}
+
+.npc-presets {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	max-height: 260px;
+	overflow: auto;
+	margin-top: 6px;
+}
+
+.npc-preset-row {
+	display: grid;
+	grid-template-columns: 40px 1fr auto;
+	align-items: center;
+	gap: 6px;
+	padding: 3px 4px;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.npc-preset-row.active {
+	border-color: var(--accent);
+	background: rgba(217, 164, 65, 0.15);
+}
+
+.npc-preset-row img {
+	width: 40px;
+	height: 40px;
+	border-radius: 4px;
+	background: #20242b;
+	object-fit: contain;
+}
+
+.npc-preset-row .npc-preset-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.npc-preset-row .npc-preset-actions {
+	display: flex;
+	gap: 2px;
+}
+
+.npc-preset-row .npc-preset-actions button {
+	padding: 2px 5px;
+	font-size: 11px;
+}
+
+#sel-npc {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+#sel-npc input[type='text'] {
+	flex: 1;
+	min-width: 0;
+}
+
+/* ---- The custom NPC editor (spec 7.9.3) ---- */
+
+#npc-editor {
+	z-index: 40;
+}
+
+.npc-editor-frame {
+	width: min(900px, 100%);
+	max-height: calc(100vh - 32px);
+	display: flex;
+	flex-direction: column;
+}
+
+.npc-editor-frame header {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.npc-editor-frame header h2 {
+	flex: 1;
+	margin: 0;
+}
+
+.npc-editor-body {
+	display: grid;
+	grid-template-columns: 360px 1fr;
+	gap: 14px;
+	min-height: 0;
+}
+
+#npc-editor-preview {
+	width: 360px;
+	height: 480px;
+	border-radius: 8px;
+	background: radial-gradient(ellipse at 50% 30%, #3a4150, #1b1f26 75%);
+	cursor: grab;
+	align-self: start;
+}
+
+.npc-editor-form {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	min-height: 0;
+	max-height: calc(100vh - 110px);
+	overflow: auto;
+	padding-right: 4px;
+	font-size: 13px;
+}
+
+.npc-editor-form h3 {
+	margin: 6px 0 0;
+	font-size: 13px;
+}
+
+.npc-editor-form .prop-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.npc-editor-form .prop-row input[type='text'],
+.npc-editor-form .prop-row select {
+	flex: 1;
+	min-width: 0;
+}
+
+.npc-editor-options {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.npc-option {
+	display: grid;
+	grid-template-columns: 96px 1fr;
+	align-items: center;
+	gap: 6px;
+}
+
+.npc-option select {
+	min-width: 0;
+}
+
+.npc-swatches {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 3px;
+}
+
+.npc-swatches button {
+	width: 18px;
+	height: 18px;
+	padding: 0;
+	border: 2px solid transparent;
+	border-radius: 4px;
+}
+
+.npc-swatches button.active {
+	border-color: #fff;
+	box-shadow: 0 0 0 1px #000;
+}
+
+.npc-editor-gear {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.npc-slot {
+	display: grid;
+	grid-template-columns: 72px 1fr auto;
+	align-items: center;
+	gap: 6px;
+	position: relative;
+}
+
+.npc-slot input {
+	min-width: 0;
+}
+
+.npc-slot .npc-slot-clear {
+	padding: 2px 6px;
+}
+
+.npc-slot-results {
+	position: absolute;
+	left: 78px;
+	right: 0;
+	top: 100%;
+	z-index: 5;
+	max-height: 220px;
+	overflow: auto;
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	display: flex;
+	flex-direction: column;
+}
+
+.npc-slot-results button {
+	text-align: left;
+	border: none;
+	border-radius: 0;
+	background: none;
+	padding: 4px 8px;
+	font-size: 12px;
+}
+
+.npc-slot-results button:hover {
+	background: rgba(255, 255, 255, 0.08);
+}
+
+.npc-slot-results .muted {
+	padding: 4px 8px;
 }

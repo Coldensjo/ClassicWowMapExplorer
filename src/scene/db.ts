@@ -1,13 +1,14 @@
 /**
- * The builder's IndexedDB: the scene index (spec 7.11), and a key-value store for cached data
- * that outlives a session: the filtered listfile, the ground effect table and thumbnails
- * (spec 3.1, 7.3, 7.7.2).
+ * The builder's IndexedDB: the scene index (spec 7.11), the custom NPC preset library (spec
+ * 7.11), and a key-value store for cached data that outlives a session: the filtered listfile,
+ * the ground effect table and thumbnails (spec 3.1, 7.3, 7.7.2).
  */
 const DB_NAME = 'dungeonBuilder';
-const VERSION = 2;
+const VERSION = 3;
 
 export const SCENE_STORE = 'scenes';
 export const KV_STORE = 'kv';
+export const PRESET_STORE = 'npcPresets';
 
 function open(): Promise<IDBDatabase> {
 	return new Promise((resolve, reject) => {
@@ -16,6 +17,7 @@ function open(): Promise<IDBDatabase> {
 			const db = request.result;
 			if (!db.objectStoreNames.contains(SCENE_STORE)) db.createObjectStore(SCENE_STORE, { keyPath: 'id' });
 			if (!db.objectStoreNames.contains(KV_STORE)) db.createObjectStore(KV_STORE);
+			if (!db.objectStoreNames.contains(PRESET_STORE)) db.createObjectStore(PRESET_STORE, { keyPath: 'id' });
 		};
 		request.onsuccess = () => resolve(request.result);
 		request.onerror = () => reject(request.error);

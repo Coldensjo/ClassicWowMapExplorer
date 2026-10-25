@@ -107,7 +107,7 @@
 		<button id="tool-holes" title="Cut holes in the ground (3)">Holes</button>
 		<button id="tool-water" title="Add water (4)">Water</button>
 		<button id="tool-place" title="Place objects (5)">Place</button>
-		<button id="tool-npcs" title="Place NPCs (coming in Phase 5)" disabled>NPCs</button>
+		<button id="tool-npcs" title="Place NPCs (6)">NPCs</button>
 		<button id="tool-revert" title="Put copied terrain back to the source map (7)" hidden>Revert</button>
 	</div>
 
@@ -199,7 +199,45 @@
 			<label class="prop-row" title="Placed doodads pick a random size in this range">Scale <input type="number" id="place-scale-min" min="0.05" max="10" step="0.05" value="1"> – <input type="number" id="place-scale-max" min="0.05" max="10" step="0.05" value="1"></label>
 			<label class="prop-row">Grid snap <select id="place-snap"><option value="0">Off</option><option value="0.5">0.5 yd</option><option value="1">1 yd</option><option value="5">5 yd</option></select></label>
 			<label class="prop-row"><input type="checkbox" id="place-angle-snap" checked> 15° angle snap</label>
-			<div id="place-selection" hidden>
+			<button id="place-restore" title="Bring back the copied objects you deleted" hidden></button>
+			<p id="place-hint" class="muted small"></p>
+		</div>
+		<!-- The NPCs tool (spec 7.9): existing creature displays and the user's custom NPC presets. -->
+		<div id="npcs-props" class="tool-props" hidden>
+			<h3>NPCs</h3>
+			<div class="mode-row" role="group" aria-label="NPC mode">
+				<button id="npcs-place" title="Click the ground to place the picked NPC, facing you">Place</button>
+				<button id="npcs-select" title="Click NPCs or objects to select and edit them">Select</button>
+			</div>
+			<div id="npc-browser">
+				<div class="mode-row" role="group" aria-label="NPC kind">
+					<button id="npc-tab-creatures" title="The client's creature displays, grouped by model">Creatures</button>
+					<button id="npc-tab-custom" title="Your custom NPC presets">Custom</button>
+				</div>
+				<div id="npc-creatures">
+					<div class="browser-top">
+						<input id="npc-search" type="search" placeholder="Search creatures… e.g. murloc" autocomplete="off" spellcheck="false" aria-label="Search creatures">
+						<button id="npc-refresh" title="Fetch the listfile afresh" aria-label="Refresh the listfile">⟳</button>
+					</div>
+					<div id="npc-grid" class="npc-grid" aria-label="Creatures"></div>
+					<div id="npc-count" class="muted small"></div>
+				</div>
+				<div id="npc-custom" hidden>
+					<div class="mode-row two" role="group" aria-label="Custom NPC actions">
+						<button id="npc-new" title="Build a new NPC from a race, its customization and gear">New custom NPC…</button>
+						<button id="npc-import" title="Import a preset from a .wnpc file">Import .wnpc…</button>
+					</div>
+					<input id="npc-import-input" type="file" accept=".wnpc,application/json" hidden>
+					<div id="npc-presets" class="npc-presets" aria-label="Custom NPCs"></div>
+					<div id="npc-presets-empty" class="muted small">No custom NPCs yet. Make one with New custom NPC.</div>
+				</div>
+			</div>
+			<div id="npc-picked" class="muted small"></div>
+			<button id="npc-customize" title="Open the custom NPC editor with this creature's race, sex, look and gear" hidden>Customize as new…</button>
+			<p id="npcs-hint" class="muted small"></p>
+		</div>
+		<!-- The selection (spec 7.8, 7.9.1): shared by the Place and NPCs tools. -->
+			<div id="selection-props" class="tool-props" hidden>
 				<h3>Selection</h3>
 				<div class="mode-row" role="group" aria-label="Gizmo mode">
 					<button id="gizmo-translate" title="Move the selection (W)">Move</button>
@@ -214,13 +252,18 @@
 				</div>
 				<label class="prop-row" id="sel-doodadset-row" hidden>Doodad set <select id="sel-doodadset" title="Which of the building's doodad sets shows inside, besides set 0"></select></label>
 				<label class="prop-row" id="sel-nameset-row" hidden>Name set <input type="number" id="sel-nameset" min="0" step="1" title="Which name set the building's rooms use"></label>
+				<div id="sel-npc" hidden>
+					<label class="prop-row">Name <input type="text" id="sel-npc-name" placeholder="unnamed" title="Shown on the nameplate in play mode"></label>
+					<label class="prop-row">Title <input type="text" id="sel-npc-subname" placeholder="e.g. <Innkeeper>"></label>
+					<label class="prop-row">Facing <input type="number" id="sel-npc-facing" step="15" title="Degrees"><span class="muted small">°</span></label>
+					<label class="prop-row">Scale <input type="number" id="sel-npc-scale" min="0.05" max="10" step="0.05"></label>
+					<button id="sel-npc-appearance" title="Give the selected NPCs the creature or custom NPC picked in the NPCs tab">Change appearance to the picked one</button>
+					<div id="sel-npc-look" class="muted small"></div>
+				</div>
 				<label class="prop-row"><input type="checkbox" id="sel-lock"> Locked</label>
 				<label class="prop-row">Group <input type="text" id="sel-group" placeholder="none" title="Objects sharing a group label select together"></label>
 				<div id="sel-count" class="muted small"></div>
 			</div>
-			<button id="place-restore" title="Bring back the copied objects you deleted" hidden></button>
-			<p id="place-hint" class="muted small"></p>
-		</div>
 		<div id="revert-props" class="tool-props" hidden>
 			<h3>Revert to base</h3>
 			<p class="muted small">Puts the chunks the brush passes over back the way the source map has them.</p>
@@ -476,6 +519,35 @@
 				<div id="forms-grid" tabindex="-1"></div>
 				<div id="forms-heading" class="forms-heading" hidden></div>
 				<div id="forms-scrollbar"></div>
+			</div>
+		</div>
+	</div>
+
+
+	<!-- The custom NPC editor (spec 7.9.3): a race and sex, its customization and gear, with a live preview. -->
+	<div id="npc-editor" hidden>
+		<div class="npc-editor-frame help-card" role="dialog" aria-labelledby="npc-editor-title">
+			<header>
+				<h2 id="npc-editor-title">Custom NPC</h2>
+				<span id="npc-editor-status" class="muted small"></span>
+				<button id="npc-editor-close" class="plain" title="Close (Esc)" aria-label="Close">×</button>
+			</header>
+			<div class="npc-editor-body">
+				<canvas id="npc-editor-preview" width="360" height="480" title="Drag to turn the model"></canvas>
+				<div class="npc-editor-form">
+					<label class="prop-row">Name <input id="npc-editor-name" type="text" maxlength="60" placeholder="Stormwind Guard (custom)" autocomplete="off"></label>
+					<label class="prop-row">Race <select id="npc-editor-race"></select></label>
+					<label class="prop-row">Sex <select id="npc-editor-sex"><option value="0">Male</option><option value="1">Female</option></select></label>
+					<h3>Appearance</h3>
+					<div id="npc-editor-options" class="npc-editor-options"></div>
+					<h3>Gear</h3>
+					<p class="muted small">Type to search each slot: named items first, then gear known only by its texture or model.</p>
+					<div id="npc-editor-gear" class="npc-editor-gear"></div>
+					<div class="scenes-actions">
+						<button id="npc-editor-save" class="primary">Save to library</button>
+						<button id="npc-editor-cancel">Cancel</button>
+					</div>
+				</div>
 			</div>
 		</div>
 	</div>

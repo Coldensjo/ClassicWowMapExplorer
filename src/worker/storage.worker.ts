@@ -98,6 +98,9 @@ const api: AsyncStorageApi = {
 	async loadCharacter(race, sex, hd, look, clips, outfit, torch) {
 		return requireWorld().loadCharacter(race, sex, hd, look, clips, outfit, torch);
 	},
+	async loadPlayerModel(look, clips) {
+		return requireWorld().loadPlayerModel(look, clips);
+	},
 	async loadLighting(mapIds) {
 		return requireWorld().loadLighting(mapIds);
 	},

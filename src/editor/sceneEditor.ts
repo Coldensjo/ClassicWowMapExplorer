@@ -5,6 +5,8 @@ import { sameWater, type SceneModel, type SceneTile } from '../scene/sceneModel'
 import type { AsyncStorageApi } from '../worker/protocol';
 import { FlyControls } from '../viewer/flyControls';
 import { WalkControls } from '../viewer/walkControls';
+import { Character } from '../viewer/character';
+import type { NpcAppearance } from '../scene/types';
 import { createAlphaTexture, createSplatMaterial, seaMask } from '../viewer/terrainMaterials';
 import { TextureCache } from '../viewer/textureCache';
 import { supportsCompressedTextures } from '../viewer/textures';
@@ -35,6 +37,8 @@ const CURSOR_REACH = 6000;
 const CELL = CHUNK_SIZE / 8;
 /** Leaving play mode, the editor camera goes to the player's eyes: this share of its height above the feet. */
 const PLAYER_EYE = 0.9;
+/** The avatar when scene.player is null (spec 7.10): a human male (ChrRaces 1), in its first NPC look. */
+const DEFAULT_PLAYER = { race: 1, sex: 0 };
 /** Scenes with more tiles than a 3x3 stream their terrain meshes around the camera (Phase 4). */
 const STREAM_ABOVE_TILES = 9;
 /** Tiles closer than this (yards, from the camera to the tile's square) are built... */
@@ -117,6 +121,12 @@ export class SceneEditor {
 	private readonly camera: THREE.PerspectiveCamera;
 	private readonly controls: FlyControls;
 	private readonly walker: WalkControls;
+	/** The player avatar (spec 7.10), drawn while playing. */
+	private readonly character: Character;
+	/** What the avatar was last dressed as, so a replay with the same choice doesn't reload it. */
+	private playerKey = '';
+	/** Called when scene.player changes (a command, undo or redo), for the NPCs tab. */
+	onPlayerChange: () => void = () => {};
 	private readonly textures: TextureCache;
 	private readonly tileMeshes = new Map<number, TileMesh>();
 	private readonly clock = new THREE.Clock();
@@ -247,6 +257,10 @@ export class SceneEditor {
 			(x, z) => this.model.surfaceAt(x, z),
 		);
 		this.objects.onNotice = (text) => this.onNotice(text);
+		this.character = new Character(storage, supportsCompressedTextures(this.renderer), this.renderer.capabilities.getMaxAnisotropy(), async (object) => {
+			await this.renderer.compileAsync(object, this.camera, this.scene);
+		});
+		this.scene.add(this.character.group);
 		this.objects.visibleAt = (x, z) => {
 			if (!this.streaming) return true;
 			const tx = Math.floor(x / TILE_SIZE);
@@ -813,8 +827,44 @@ export class SceneEditor {
 		this.controls.enabled = false;
 		this.walker.dropFrom(cam, this.controls.yaw);
 		this.walker.start();
+		void this.dressPlayer();
 		this.onPlayChange(true);
 		return true;
+	}
+
+	/** Changes who the user plays as (spec 7.10), as one undoable command; the avatar changes at once if playing. */
+	setPlayer(appearance: NpcAppearance | null): void {
+		const before = this.model.meta.player;
+		const after = appearance;
+		if (JSON.stringify(before) === JSON.stringify(after)) return;
+		const apply = (to: NpcAppearance | null) => {
+			this.model.setPlayer(to);
+			this.onPlayerChange();
+			if (this.walker.active) void this.dressPlayer();
+		};
+		apply(after);
+		this.commands.push({ label: 'Change player avatar', bytes: 64, undo: () => apply(before), redo: () => apply(after) });
+	}
+
+	/**
+	 * Dresses the avatar as scene.player: a creature display or an embedded preset through the
+	 * NPC pipeline, or a human when null (or when the preset is gone from the scene).
+	 */
+	private async dressPlayer(): Promise<void> {
+		const player = this.model.meta.player;
+		const preset = player?.kind === 'custom' ? this.model.preset(player.presetId) : null;
+		const key = JSON.stringify([player, preset]);
+		if (key === this.playerKey) return;
+		this.playerKey = key;
+		const stuck = await this.character.dressFrom(key, async (clips) => {
+			if (player?.kind === 'creature') return this.storage.loadPlayerModel({ kind: 'creature', displayId: player.displayId }, clips);
+			if (preset) return this.storage.loadPlayerModel({ kind: 'npcPreset', handle: this.objects.npcs.handle(preset) }, clips);
+			const human = await this.storage.loadCharacter(DEFAULT_PLAYER.race, DEFAULT_PLAYER.sex, true, 0, clips, null, false);
+			return human?.model ?? null;
+		});
+		if (!stuck || this.disposed) return;
+		if (!this.character.dressed) this.onNotice(player ? 'The player\u2019s model isn\u2019t in your client; a capsule stands in' : 'The default avatar couldn\u2019t be loaded; a capsule stands in');
+		else if (player?.kind === 'custom' && !preset) this.onNotice('The player\u2019s custom NPC isn\u2019t in this scene any more; playing as the default avatar');
 	}
 
 	undo(): void {
@@ -906,6 +956,7 @@ export class SceneEditor {
 		this.stream(now);
 		if (this.walker.active) this.walker.update(dt);
 		else this.controls.update(dt, (x, z) => this.model.heightAt(x, z) ?? -Infinity, (x, z) => this.model.surfaceAt(x, z) ?? -Infinity);
+		this.character.update(dt, this.walker);
 		this.updateRings();
 		this.updateStatus(dt);
 	}

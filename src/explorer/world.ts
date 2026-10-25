@@ -46,6 +46,9 @@ export interface InstanceMap {
 	wmoBounds: { min: [number, number, number]; max: [number, number, number] } | null;
 }
 
+/** Who the play-mode avatar is (spec 7.10): a creature display, or a custom preset by its handle (see defineNpcPreset). */
+export type PlayerLook = { kind: 'creature'; displayId: number } | { kind: 'npcPreset'; handle: number };
+
 /** The walking character's model, which NPC look it wears, and how many looks its race and sex have. */
 export interface CharacterModel {
 	model: ModelData;
@@ -375,6 +378,18 @@ export class WorldLoader {
 
 	humanoidPreset(displayId: number): Promise<HumanoidPreset | null> {
 		return this.npcs.humanoidPreset(displayId);
+	}
+
+	/**
+	 * The play-mode avatar (spec 7.10): a creature display or a custom preset dressed exactly as
+	 * the NPC layer dresses it, but animated with the walker's clips rather than posed standing.
+	 * Null when the client lacks its model.
+	 */
+	async loadPlayerModel(look: PlayerLook, clips: number[]): Promise<ModelData | null> {
+		const resolved = await this.npcs.look(look);
+		if (!resolved) return null;
+		const model = await loadM2(this.storage, resolved.fdid, { ...resolved.options, stand: false, clips });
+		return resolved.missing?.length ? { ...model, missingGear: resolved.missing } : model;
 	}
 
 	/** A custom NPC preset the page will ask for as model kind 'npcPreset' under this handle. */

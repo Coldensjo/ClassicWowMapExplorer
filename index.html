@@ -236,6 +236,12 @@
 			</div>
 			<div id="npc-picked" class="muted small"></div>
 			<button id="npc-customize" title="Open the custom NPC editor with this creature's race, sex, look and gear" hidden>Customize as new…</button>
+			<!-- The play-mode avatar (spec 7.10): picked here, kept in scene.player. -->
+			<div id="npc-player" class="muted small"></div>
+			<div class="mode-row two" role="group" aria-label="Player avatar">
+				<button id="npc-player-set" title="Play the scene as the picked creature or custom NPC (spec 7.10)">Play as the picked one</button>
+				<button id="npc-player-reset" title="Back to the default avatar, a human">Default avatar</button>
+			</div>
 			<p id="npcs-hint" class="muted small"></p>
 		</div>
 		<!-- The selection (spec 7.8, 7.9.1): shared by the Place and NPCs tools. -->

@@ -455,6 +455,16 @@ export class EditorPanels {
 			const picked = objects.npcPlace.asset;
 			if (picked) objects.setNpcAppearance(picked.appearance, picked.label);
 		});
+		// The play-mode avatar (spec 7.10): the picked appearance, or the default.
+		this.listen($('npc-player-set'), 'click', () => {
+			const picked = settings.asset;
+			if (picked) this.editor.setPlayer(picked.appearance);
+		});
+		this.listen($('npc-player-reset'), 'click', () => this.editor.setPlayer(null));
+		this.editor.onPlayerChange = () => this.syncNpcs();
+		this.cleanups.push(() => {
+			this.editor.onPlayerChange = () => {};
+		});
 		this.syncNpcs();
 	}
 
@@ -464,6 +474,10 @@ export class EditorPanels {
 		$('npcs-select').classList.toggle('active', settings.mode === 'select');
 		$('npc-picked').textContent = settings.asset ? `Placing ${settings.asset.label}` : 'Nothing picked yet';
 		$('npcs-hint').textContent = NPC_HINTS[settings.mode];
+		const player = this.editor.model.meta.player;
+		$('npc-player').textContent = `Playing as ${player ? this.npcBrowser?.describe(player) ?? (player.kind === 'creature' ? `creature display ${player.displayId}` : 'a custom NPC') : 'the default avatar (a human)'}`;
+		$<HTMLButtonElement>('npc-player-set').disabled = !settings.asset;
+		$<HTMLButtonElement>('npc-player-reset').disabled = !player;
 		this.syncSelection();
 	}
 

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { CharacterOutfit } from '../explorer/display';
-import type { CharacterModel } from '../explorer/world';
+import type { ModelData } from '../explorer/objects';
 import type { AnimationClip } from '../formats/m2Pose';
 import { ANIM } from '../formats/m2Pose';
 import type { AsyncStorageApi } from '../worker/protocol';
@@ -387,27 +387,47 @@ export class Character {
 
 	/** Dresses the character as a look, holding a torch if it can; resolves to how many looks its race and sex have, or 0 if it couldn't. */
 	async dress(look: CharacterLook, torch: boolean): Promise<number> {
-		const key = JSON.stringify([look, torch]);
+		let looks = 0;
+		const done = await this.dressFrom(JSON.stringify([look, torch]), async () => {
+			const loaded = await this.storage.loadCharacter(look.race, look.sex, look.hd, look.look, CLIPS, look.outfit, torch);
+			looks = loaded?.looks ?? 0;
+			return loaded?.model ?? null;
+		});
+		if (done) this.looks = looks;
+		return this.looks;
+	}
+
+	/**
+	 * Dresses the character in whatever model the loader gives (asked for the character's clips),
+	 * under a key that tells a newer request from an older one still loading: an older one that
+	 * lands later is dropped. Resolves to whether this request was the one that stuck, and
+	 * whether it was drawn (a model without animation leaves the stand-in capsule).
+	 */
+	async dressFrom(key: string, load: (clips: number[]) => Promise<ModelData | null>): Promise<boolean> {
 		this.wanted = key;
-		let loaded: CharacterModel | null = null;
+		let loaded: ModelData | null = null;
 		try {
-			loaded = await this.storage.loadCharacter(look.race, look.sex, look.hd, look.look, CLIPS, look.outfit, torch);
+			loaded = await load(CLIPS);
 		} catch (e) {
 			console.warn('Character model unavailable:', e);
 		}
-		if (this.wanted !== key) return this.looks;
-		if (!loaded?.model.animation) {
+		if (this.wanted !== key) return false;
+		if (!loaded?.animation) {
 			this.setModel(null);
-			return 0;
+			return true;
 		}
 		const model = await this.build(loaded);
 		if (this.wanted !== key) {
 			this.disposeModel(model);
-			return this.looks;
+			return false;
 		}
 		this.setModel(model);
-		this.looks = loaded.looks;
-		return loaded.looks;
+		return true;
+	}
+
+	/** Whether a model is drawn (rather than the stand-in capsule, or nothing yet). */
+	get dressed(): boolean {
+		return this.model !== null;
 	}
 
 	private setModel(model: LoadedModel | null): void {
@@ -422,7 +442,7 @@ export class Character {
 	}
 
 	/** Geometry, textures, the bone texture of every clip, and materials posed by the animator. */
-	private async build({ model: data }: CharacterModel): Promise<LoadedModel> {
+	private async build(data: ModelData): Promise<LoadedModel> {
 		const a = data.animation!;
 		const geometry = new THREE.BufferGeometry();
 		geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));

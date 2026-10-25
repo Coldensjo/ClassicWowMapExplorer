@@ -11,7 +11,7 @@ import type { ModelData, ModelKind, Placement } from '../explorer/objects';
 import type { CharacterModelInfo, CreatureDisplaySummary, CustomizationOption, GearDisplay, HumanoidPreset } from '../explorer/npcs';
 import type { NpcPreset } from '../scene/types';
 import type { CopyMap, CopyTile } from '../explorer/copyWorld';
-import type { CharacterModel, FarTile, InstanceMap, LoadedTexture, MapListing, NearTile, TileTexture } from '../explorer/world';
+import type { CharacterModel, FarTile, InstanceMap, LoadedTexture, MapListing, NearTile, PlayerLook, TileTexture } from '../explorer/world';
 import type { CharacterOutfit, CharacterRace } from '../explorer/display';
 import type { Image } from '../formats/blp';
 
@@ -58,6 +58,8 @@ export interface StorageApi {
 	/** The walking character: the races it can be, and one dressed as a look with the clips given. */
 	characterRaces(): CharacterRace[];
 	loadCharacter(race: number, sex: number, hd: boolean, look: number, clips: number[], outfit: CharacterOutfit | null, torch: boolean): CharacterModel | null;
+	/** The play-mode avatar (spec 7.10): a creature display or preset handle dressed as an NPC is, animated with the clips given. */
+	loadPlayerModel(look: PlayerLook, clips: number[]): ModelData | null;
 	loadLighting(mapIds: number[]): LightingData;
 	loadAreas(): AreaInfo[];
 	loadLiquidLooks(): LiquidLooks;

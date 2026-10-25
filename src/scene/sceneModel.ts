@@ -366,6 +366,12 @@ export class SceneModel {
 		this.meta.modified = new Date().toISOString();
 	}
 
+	/** Who the user plays as (spec 7.10): a creature display, an embedded preset, or null for the default. */
+	setPlayer(appearance: NpcAppearance | null): void {
+		this.meta.player = appearance ? structuredClone(appearance) : null;
+		this.meta.modified = new Date().toISOString();
+	}
+
 	/** A custom preset embedded in the scene (spec 6.6), or null. */
 	preset(id: string): NpcPreset | null {
 		return this.npcPresets.find((p) => p.id === id) ?? null;

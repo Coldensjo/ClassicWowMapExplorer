@@ -94,10 +94,12 @@
 		<button id="editor-save">Save</button>
 		<button id="editor-undo" hidden aria-label="Undo">↶</button>
 		<button id="editor-redo" hidden aria-label="Redo">↷</button>
+		<button id="editor-play" class="primary" title="Walk the scene as your character (spec 7.10); the same button comes back to editing">Play</button>
 		<button id="editor-export" title="Download this scene as a .wscene file">Export</button>
 		<button id="editor-back" title="Save and go back to your scenes">Scenes</button>
 		<span id="editor-status" class="muted small"></span>
-		<span class="editor-hint muted small"><kbd>Tab</kbd> walk · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly · right mouse look · left mouse tool</span>
+		<span class="editor-hint muted small" id="editor-hint-edit"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly · right mouse look · left mouse tool</span>
+		<span class="editor-hint muted small" id="editor-hint-play" hidden><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Space</kbd> jump · mouse look · wheel zoom · click an NPC to target, <kbd>Esc</kbd> clears</span>
 	</nav>
 
 	<!-- The tool rail on the left of the viewport (spec 8). Keys 1-6 choose a tool. -->

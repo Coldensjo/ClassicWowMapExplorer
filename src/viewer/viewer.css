@@ -2488,6 +2488,11 @@ body.wow-ui {
 
 /* ---- Scene editing panels (spec 8) ---- */
 
+/* Playing (spec 7.10): the tool rail and properties panel go; the top bar and its Edit button stay put. */
+body.playing :is(#tool-rail, #tool-panel) {
+	display: none;
+}
+
 #editor-bar #editor-undo:disabled,
 #editor-bar #editor-redo:disabled {
 	opacity: 0.4;

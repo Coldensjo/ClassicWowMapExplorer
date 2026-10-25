@@ -33,6 +33,8 @@ const THUMBNAIL_HEIGHT = 288;
 const CURSOR_REACH = 6000;
 /** Outer lattice spacing in yards. */
 const CELL = CHUNK_SIZE / 8;
+/** Leaving play mode, the editor camera goes to the player's eyes: this share of its height above the feet. */
+const PLAYER_EYE = 0.9;
 /** Scenes with more tiles than a 3x3 stream their terrain meshes around the camera (Phase 4). */
 const STREAM_ABOVE_TILES = 9;
 /** Tiles closer than this (yards, from the camera to the tile's square) are built... */
@@ -101,7 +103,7 @@ function makeRing(segments: number): THREE.LineLoop {
  * The editor viewport (spec 4): renders a SceneModel's tiles with the explorer's splat terrain,
  * rebuilding only what changed: heights update meshes in place, alpha updates the atlas texture,
  * and only structural changes (layers, holes, water) rebuild a tile. The left mouse button uses
- * the active tool, the right looks around, and a basic walk mode stays on Tab (Phase 1).
+ * the active tool, the right looks around, and the top bar's Play button walks the scene (spec 7.10).
  */
 export class SceneEditor {
 	private readonly renderer: THREE.WebGLRenderer;
@@ -202,7 +204,7 @@ export class SceneEditor {
 		this.camera = new THREE.PerspectiveCamera(60, 1, NEAR, FAR);
 		this.controls = new FlyControls(this.camera, canvas);
 		this.walker = new WalkControls(this.camera, canvas);
-		this.controls.onTakeOver = () => this.setWalking(false);
+		this.controls.onTakeOver = () => this.setPlaying(false);
 		this.walker.world = {
 			terrain: (x, z) => this.model.heightAt(x, z) ?? -Infinity,
 			surface: (x, z) => this.model.surfaceAt(x, z) ?? -Infinity,
@@ -777,29 +779,42 @@ export class SceneEditor {
 		for (let gz = sz0; gz <= sz1; gz++) for (let gx = sx0; gx <= sx1; gx++) normalize(outerCount + gz * n + gx);
 	}
 
-	get walking(): boolean {
+	/** Whether the scene is being played (spec 7.10) rather than edited. */
+	get playing(): boolean {
 		return this.walker.active;
 	}
 
-	/** Drops to the ground under the camera and walks, or lifts back to the fly camera (Tab). */
-	setWalking(on: boolean): void {
-		if (on === this.walker.active) return;
+	/** Called whenever play mode starts or ends, for the top bar's Edit/Play button. */
+	onPlayChange: (playing: boolean) => void = () => {};
+
+	/**
+	 * Play mode (spec 7.10): drops the player to the ground under the camera and walks; off, the
+	 * editor camera is put at the player's position, looking its way. Returns false when there is
+	 * no ground under the camera to start on.
+	 */
+	setPlaying(on: boolean): boolean {
+		if (on === this.walker.active) return true;
 		if (!on) {
 			this.walker.stop();
 			this.controls.enabled = true;
-			this.controls.set(this.camera.position.clone(), this.walker.yaw, this.walker.pitch);
-			return;
+			const eye = this.walker.position.clone();
+			eye.y += this.walker.height * PLAYER_EYE;
+			this.controls.set(eye, this.walker.yaw, this.walker.pitch);
+			this.onPlayChange(false);
+			return true;
 		}
 		this.endStroke();
 		const cam = this.camera.position;
 		const floor = this.walker.floorAt(cam.x, cam.z, cam.y, cam.y - 5000);
 		if (!floor) {
 			this.onNotice('There’s no ground under the camera to stand on');
-			return;
+			return false;
 		}
 		this.controls.enabled = false;
 		this.walker.dropFrom(cam, this.controls.yaw);
 		this.walker.start();
+		this.onPlayChange(true);
+		return true;
 	}
 
 	undo(): void {
@@ -1155,11 +1170,6 @@ export class SceneEditor {
 			if (e.code === 'KeyR') return this.objects.setGizmoMode('scale');
 			if (e.code === 'Delete' || e.code === 'Backspace') return this.objects.deleteSelection();
 			if (e.code === 'Escape') return this.objects.clearSelection();
-		}
-		if (e.ctrlKey || e.metaKey) return;
-		if (e.code === 'Tab') {
-			e.preventDefault();
-			this.setWalking(!this.walker.active);
 		}
 	};
 

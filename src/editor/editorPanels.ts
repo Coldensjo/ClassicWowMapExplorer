@@ -94,6 +94,7 @@ export class EditorPanels {
 		this.wireRevert();
 		this.wireClutter();
 		this.wireUndo();
+		this.wirePlay();
 		this.wireKeys();
 		this.wireStatus();
 		this.textures = new TextureBrowser(storage, editor.paint.fdid, (fdid) => {
@@ -112,6 +113,33 @@ export class EditorPanels {
 		$('status-bar').hidden = !on;
 		$('editor-undo').hidden = !on;
 		$('editor-redo').hidden = !on;
+		$('editor-play').hidden = !on;
+		if (!on) this.syncPlay(false);
+	}
+
+	// ---- Edit / Play (spec 7.10) ----
+
+	/** The top bar's Edit/Play button: the one toggle, in the same place in both modes (spec 8). */
+	private wirePlay(): void {
+		this.listen($('editor-play'), 'click', () => {
+			this.editor.setPlaying(!this.editor.playing);
+			$('editor-play').blur();
+		});
+		this.editor.onPlayChange = (playing) => this.syncPlay(playing);
+		this.cleanups.push(() => {
+			this.editor.onPlayChange = () => {};
+		});
+		this.syncPlay(this.editor.playing);
+	}
+
+	/** Playing hides the tool rail and properties panel (by a body class, so the button stays put). */
+	private syncPlay(playing: boolean): void {
+		const button = $<HTMLButtonElement>('editor-play');
+		button.textContent = playing ? 'Edit' : 'Play';
+		button.title = playing ? 'Back to editing, with the camera where the player stands' : 'Walk the scene as your character (spec 7.10); the same button comes back to editing';
+		document.body.classList.toggle('playing', playing);
+		$('editor-hint-edit').hidden = playing;
+		$('editor-hint-play').hidden = !playing;
 	}
 
 	private listen<K extends keyof WindowEventMap>(target: Window, type: K, fn: (e: WindowEventMap[K]) => void): void;
@@ -603,7 +631,7 @@ export class EditorPanels {
 		this.listen(window, 'keydown', (e: KeyboardEvent) => {
 			if (e.ctrlKey || e.metaKey || e.altKey) return;
 			if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
-			if (this.editor.walking) return;
+			if (this.editor.playing) return;
 			const tool = TOOLS.find((t) => t.key === e.code);
 			if (tool?.ready) {
 				this.setTool(tool.id);

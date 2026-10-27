@@ -556,19 +556,28 @@
 			</header>
 			<div class="npc-editor-body">
 				<canvas id="npc-editor-preview" width="360" height="480" title="Drag to turn the model"></canvas>
-				<div class="npc-editor-form">
+				<div id="npc-editor-form" class="npc-editor-form">
 					<label class="prop-row">Name <input id="npc-editor-name" type="text" maxlength="60" placeholder="Stormwind Guard (custom)" autocomplete="off"></label>
 					<label class="prop-row">Race <select id="npc-editor-race"></select></label>
 					<label class="prop-row">Sex <select id="npc-editor-sex"><option value="0">Male</option><option value="1">Female</option></select></label>
 					<h3>Appearance</h3>
 					<div id="npc-editor-options" class="npc-editor-options"></div>
 					<h3>Gear</h3>
-					<p class="muted small">Type to search each slot: named items first, then gear known only by its texture or model.</p>
+					<p class="muted small">Type to search each slot (named items first, then gear known only by its texture or model), or press ▦ to browse a slot's gear with pictures.</p>
 					<div id="npc-editor-gear" class="npc-editor-gear"></div>
 					<div class="scenes-actions">
 						<button id="npc-editor-save" class="primary">Save to library</button>
 						<button id="npc-editor-cancel">Cancel</button>
 					</div>
+				</div>
+				<div id="npc-editor-browse" class="npc-editor-browse" hidden>
+					<div class="npc-browse-top">
+						<button id="npc-browse-back" class="plain" title="Back to the NPC (Esc)" aria-label="Back to the NPC">‹</button>
+						<span id="npc-browse-title" class="npc-browse-title">Gear</span>
+						<span id="npc-browse-count" class="muted small"></span>
+					</div>
+					<input id="npc-browse-search" type="search" placeholder="Filter by name" autocomplete="off" spellcheck="false" aria-label="Filter the gear by name">
+					<div id="npc-browse-grid" class="npc-browse-grid"></div>
 				</div>
 			</div>
 		</div>

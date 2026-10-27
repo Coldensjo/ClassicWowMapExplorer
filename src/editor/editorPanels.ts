@@ -529,7 +529,7 @@ export class EditorPanels {
 		});
 		this.npcBrowser = browser;
 		void refreshPresets();
-		this.npcEditor = new NpcEditor(this.storage, {
+		this.npcEditor = new NpcEditor(this.storage, editor.model.meta.client.build, {
 			handleOf: (preset) => editor.objects.npcs.handle(preset),
 			onNotice: (text) => editor.onNotice(text),
 			onSave: (preset) => {

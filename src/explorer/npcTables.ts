@@ -101,8 +101,9 @@ export const ITEM_ICON = 7;
 export const ITEM_SPARSE_DESCRIPTION = 0;
 export const ITEM_SPARSE_NAME = 4;
 
-/** ItemAppearance: the display it shows. */
+/** ItemAppearance: the display it shows, and its icon (DefaultIconFileDataID). */
 export const APPEARANCE_DISPLAY = 1;
+export const APPEARANCE_ICON = 2;
 
 /** ItemModifiedAppearance: the item, and its appearance. */
 export const MODIFIED_ITEM = 1;

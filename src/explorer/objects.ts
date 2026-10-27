@@ -25,7 +25,8 @@ export type ObjectKind = 'm2' | 'wmo';
  * 7.9), whose "file ID" is a CreatureDisplayInfo ID for 'creature' and a preset handle the page
  * defined in the worker for 'npcPreset' (see WorldLoader.defineNpcPreset).
  */
-export type ModelKind = ObjectKind | 'creature' | 'npcPreset';
+/** itemDisplay: an item display's own model (a helmet, a shoulder, a weapon) by display ID, for the gear browser's pictures. */
+export type ModelKind = ObjectKind | 'creature' | 'npcPreset' | 'itemDisplay';
 
 export interface Placement {
 	kind: ObjectKind;

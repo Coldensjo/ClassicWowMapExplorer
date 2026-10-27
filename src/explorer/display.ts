@@ -178,6 +178,18 @@ export class DisplayResolver {
 		return this.itemModel(items.getInt(display, 10, 0) ?? 0, race, sex);
 	}
 
+	/**
+	 * An item display's own model with its texture, on its own (not on a body), for the gear
+	 * browser's pictures of helmets, shoulders and weapons; null when it has no model.
+	 */
+	async itemLook(display: number): Promise<{ fdid: number; options: M2Options } | null> {
+		const { items, materials } = await this.loadItems();
+		if (!items.has(display)) return null;
+		const fdid = await this.itemModel(items.getInt(display, 10, 0) ?? 0);
+		if (!fdid) return null;
+		return { fdid, options: { textures: { 2: materials.get(items.getInt(display, 11, 0) ?? 0) ?? 0 } } };
+	}
+
 	/** Weapons held in the hands (or a shield on the arm). */
 	async weaponAttachments([mainHand, offHand, offHandIsShield]: Weapons): Promise<GearAttachment[]> {
 		const { items, materials } = await this.loadItems();

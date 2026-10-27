@@ -6,8 +6,8 @@ import { loadTable } from './clientDb';
 import { DISPLAY_FILES, type DisplayResolver } from './display';
 import type { M2Options } from './objects';
 import {
-	APPEARANCE_DISPLAY, CREATURE_EXTRA, CREATURE_MODEL, CREATURE_SCALE, EXTRA_RACE, EXTRA_SEX, ITEM_INVENTORY_TYPE, ITEM_SPARSE_NAME, MODEL_FILE, MODIFIED_APPEARANCE, MODIFIED_ITEM, NPC_FILES,
-	NPC_SLOT_DISPLAY, NPC_SLOT_SLOT,
+	APPEARANCE_DISPLAY, APPEARANCE_ICON, CREATURE_EXTRA, CREATURE_MODEL, CREATURE_SCALE, EXTRA_RACE, EXTRA_SEX, ITEM_ICON, ITEM_INVENTORY_TYPE, ITEM_SPARSE_NAME, MODEL_FILE, MODIFIED_APPEARANCE,
+	MODIFIED_ITEM, NPC_FILES, NPC_SLOT_DISPLAY, NPC_SLOT_SLOT,
 } from './npcTables';
 import { VirtualTextures } from './virtualTextures';
 
@@ -33,6 +33,8 @@ export interface GearDisplay {
 	name: string | null;
 	/** A file of the display (a texture section or its model), for the path label and the local status. */
 	file: number;
+	/** The item's icon (ItemAppearance's, else Item's), for the gear browser's pictures; 0 for NPC-only gear. */
+	icon: number;
 	status: FileStatus;
 }
 
@@ -140,14 +142,19 @@ export class NpcTables {
 				if (file) sectionFile.set(display, file);
 			}
 			const appearanceDisplay = new Map<number, number>();
-			for (const id of appearance.ids()) appearanceDisplay.set(id, appearance.getInt(id, APPEARANCE_DISPLAY) ?? 0);
+			const appearanceIcon = new Map<number, number>();
+			for (const id of appearance.ids()) {
+				appearanceDisplay.set(id, appearance.getInt(id, APPEARANCE_DISPLAY) ?? 0);
+				appearanceIcon.set(id, appearance.getInt(id, APPEARANCE_ICON) ?? 0);
+			}
 			const byDisplay = new Map<number, GearDisplay>();
 			const shields = new Set<number>();
 			const fileOf = async (display: number): Promise<number> => sectionFile.get(display) ?? materials.get(displayInfo.getInt(display, 11, 0) ?? 0) ?? (await this.displays.itemFile(display));
 			// Item-backed displays: the item names the slot and ItemSparse names the item.
 			for (const id of modified.ids()) {
 				const itemId = modified.getInt(id, MODIFIED_ITEM) ?? 0;
-				const display = appearanceDisplay.get(modified.getInt(id, MODIFIED_APPEARANCE) ?? 0) ?? 0;
+				const appearanceId = modified.getInt(id, MODIFIED_APPEARANCE) ?? 0;
+				const display = appearanceDisplay.get(appearanceId) ?? 0;
 				if (!display || !displayInfo.has(display)) continue;
 				const type = item.getInt(itemId, ITEM_INVENTORY_TYPE) ?? 0;
 				if (type === INVENTORY_SHIELD) shields.add(display);
@@ -157,7 +164,9 @@ export class NpcTables {
 				const have = byDisplay.get(display);
 				if (have && (have.name || !name)) continue;
 				const file = await fileOf(display);
-				byDisplay.set(display, { id: display, slot, name, file, status: file ? this.storage.status(file) : 'ok' });
+				// The appearance's icon shows this display; the item's is for the item as a whole.
+				const icon = appearanceIcon.get(appearanceId) || (item.getInt(itemId, ITEM_ICON) ?? 0);
+				byDisplay.set(display, { id: display, slot, name, file, icon: this.storage.status(icon) === 'ok' ? icon : 0, status: file ? this.storage.status(file) : 'ok' });
 			}
 			// NPC-worn displays: their slot is the NPC's.
 			for (const id of slots.ids()) {
@@ -165,7 +174,7 @@ export class NpcTables {
 				const slot = SLOT_BY_NPC[slots.getInt(id, NPC_SLOT_SLOT) ?? -1];
 				if (!display || !slot || byDisplay.has(display) || !displayInfo.has(display)) continue;
 				const file = await fileOf(display);
-				byDisplay.set(display, { id: display, slot, name: null, file, status: file ? this.storage.status(file) : 'ok' });
+				byDisplay.set(display, { id: display, slot, name: null, file, icon: 0, status: file ? this.storage.status(file) : 'ok' });
 			}
 			return { byDisplay, shields };
 		})();

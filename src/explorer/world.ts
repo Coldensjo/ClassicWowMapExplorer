@@ -411,6 +411,10 @@ export class WorldLoader {
 					const model = await loadM2(this.storage, look.fdid, look.options);
 					return look.missing?.length ? { ...model, missingGear: look.missing } : model;
 				}
+				if (kind === 'itemDisplay') {
+					const look = await this.displays.itemLook(fdid);
+					return look ? await loadM2(this.storage, look.fdid, look.options) : null;
+				}
 				return await loadM2(this.storage, fdid, { solid: true });
 			} catch (e) {
 				console.warn(`Model ${kind} ${fdid}:`, e);

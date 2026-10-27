@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import type { ModelData } from '../explorer/objects';
-import type { CharacterModelInfo, CustomizationOption, GearDisplay, HumanoidPreset } from '../explorer/npcs';
+import type { CharacterModelInfo, CustomizationOption, HumanoidPreset } from '../explorer/npcs';
 import type { EquipSlot, NpcPreset } from '../scene/types';
 import { createModelMaterial, type SkinUniforms } from '../viewer/modelMaterials';
 import { TextureCache } from '../viewer/textureCache';
 import { supportsCompressedTextures } from '../viewer/textures';
 import type { AsyncStorageApi } from '../worker/protocol';
+import { GearBrowser, type GearEntry } from './gearBrowser';
 import { listfile } from './listfile';
 
 /** The equipment slots in the editor's order, with their labels. */
@@ -25,17 +26,12 @@ const MARGIN = 1.1;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-/** A gear entry as the editor searches it: the display plus the text it matches on. */
-interface GearEntry extends GearDisplay {
-	label: string;
-	search: string;
-}
-
 /**
  * The custom NPC editor (spec 7.9.3): a modal that builds an NpcPreset from a playable race and
  * sex, its customization options (from the modern ChrCustomization tables) and gear searched per
- * slot (named where the client names it, else by path, see Q8), with a live, rotatable preview
- * playing the idle animation. Saving hands the preset back for the library and the scene.
+ * slot (named where the client names it, else by path, see Q8) or browsed with pictures, with a
+ * live, rotatable preview playing the idle animation. Saving hands the preset back for the
+ * library and the scene.
  */
 export class NpcEditor {
 	private draft: NpcPreset | null = null;
@@ -46,11 +42,13 @@ export class NpcEditor {
 	private rebuildTimer = 0;
 	private readonly cleanups: (() => void)[] = [];
 	private readonly preview: NpcPreview;
+	private readonly browser: GearBrowser;
 	/** Which build of the preview is current, so a slower earlier one doesn't replace it. */
 	private buildSerial = 0;
 
 	constructor(
 		private readonly storage: AsyncStorageApi,
+		build: string,
 		private readonly hooks: {
 			/** The worker handle a preset (or a draft of one) loads under. */
 			handleOf: (preset: NpcPreset) => number;
@@ -59,6 +57,14 @@ export class NpcEditor {
 		},
 	) {
 		this.preview = new NpcPreview($<HTMLCanvasElement>('npc-editor-preview'), storage);
+		this.browser = new GearBrowser(storage, build, {
+			onPick: (slot, display) => {
+				if (!this.draft) return;
+				this.draft.equipment[slot] = display;
+				this.scheduleRebuild();
+			},
+			onBack: () => this.showForm(),
+		});
 		const listen = <K extends keyof HTMLElementEventMap>(el: HTMLElement, type: K, fn: (e: HTMLElementEventMap[K]) => void) => {
 			el.addEventListener(type, fn as EventListener);
 			this.cleanups.push(() => el.removeEventListener(type, fn as EventListener));
@@ -74,7 +80,9 @@ export class NpcEditor {
 		const onKey = (e: KeyboardEvent) => {
 			if (e.code === 'Escape' && !$('npc-editor').hidden) {
 				e.stopPropagation();
-				this.close();
+				// Browsing a slot, Esc goes back to the form; from the form, it closes the editor.
+				if (this.browser.isOpen) this.showForm();
+				else this.close();
 			}
 		};
 		window.addEventListener('keydown', onKey, true);
@@ -122,8 +130,27 @@ export class NpcEditor {
 		this.draft = null;
 		clearTimeout(this.rebuildTimer);
 		this.preview.stop();
+		this.showForm();
 		$('npc-editor-options').replaceChildren();
 		$('npc-editor-gear').replaceChildren();
+	}
+
+	/** Opens the slot browser in place of the form (spec 7.9.3). */
+	private async browse(slot: EquipSlot, label: string): Promise<void> {
+		const draft = this.draft;
+		if (!draft) return;
+		const all = this.gear ?? (await this.loadGear());
+		if (this.draft !== draft || !this.isOpen) return;
+		$('npc-editor-form').hidden = true;
+		this.browser.open(slot, label, all.filter((g) => g.slot === slot), draft.equipment[slot] ?? 0);
+	}
+
+	/** Back from the slot browser: the form again, its slot rows showing what is worn now. */
+	private showForm(): void {
+		const browsing = this.browser.isOpen;
+		this.browser.close();
+		$('npc-editor-form').hidden = false;
+		if (browsing && this.draft) this.renderGear();
 	}
 
 	private setStatus(text: string): void {
@@ -245,6 +272,12 @@ export class NpcEditor {
 				input.spellcheck = false;
 				input.placeholder = 'none';
 				input.setAttribute('aria-label', `${label} gear`);
+				const browse = document.createElement('button');
+				browse.className = 'npc-slot-browse';
+				browse.type = 'button';
+				browse.textContent = '▦';
+				browse.title = `Browse all ${label.toLowerCase()} gear with pictures`;
+				browse.setAttribute('aria-label', `Browse ${label.toLowerCase()} gear`);
 				const clear = document.createElement('button');
 				clear.className = 'npc-slot-clear';
 				clear.textContent = '×';
@@ -311,7 +344,8 @@ export class NpcEditor {
 					showWorn();
 					this.scheduleRebuild();
 				});
-				row.append(name, input, clear, results);
+				browse.addEventListener('click', () => void this.browse(slot, label));
+				row.append(name, input, browse, clear, results);
 				return row;
 			}),
 		);
@@ -356,6 +390,7 @@ export class NpcEditor {
 	dispose(): void {
 		this.close();
 		this.preview.dispose();
+		this.browser.dispose();
 		for (const c of this.cleanups) c();
 		this.cleanups.length = 0;
 	}

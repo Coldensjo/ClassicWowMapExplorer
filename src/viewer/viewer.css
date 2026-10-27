@@ -2972,7 +2972,7 @@ body.playing :is(#tool-rail, #tool-panel) {
 
 .npc-slot {
 	display: grid;
-	grid-template-columns: 72px 1fr auto;
+	grid-template-columns: 72px 1fr auto auto;
 	align-items: center;
 	gap: 6px;
 	position: relative;
@@ -2982,8 +2982,69 @@ body.playing :is(#tool-rail, #tool-panel) {
 	min-width: 0;
 }
 
+.npc-slot .npc-slot-browse,
 .npc-slot .npc-slot-clear {
 	padding: 2px 6px;
+}
+
+/* The slot browser, in the form's place while the preview stays (spec 7.9.3). */
+.npc-editor-browse {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	min-height: 0;
+	max-height: calc(100vh - 110px);
+	font-size: 13px;
+}
+
+.npc-browse-top {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+#npc-browse-back {
+	font-size: 24px;
+	line-height: 1;
+	padding: 0 4px;
+	color: var(--muted);
+}
+
+#npc-browse-back:hover {
+	color: var(--text);
+}
+
+.npc-browse-title {
+	font-size: 15px;
+	font-weight: 600;
+}
+
+#npc-browse-count {
+	flex: 1;
+	text-align: right;
+}
+
+.npc-browse-grid {
+	flex: 1 1 auto;
+	min-height: 240px;
+	overflow: auto;
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+	align-content: start;
+	gap: 4px;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	padding: 4px;
+}
+
+.npc-browse-grid .texture-item img {
+	width: 64px;
+	height: 64px;
+}
+
+.npc-browse-more {
+	grid-column: 1 / -1;
+	margin: 4px 0;
 }
 
 .npc-slot-results {

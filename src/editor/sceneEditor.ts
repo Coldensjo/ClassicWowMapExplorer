@@ -62,6 +62,8 @@ const FOG_FAR_DEFAULT = 9000;
 /** Thumbnails for the scene library (and later galleries), spec 6.2. */
 const THUMBNAIL_WIDTH = 512;
 const THUMBNAIL_HEIGHT = 288;
+/** Pixels a plain left press moves before it looks around instead of clicking. */
+const LOOK_DRAG_THRESHOLD = 4;
 /** How far the cursor ray is marched looking for ground (yards). */
 const CURSOR_REACH = 6000;
 /** Outer lattice spacing in yards. */
@@ -275,6 +277,8 @@ export class SceneEditor {
 	private readonly strokeTiles = new Set<number>();
 	/** The ramp's first clicked point, waiting for the second. */
 	private rampStart: { x: number; z: number; h: number } | null = null;
+	/** A plain left press in edit mode: a click if let go where it went down, else a drag that looks around. */
+	private press: { x: number; y: number; event: MouseEvent } | null = null;
 	private readonly ring = makeRing(64);
 	private readonly rampRing = makeRing(32);
 	/** Frames since the FPS readout last updated. */
@@ -300,6 +304,8 @@ export class SceneEditor {
 		this.controls = new FlyControls(this.camera, canvas);
 		this.walker = new WalkControls(this.camera, canvas);
 		this.controls.onTakeOver = () => this.setPlaying(false);
+		// Editing views from a fixed distance: the wheel doesn't zoom.
+		this.controls.zoomable = false;
 		this.walker.world = {
 			terrain: (x, z) => this.model.heightAt(x, z) ?? -Infinity,
 			surface: (x, z) => this.model.surfaceAt(x, z) ?? -Infinity,
@@ -373,7 +379,8 @@ export class SceneEditor {
 		// The explorer's sea mask tints terrain below sea level; a scene has no sea.
 		seaMask.uSeaBounds.value.set(1e9, 1e9, 1, 1);
 
-		// Left button: the active tool. Right button: hold to look around (spec 8 shortcuts).
+		// Left drag: look around. Left click: select or place with the Place and NPCs tools.
+		// Shift / Cmd + left: the terrain tools (Shift raises, Cmd lowers).
 		canvas.addEventListener('mousedown', this.onMouseDown);
 		canvas.addEventListener('mousemove', this.onMouseMove);
 		canvas.addEventListener('mouseleave', this.onMouseLeave);
@@ -1450,19 +1457,9 @@ export class SceneEditor {
 		this.post.render(this.renderer, this.scene, this.camera);
 	}
 
-	/** Starts the active tool at the cursor (left button). */
-	private beginStroke(event?: MouseEvent): void {
-		if (this.walker.active || this.controls.locked) return;
-		if (this.objectTool) {
-			// A press on the gizmo belongs to it, not to placing or selecting.
-			if (Number.isNaN(this.mouse.x) || this.objects.gizmoBusy || !event) return;
-			this.raycaster.setFromCamera(this.mouse, this.camera);
-			const placing = this.tool === 'place' ? this.objects.place.mode === 'place' : this.objects.npcPlace.mode === 'place';
-			if (!placing) this.objects.selectClick(this.raycaster, event);
-			else if (this.tool === 'place') this.objects.placeClick(this.raycaster, this.cursor);
-			else this.objects.placeNpcClick(this.raycaster, this.cursor);
-			return;
-		}
+	/** Starts the active terrain tool at the cursor (Shift or Cmd + left button); lower turns Raise/Lower down. */
+	private beginStroke(lower: boolean): void {
+		if (this.walker.active || this.controls.locked || this.objectTool) return;
 		if (!this.cursor) return;
 		if (this.tool === 'revert') {
 			if (!this.model.baseData) return;
@@ -1503,7 +1500,8 @@ export class SceneEditor {
 			this.rampStart = null;
 			return;
 		}
-		this.stroke = new SculptStroke(this.model, this.brush, this.cursor.height);
+		const raiseLower = this.brush.mode === 'raise' || this.brush.mode === 'lower';
+		this.stroke = new SculptStroke(this.model, this.brush, this.cursor.height, raiseLower ? (lower ? 'lower' : 'raise') : null);
 	}
 
 	/** Ends the open stroke, committing it as one undoable command. */
@@ -1563,12 +1561,21 @@ export class SceneEditor {
 			this.pressedPlaying = e.button === 0;
 			return;
 		}
-		if (e.button === 2) {
-			this.endStroke();
-			this.controls.lock();
-		} else if (e.button === 0 && !this.controls.locked) {
-			this.beginStroke(e);
+		if (e.button !== 0 || this.controls.locked) return;
+		const modified = e.shiftKey || e.metaKey || e.ctrlKey;
+		if (this.objectTool) {
+			// A press on the gizmo belongs to it; Shift selects at once (toggling, or a box on nothing).
+			if (Number.isNaN(this.mouse.x) || this.objects.gizmoBusy) return;
+			if (e.shiftKey) {
+				this.raycaster.setFromCamera(this.mouse, this.camera);
+				this.objects.selectClick(this.raycaster, e);
+				return;
+			}
+		} else if (modified) {
+			this.beginStroke(e.metaKey || e.ctrlKey);
+			return;
 		}
+		this.press = { x: e.clientX, y: e.clientY, event: e };
 	};
 
 	private readonly onMouseUp = (e: MouseEvent): void => {
@@ -1577,13 +1584,25 @@ export class SceneEditor {
 			// A press that turned the camera isn't a click (see WalkControls.wasDrag).
 			if (this.walker.active && !this.walker.wasDrag) this.targetClick();
 		}
-		if (e.button === 0) this.endStroke();
-		if (e.button === 2 && this.controls.locked) document.exitPointerLock();
+		if (e.button !== 0) return;
+		const press = this.press;
+		this.press = null;
+		if (press && this.objectTool && !this.walker.active && !Number.isNaN(this.mouse.x)) {
+			this.raycaster.setFromCamera(this.mouse, this.camera);
+			this.objects.click(this.raycaster, this.cursor, press.event, this.tool === 'npcs');
+		}
+		this.endStroke();
+		if (this.controls.locked) document.exitPointerLock();
 	};
 
 	private readonly onMouseMove = (e: MouseEvent): void => {
 		const rect = this.canvas.getBoundingClientRect();
 		this.mouse.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+		// A plain left press that moves turns into looking around, with the mouse captured.
+		if (this.press && Math.abs(e.clientX - this.press.x) + Math.abs(e.clientY - this.press.y) > LOOK_DRAG_THRESHOLD) {
+			this.press = null;
+			this.controls.lock();
+		}
 	};
 
 	private readonly onMouseLeave = (): void => {

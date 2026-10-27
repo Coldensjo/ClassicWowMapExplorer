@@ -73,7 +73,7 @@ export class FlyControls {
 		});
 		element.addEventListener('wheel', (e) => {
 			e.preventDefault();
-			if (!this.enabled) return;
+			if (!this.enabled || !this.zoomable) return;
 			this.flight = null;
 			this.zoomVelocity += -Math.sign(e.deltaY) * 2.5;
 		}, { passive: false });
@@ -103,6 +103,9 @@ export class FlyControls {
 
 	/** Multiplies the flying speed (the Camera menu's slider, Y in the viewer). */
 	speedScale = 1;
+
+	/** The mouse wheel zooms along the view (the editor turns it off). */
+	zoomable = true;
 
 	/** Speed scales with height above the ground; off, the camera flies at fixedSpeed everywhere. */
 	smartSpeed = true;

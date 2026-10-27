@@ -425,8 +425,23 @@ export class SceneObjects {
 	// ---- Selecting (spec 7.8) ----
 
 	/**
-	 * A left click in select mode: picks the entity under the cursor (its whole group with it,
-	 * unless Shift narrows to one), Shift toggles, and a press on empty ground starts a box select.
+	 * A left click (not a drag, which turns the camera) with the Place or NPCs tool: selects the
+	 * entity under the cursor; elsewhere, drops the armed asset on the ground in place mode, or
+	 * clears the selection in select mode.
+	 */
+	click(raycaster: THREE.Raycaster, terrain: { x: number; z: number; height: number } | null, event: MouseEvent, npcTool: boolean): void {
+		if (this.pickId(raycaster)) return this.selectClick(raycaster, event);
+		const placing = npcTool ? this.npcPlace.mode === 'place' : this.place.mode === 'place';
+		if (!placing) this.clearSelection();
+		else if (!terrain) return;
+		else if (npcTool) this.placeNpcClick(raycaster, terrain);
+		else this.placeClick(raycaster, terrain);
+	}
+
+	/**
+	 * A press with Shift in select mode: picks the entity under the cursor (its whole group with it,
+	 * unless Shift narrows to one), Shift toggles, and a press on empty ground starts a box select
+	 * (a plain drag turns the camera, so only Shift gets here on nothing).
 	 */
 	selectClick(raycaster: THREE.Raycaster, event: MouseEvent): void {
 		const id = this.pickId(raycaster);

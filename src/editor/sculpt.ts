@@ -91,8 +91,14 @@ export class SculptStroke {
 		private readonly model: SceneModel,
 		private readonly settings: BrushSettings,
 		startHeight: number,
+		/** Brushes in this mode instead of the settings' (Shift raises and Cmd lowers, whichever of the two is chosen). */
+		private readonly modeOverride: SculptMode | null = null,
 	) {
 		this.flatTarget = settings.flattenTo ?? startHeight;
+	}
+
+	private get mode(): SculptMode {
+		return this.modeOverride ?? this.settings.mode;
 	}
 
 	private readonly touch = (tileIndex: number, chunkId: number, chunk: SceneChunk): void => {
@@ -103,7 +109,8 @@ export class SculptStroke {
 
 	/** Applies the brush at scene-space (x, z) for a frame of dt seconds. */
 	apply(x: number, z: number, dt: number): void {
-		const { radius, strength, falloff, mode } = this.settings;
+		const { radius, strength, falloff } = this.settings;
+		const mode = this.mode;
 		if (mode === 'ramp') return; // Ramps apply on the second click (applyRamp).
 		const writes: Write[] = [];
 		const target = (old: number, w: number, worldX: number, worldZ: number, average: () => number): number => {
@@ -235,7 +242,7 @@ export class SculptStroke {
 		}
 		if (!changes.length) return null;
 		return {
-			label: SCULPT_LABELS[this.settings.mode],
+			label: SCULPT_LABELS[this.mode],
 			bytes: changes.length * CHUNK_HEIGHTS * 4 * 2,
 			undo: () => {
 				for (const c of changes) model.restoreHeights(c.tileIndex, c.chunkId, c.before);

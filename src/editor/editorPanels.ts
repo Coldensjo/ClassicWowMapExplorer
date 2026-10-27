@@ -28,39 +28,39 @@ const TOOLS: { id: string; key: string; ready: boolean }[] = [
 
 const NPC_HINTS: Record<'place' | 'select', string> = {
 	place: 'Pick a creature or custom NPC, then click the ground to place it facing you. It snaps to the ground.',
-	select: 'Click an NPC or object to select it; Shift+click adds. W/E/R move, turn and scale; Del deletes.',
+	select: 'Click an NPC or object to select it; Shift+click adds, Shift+drag box-selects. W/E/R move, turn and scale; Del deletes.',
 };
 
 const HOLE_HINTS: Record<HoleMode, string> = {
-	cut: 'Hold the left button to cut cells out of the ground, for caves and stairwells.',
-	fill: 'Hold the left button to close holes back up.',
+	cut: 'Hold Shift and the left button to cut cells out of the ground, for caves and stairwells.',
+	fill: 'Hold Shift and the left button to close holes back up.',
 };
 
 const WATER_HINTS: Record<WaterMode, string> = {
-	add: 'Hold the left button to lay water cells at the surface height.',
-	remove: 'Hold the left button to dry cells out.',
-	flood: 'Click a hollow: everything connected below the surface height fills, like a lake.',
+	add: 'Hold Shift and the left button to lay water cells at the surface height.',
+	remove: 'Hold Shift and the left button to dry cells out.',
+	flood: 'Shift+click a hollow: everything connected below the surface height fills, like a lake.',
 };
 
 const PAINT_HINTS: Record<PaintMode, string> = {
-	paint: 'Hold the left button to paint the texture into the ground.',
-	erase: 'Hold the left button to wash paint away, back to the base texture.',
-	fill: 'Click a chunk to fill it with the texture at the set opacity.',
-	base: 'Click a chunk to swap its base texture, keeping the paint on top.',
+	paint: 'Hold Shift and the left button to paint the texture into the ground.',
+	erase: 'Hold Shift and the left button to wash paint away, back to the base texture.',
+	fill: 'Shift+click a chunk to fill it with the texture at the set opacity.',
+	base: 'Shift+click a chunk to swap its base texture, keeping the paint on top.',
 };
 
 const PLACE_HINTS: Record<'place' | 'select', string> = {
-	place: 'Pick an asset, then click the ground to drop it. Shift stays in place mode for scattering.',
-	select: 'Click an object to select it; Shift+click adds. Del deletes, Ctrl+D duplicates.',
+	place: 'Pick an asset, then click the ground to drop it; click an object to select it.',
+	select: 'Click an object to select it; Shift+click adds, Shift+drag box-selects. Del deletes, Ctrl+D duplicates.',
 };
 
 const SCULPT_HINTS: Record<SculptMode, string> = {
-	raise: 'Hold the left button to raise the ground.',
-	lower: 'Hold the left button to lower the ground.',
-	smooth: 'Hold the left button to soften bumps and edges.',
-	flatten: 'Drags the ground toward the height you first touch, or a typed height.',
-	noise: 'Hold the left button to roughen the ground with fractal noise.',
-	ramp: 'Click the ramp’s two ends; the ground slopes straight between them.',
+	raise: 'Shift + left button raises the ground; Cmd + left button lowers it.',
+	lower: 'Cmd + left button lowers the ground; Shift + left button raises it.',
+	smooth: 'Hold Shift and the left button to soften bumps and edges.',
+	flatten: 'Shift + left button drags the ground toward the height you first touch, or a typed height.',
+	noise: 'Hold Shift and the left button to roughen the ground with fractal noise.',
+	ramp: 'Shift+click the ramp’s two ends; the ground slopes straight between them.',
 };
 
 /**

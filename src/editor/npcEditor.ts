@@ -58,6 +58,7 @@ export class NpcEditor {
 	) {
 		this.preview = new NpcPreview($<HTMLCanvasElement>('npc-editor-preview'), storage);
 		this.browser = new GearBrowser(storage, build, {
+			handleOf: (preset) => hooks.handleOf(preset),
 			onPick: (slot, display) => {
 				if (!this.draft) return;
 				this.draft.equipment[slot] = display;
@@ -142,7 +143,7 @@ export class NpcEditor {
 		const all = this.gear ?? (await this.loadGear());
 		if (this.draft !== draft || !this.isOpen) return;
 		$('npc-editor-form').hidden = true;
-		this.browser.open(slot, label, all.filter((g) => g.slot === slot), draft.equipment[slot] ?? 0);
+		this.browser.open(slot, label, all.filter((g) => g.slot === slot), draft.equipment[slot] ?? 0, { race: draft.race, sex: draft.sex });
 	}
 
 	/** Back from the slot browser: the form again, its slot rows showing what is worn now. */

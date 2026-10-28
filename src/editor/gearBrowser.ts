@@ -1,8 +1,8 @@
 import type { GearDisplay } from '../explorer/npcs';
 import type { Image } from '../formats/blp';
-import type { EquipSlot } from '../scene/types';
+import type { EquipSlot, NpcPreset } from '../scene/types';
 import type { AsyncStorageApi } from '../worker/protocol';
-import { ModelThumbs } from './modelThumbs';
+import { ModelThumbs, type ThumbFrame } from './modelThumbs';
 
 /** A gear entry as the editor searches and browses it: the display plus its label and the text it matches on. */
 export interface GearEntry extends GearDisplay {
@@ -12,11 +12,27 @@ export interface GearEntry extends GearDisplay {
 
 /** Slots whose gear is a model of its own (helmets, shoulders, weapons); the rest is texture sections laid on the skin. */
 const MODEL_SLOTS = new Set<EquipSlot>(['head', 'shoulder', 'mainHand', 'offHand', 'ranged']);
+/**
+ * Where on a standing body each texture slot's gear shows (shares of the height, feet 0 to
+ * top 1, and how wide), for picturing it worn: the band of a bare body the picture frames.
+ * The arms hang at the sides, so gloves and bracers frame wider than the trunk.
+ */
+const BODY_FRAMES: Partial<Record<EquipSlot, ThumbFrame>> = {
+	chest: { lo: 0.45, hi: 0.9, width: 0.4 },
+	shirt: { lo: 0.45, hi: 0.9, width: 0.4 },
+	tabard: { lo: 0.32, hi: 0.88, width: 0.4 },
+	wrist: { lo: 0.36, hi: 0.62, width: 0.5 },
+	hands: { lo: 0.28, hi: 0.54, width: 0.5 },
+	waist: { lo: 0.42, hi: 0.68, width: 0.35 },
+	legs: { lo: 0.06, hi: 0.6, width: 0.35 },
+	feet: { lo: 0, hi: 0.24, width: 0.35 },
+	back: { lo: 0.18, hi: 0.95, width: 0.45, behind: true },
+};
 /** Entries put in the grid at once; Show more appends another page. */
 const PAGE = 200;
 /** Thumbnails decoded per worker batch. */
 const BATCH = 12;
-/** Longest side a texture thumbnail is decoded at. */
+/** Longest side an icon is decoded at. */
 const THUMB = 128;
 /** Pictures made at most once per session (display ID -> object URL, null while one is being made or when it failed). */
 const sessionThumbs = new Map<number, string | null>();
@@ -27,8 +43,9 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
  * The custom NPC editor's slot browser (spec 7.9.3): every display a slot offers as a grid of
  * pictures, filtered by name, in place of the form while the preview stays. Item-backed gear
  * shows its item icon; NPC-only helmets, shoulders and weapons are rendered from their own
- * model, and NPC-only armour shows the texture section it lays on the skin. Clicking a picture
- * wears it at once, so the preview shows it; Back returns to the form.
+ * model, and NPC-only armour is rendered worn on a bare body of the NPC's race and sex, framed
+ * on the part it covers. Clicking a picture wears it at once, so the preview shows it; Back
+ * returns to the form.
  */
 export class GearBrowser {
 	private readonly thumbs: ModelThumbs;
@@ -36,6 +53,8 @@ export class GearBrowser {
 	private readonly queue: { element: HTMLElement; entry: GearEntry }[] = [];
 	private draining = false;
 	private slot: EquipSlot | null = null;
+	/** The race and sex armour is pictured on. */
+	private body: { race: number; sex: 0 | 1 } = { race: 1, sex: 0 };
 	private entries: GearEntry[] = [];
 	private matches: GearEntry[] = [];
 	private shown = 0;
@@ -46,6 +65,8 @@ export class GearBrowser {
 		private readonly storage: AsyncStorageApi,
 		build: string,
 		private readonly hooks: {
+			/** The worker handle a preset loads under (defines it there first), for the bodies armour is pictured on. */
+			handleOf: (preset: NpcPreset) => number;
 			onPick: (slot: EquipSlot, display: number) => void;
 			onBack: () => void;
 		},
@@ -69,9 +90,10 @@ export class GearBrowser {
 		return !$('npc-editor-browse').hidden;
 	}
 
-	/** Shows a slot's gear, with what the draft wears marked and scrolled to. */
-	open(slot: EquipSlot, label: string, entries: GearEntry[], current: number): void {
+	/** Shows a slot's gear for a body (race and sex), with what the draft wears marked and scrolled to. */
+	open(slot: EquipSlot, label: string, entries: GearEntry[], current: number, body: { race: number; sex: 0 | 1 }): void {
 		this.slot = slot;
+		this.body = body;
 		this.entries = entries;
 		this.current = current;
 		$('npc-browse-title').textContent = label;
@@ -166,19 +188,27 @@ export class GearBrowser {
 			while (this.queue.length && !this.disposed) {
 				const batch = this.queue.splice(0, BATCH).filter(({ entry }) => !sessionThumbs.has(entry.id));
 				for (const { entry } of batch) sessionThumbs.set(entry.id, null);
-				// Icons and texture sections decode together in the worker; models render one by one.
-				const pictures = batch.filter(({ entry }) => this.pictureFile(entry));
-				const images = pictures.length ? await this.storage.loadThumbnails(pictures.map(({ entry }) => this.pictureFile(entry)), THUMB).catch(() => []) : [];
+				// Icons decode together in the worker; models and dressed bodies render one by one.
+				const pictures = batch.filter(({ entry }) => entry.icon);
+				const images = pictures.length ? await this.storage.loadThumbnails(pictures.map(({ entry }) => entry.icon), THUMB).catch(() => []) : [];
+				const { race, sex } = this.body;
 				await Promise.all(
 					batch.map(async ({ element, entry }) => {
 						let url: string | null = null;
 						try {
 							const at = pictures.findIndex((p) => p.entry === entry);
+							let bytes: Uint8Array | null = null;
 							if (at >= 0) url = images[at] ? await imageUrl(images[at]) : null;
-							else if (MODEL_SLOTS.has(entry.slot)) {
-								const bytes = await this.thumbs.thumbnail('itemDisplay', entry.id, `item:${entry.id}`);
-								if (bytes) url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'image/webp' }));
+							else if (MODEL_SLOTS.has(entry.slot)) bytes = await this.thumbs.thumbnail('itemDisplay', entry.id, `item:${entry.id}`);
+							else {
+								// Worn on a bare body in its default look, so the picture is the gear's, not the draft's.
+								const preset: NpcPreset = { id: `thumb:${race}:${sex}:${entry.id}`, name: '', race, sex, customization: {}, equipment: { [entry.slot]: entry.id } };
+								// The framing is part of the key, so a changed framing draws afresh.
+								const frame = BODY_FRAMES[entry.slot];
+								const framing = frame ? `@${frame.lo}-${frame.hi}-${frame.width ?? ''}${frame.behind ? 'b' : ''}` : '';
+								bytes = await this.thumbs.thumbnail('npcPreset', () => this.hooks.handleOf(preset), `gear:${race}:${sex}:${entry.id}${framing}`, frame);
 							}
+							if (bytes) url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'image/webp' }));
 						} catch {
 							// Pictures are decoration; the names still work.
 						}
@@ -191,12 +221,6 @@ export class GearBrowser {
 		} finally {
 			this.draining = false;
 		}
-	}
-
-	/** The texture a display is pictured by (its icon, else the section it lays on the skin), or 0 for one drawn from its model. */
-	private pictureFile(entry: GearEntry): number {
-		if (entry.icon) return entry.icon;
-		return MODEL_SLOTS.has(entry.slot) ? 0 : entry.file;
 	}
 
 	dispose(): void {

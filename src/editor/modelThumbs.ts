@@ -17,6 +17,19 @@ const MARGIN = 1.1;
 const SIZE = 112;
 
 /**
+ * A part of a model to frame instead of all of it: the band of its height between lo and hi
+ * (0 the feet, 1 the top), as wide as width (a share of the height; the model's own width when
+ * unset), seen from behind when so asked. The gear browser pictures armour worn on a body this
+ * way (spec 7.9.3).
+ */
+export interface ThumbFrame {
+	lo: number;
+	hi: number;
+	width?: number;
+	behind?: boolean;
+}
+
+/**
  * Thumbnails for the doodad and building browser (spec 7.3): each model is rendered once with an
  * offscreen renderer of its own, lazily and one at a time, then cached in IndexedDB as WebP keyed
  * by build and FDID, so later sessions never render it again.
@@ -56,22 +69,24 @@ export class ModelThumbs {
 	 * A model's thumbnail as WebP bytes, from the cache or rendered now; null when the model can't
 	 * be read. Requests run one at a time, so a scroll through the browser can't stampede the worker.
 	 * NPCs (spec 7.9) pass a creature display or a preset handle as fdid; a preset's cache key
-	 * names its look, since the handle changes with every edit.
+	 * names its look, since the handle changes with every edit. A function for fdid is asked only
+	 * when the cache has nothing, so a preset defined just for the picture isn't defined for nothing.
 	 */
-	thumbnail(kind: ModelKind, fdid: number, cacheKey = `${kind}:${fdid}`): Promise<Uint8Array | null> {
-		const run = this.queue.then(() => (this.disposed ? null : this.make(kind, fdid, cacheKey)));
+	thumbnail(kind: ModelKind, fdid: number | (() => number), cacheKey?: string, frame?: ThumbFrame): Promise<Uint8Array | null> {
+		const key = cacheKey ?? `${kind}:${fdid}`;
+		const run = this.queue.then(() => (this.disposed ? null : this.make(kind, fdid, key, frame)));
 		this.queue = run.catch(() => null);
 		return run;
 	}
 
-	private async make(kind: ModelKind, fdid: number, cacheKey: string): Promise<Uint8Array | null> {
+	private async make(kind: ModelKind, fdid: number | (() => number), cacheKey: string, frame?: ThumbFrame): Promise<Uint8Array | null> {
 		const key = `thumb:${this.build}:${cacheKey}`;
 		const cached = await kvGet<Uint8Array | null>(key).catch(() => undefined);
 		if (cached !== undefined) return cached;
 		let bytes: Uint8Array | null = null;
 		try {
-			const [data] = await this.storage.loadModels([{ fdid, kind }]);
-			if (data && data.batches.length && !this.disposed) bytes = await this.render(data);
+			const [data] = await this.storage.loadModels([{ fdid: typeof fdid === 'function' ? fdid() : fdid, kind }]);
+			if (data && data.batches.length && !this.disposed) bytes = await this.render(data, frame);
 		} catch {
 			bytes = null;
 		}
@@ -80,7 +95,7 @@ export class ModelThumbs {
 		return bytes;
 	}
 
-	private async render(data: ModelData): Promise<Uint8Array | null> {
+	private async render(data: ModelData, frame?: ThumbFrame): Promise<Uint8Array | null> {
 		const { renderer, textures } = this.lazyRenderer();
 		const geometry = new THREE.BufferGeometry();
 		geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
@@ -109,7 +124,7 @@ export class ModelThumbs {
 			return createModelMaterial(b.material, loaded.get(b.material.texture) ?? null, !!data.baked, skin);
 		});
 		const mesh = new THREE.Mesh(geometry, materials);
-		mesh.applyMatrix4(new THREE.Matrix4().makeRotationY(FACING).multiply(MODEL_BASIS));
+		mesh.applyMatrix4(new THREE.Matrix4().makeRotationY(frame?.behind ? FACING + Math.PI : FACING).multiply(MODEL_BASIS));
 		this.scene.add(mesh);
 
 		// Frame the drawn triangles: the bounds in view space, after the facing turn. A posed model's
@@ -117,9 +132,18 @@ export class ModelThumbs {
 		const box = new THREE.Box3().setFromObject(mesh);
 		const centre = box.getCenter(new THREE.Vector3());
 		const size = box.getSize(new THREE.Vector3());
-		const radius = Math.max(size.x, size.y, size.z, 0.1) / 2;
-		const distance = (radius * MARGIN) / Math.tan(THREE.MathUtils.degToRad(FOV / 2));
-		this.camera.position.set(centre.x, centre.y + radius * 0.25, centre.z + distance);
+		if (frame) {
+			// A band of the model's height, level with the camera, wide enough for the body's width.
+			const height = Math.max(size.y, 0.1);
+			centre.y = box.min.y + height * (frame.lo + frame.hi) / 2;
+			const radius = Math.max((height * (frame.hi - frame.lo)) / 2, frame.width !== undefined ? (height * frame.width) / 2 : size.x * 0.45, 0.05);
+			const distance = (radius * MARGIN) / Math.tan(THREE.MathUtils.degToRad(FOV / 2)) + size.z / 2;
+			this.camera.position.set(centre.x, centre.y, centre.z + distance);
+		} else {
+			const radius = Math.max(size.x, size.y, size.z, 0.1) / 2;
+			const distance = (radius * MARGIN) / Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+			this.camera.position.set(centre.x, centre.y + radius * 0.25, centre.z + distance);
+		}
 		this.camera.lookAt(centre);
 		renderer.render(this.scene, this.camera);
 

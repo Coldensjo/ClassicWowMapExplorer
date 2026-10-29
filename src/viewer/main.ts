@@ -146,7 +146,13 @@ window.addEventListener('blur', () => heldKeys.clear());
 /** Exactly what's in view now, the time of day if moved, the movement keys held and whether the mouse is captured. */
 function currentState(): SwitchState {
 	const viewer = infoViewer;
-	return { view: viewer?.viewSpot() ?? null, time: viewer && !viewer.timeIsLocal ? viewer.timeMinutes : null, keys: [...heldKeys], captured: viewer?.mouseCaptured ?? false };
+	return { view: viewer?.viewSpot() ?? null, time: viewer && !viewer.timeIsLocal ? viewer.timeMinutes : null, keys: [...heldKeys], captured: viewer?.mouseCaptured ?? false, worldMap: worldMap?.shown ?? null };
+}
+
+/** Opens the world map where the viewer before had it open, or closes it if that one hadn't. */
+function carryWorldMap(state: Partial<SwitchState>): void {
+	if (state.worldMap) void worldMap?.open(state.worldMap);
+	else worldMap?.close();
 }
 
 /**
@@ -510,6 +516,7 @@ async function explore(): Promise<void> {
 		// Chosen in the menu before: still open, for comparing the next.
 		if (carried.menu) $<HTMLDetailsElement>('version').open = true;
 		setUpTravel(viewer, minimapArrow);
+		carryWorldMap(carried);
 		setUpWalking(viewer);
 		setUpEmotes(viewer);
 		setUpSound(viewer);
@@ -551,6 +558,7 @@ function viewerSession(viewer: Viewer): ViewerSession {
 			for (const reread of rereads) reread();
 			if (typeof state.time === 'number' && Number.isFinite(state.time)) viewer.timeMinutes = state.time;
 			else viewer.resetTime();
+			carryWorldMap(state);
 			if (!state.view) return;
 			if (viewer.walking && !state.view.walker) viewer.setWalking(false);
 			if (!(await viewer.showSpot(state.view.camera))) throw new Error('that map isn’t in this version');
@@ -1066,7 +1074,7 @@ function setUpTravel(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
 	$('stone-goto').addEventListener('click', () => void meetingStoneAction(viewer.goToMeetingStone(Number(stone.value))));
 	$('stone-enter').addEventListener('click', () => void meetingStoneAction(viewer.enterDungeon(Number(stone.value))));
 
-	const map = new WorldMap($('worldmap'), $<HTMLCanvasElement>('worldmap-canvas'), storage, () => viewer.worldMapView(), (mapId, x, y) => viewer.flyOverWow(mapId, x, y), (mapId, x, y) => viewer.areaNameAt(mapId, x, y), arrow, {
+	const map = worldMap = new WorldMap($('worldmap'), $<HTMLCanvasElement>('worldmap-canvas'), storage, () => viewer.worldMapView(), (mapId, x, y) => viewer.flyOverWow(mapId, x, y), (mapId, x, y) => viewer.areaNameAt(mapId, x, y), arrow, {
 		title: $('worldmap-title'),
 		up: $<HTMLButtonElement>('worldmap-up'),
 		arrow: $<HTMLInputElement>('worldmap-arrow'),
@@ -1087,6 +1095,9 @@ function setUpTravel(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
 }
 
 const TRAVEL_KEY = 'mapExplorer.travel';
+
+/** The world map, once the viewer has started: open or not, and where, carries over to another game version. */
+let worldMap: WorldMap | null = null;
 
 /** A meeting stone's dungeon and level range, as the stone's tooltip has it. */
 function stoneLabel(s: MeetingStone): string {

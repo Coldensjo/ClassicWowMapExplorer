@@ -79,6 +79,8 @@ export interface SwitchState {
 	menu?: boolean;
 	/** The mouse was captured for looking around (switching in place). */
 	captured?: boolean;
+	/** The UiMap the world map was open at, for the next viewer to open it there too. */
+	worldMap?: number | null;
 }
 
 /** What the host asks of a viewer frame it made for a switch. */

@@ -72,6 +72,8 @@ export class EditorPanels {
 	private readonly cleanups: (() => void)[] = [];
 
 	private readonly textures: TextureBrowser;
+	/** Whether the next plain click on the ground samples a chunk's textures (spec 7.5). */
+	private sampling = false;
 	/** Made when the Place tool first opens, so its listfile parts aren't fetched before then. */
 	private models: ModelBrowser | null = null;
 	/** Made when the NPCs tool first opens (spec 7.9). */
@@ -173,6 +175,7 @@ export class EditorPanels {
 		for (const tool of TOOLS) $(`tool-${tool.id}`).classList.toggle('active', tool.id === id);
 		$('sculpt-props').hidden = id !== 'sculpt';
 		$('paint-props').hidden = id !== 'paint';
+		if (id !== 'paint' && this.sampling) this.setSampling(false);
 		$('holes-props').hidden = id !== 'holes';
 		$('water-props').hidden = id !== 'water';
 		$('place-props').hidden = id !== 'place';
@@ -255,6 +258,23 @@ export class EditorPanels {
 		this.listen($('paint-policy'), 'change', () => {
 			paint.policy = $<HTMLSelectElement>('paint-policy').value as typeof paint.policy;
 		});
+		this.listen($('texture-sample-toggle'), 'click', () => this.setSampling(!this.sampling));
+		this.cleanups.push(() => {
+			this.editor.onChunkClick = null;
+		});
+	}
+
+	/** Sample chunk: while on, a plain click on the ground lists that chunk's textures (spec 7.5). */
+	private setSampling(on: boolean): void {
+		this.sampling = on;
+		$('texture-sample-toggle').classList.toggle('active', on);
+		this.editor.onChunkClick = on
+			? (chunk) => {
+					const fdids = chunk ? chunk.layers.map((l) => this.editor.model.textures[l.texture]).filter((fdid): fdid is number => fdid !== undefined) : [];
+					this.textures.showSample(fdids);
+				}
+			: null;
+		this.syncPaint();
 	}
 
 	private syncPaint(): void {
@@ -270,7 +290,7 @@ export class EditorPanels {
 		$<HTMLInputElement>('paint-opacity').value = String(paint.opacity);
 		$('paint-opacity-out').textContent = `${Math.round(paint.opacity * 100)}%`;
 		$<HTMLSelectElement>('paint-policy').value = paint.policy;
-		$('paint-hint').textContent = PAINT_HINTS[paint.mode];
+		$('paint-hint').textContent = this.sampling ? 'Click a chunk to list the textures it uses; click one to paint with it. Sample chunk again stops.' : PAINT_HINTS[paint.mode];
 	}
 
 	// ---- Holes and water (spec 7.6) ----

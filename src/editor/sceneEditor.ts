@@ -7,7 +7,7 @@ import type { AsyncStorageApi } from '../worker/protocol';
 import { FlyControls } from '../viewer/flyControls';
 import { WalkControls } from '../viewer/walkControls';
 import { Character } from '../viewer/character';
-import type { NpcAppearance, PlacedNpc, Scene } from '../scene/types';
+import type { ChunkLayer, NpcAppearance, PlacedNpc, Scene } from '../scene/types';
 import { Nameplates, NAMEPLATE_RANGE, type Plate } from './nameplates';
 import { createAlphaTexture, createSplatMaterial, seaMask } from '../viewer/terrainMaterials';
 import { TextureCache } from '../viewer/textureCache';
@@ -103,6 +103,14 @@ interface TileMesh {
 
 /** The tools on the rail (spec 8). */
 export type Tool = 'sculpt' | 'paint' | 'holes' | 'water' | 'place' | 'npcs' | 'revert';
+
+/** A terrain chunk the user clicked, for the paint panel's chunk sampling (spec 7.5). */
+export interface PickedChunk {
+	tileIndex: number;
+	chunkId: number;
+	/** The chunk's layers; layer 0 is the base. */
+	layers: ChunkLayer[];
+}
 
 /** What the status bar shows each frame. */
 export interface EditorStatus {
@@ -218,6 +226,11 @@ export class SceneEditor {
 	onNotice: (text: string) => void = () => {};
 	/** Status bar data, sent every frame. */
 	onStatus: (status: EditorStatus) => void = () => {};
+	/**
+	 * When set, a plain left click (no modifier, no drag) with a brush tool reports the chunk under
+	 * the cursor instead of doing nothing; null when the click missed the ground.
+	 */
+	onChunkClick: ((chunk: PickedChunk | null) => void) | null = null;
 
 	/** The editor core (spec 7.11): every change goes through a command. */
 	readonly commands = new CommandStack();
@@ -1436,16 +1449,18 @@ export class SceneEditor {
 			this.fpsFrames = 0;
 			this.fpsTime = 0;
 		}
-		let layers: number | null = null;
-		if (this.cursor) {
-			const tile = this.model.tileAt(this.cursor.x, this.cursor.z);
-			if (tile) {
-				const cx = Math.min(Math.floor((this.cursor.x - tile.x * TILE_SIZE) / CHUNK_SIZE), CHUNKS_PER_TILE - 1);
-				const cy = Math.min(Math.floor((this.cursor.z - tile.y * TILE_SIZE) / CHUNK_SIZE), CHUNKS_PER_TILE - 1);
-				layers = tile.chunks[cy * CHUNKS_PER_TILE + cx].layers.length;
-			}
-		}
-		this.onStatus({ cursor: this.cursor, layers, fps: this.fps });
+		this.onStatus({ cursor: this.cursor, layers: this.chunkUnderCursor()?.layers.length ?? null, fps: this.fps });
+	}
+
+	/** The chunk under the ground cursor, or null off the terrain. */
+	chunkUnderCursor(): PickedChunk | null {
+		if (!this.cursor) return null;
+		const tile = this.model.tileAt(this.cursor.x, this.cursor.z);
+		if (!tile) return null;
+		const cx = Math.min(Math.floor((this.cursor.x - tile.x * TILE_SIZE) / CHUNK_SIZE), CHUNKS_PER_TILE - 1);
+		const cy = Math.min(Math.floor((this.cursor.z - tile.y * TILE_SIZE) / CHUNK_SIZE), CHUNKS_PER_TILE - 1);
+		const chunkId = cy * CHUNKS_PER_TILE + cx;
+		return { tileIndex: tile.y * this.model.tilesX + tile.x, chunkId, layers: tile.chunks[chunkId].layers };
 	}
 
 	private render(): void {
@@ -1590,6 +1605,8 @@ export class SceneEditor {
 		if (press && this.objectTool && !this.walker.active && !Number.isNaN(this.mouse.x)) {
 			this.raycaster.setFromCamera(this.mouse, this.camera);
 			this.objects.click(this.raycaster, this.cursor, press.event, this.tool === 'npcs');
+		} else if (press && !this.objectTool && !this.walker.active && this.onChunkClick) {
+			this.onChunkClick(this.chunkUnderCursor());
 		}
 		this.endStroke();
 		if (this.controls.locked) document.exitPointerLock();

@@ -139,6 +139,12 @@
 				<button id="paint-fill" title="Fill a whole chunk with the texture">Fill chunk</button>
 				<button id="paint-base" title="Replace a chunk's base texture, keeping the painted layers">Set base</button>
 			</div>
+			<!-- Sample chunk (spec 7.5): the textures of a clicked chunk, shown above the browser. -->
+			<div id="texture-sample">
+				<button id="texture-sample-toggle" title="Then click a chunk of ground to see the textures it uses">Sample chunk</button>
+				<div id="texture-sample-grid" class="texture-grid sample" aria-label="Sampled textures" hidden></div>
+				<div id="texture-sample-empty" class="muted small" hidden>No textures were found in your sample</div>
+			</div>
 			<!-- The texture asset browser (spec 7.3): search and thumbnails over the listfile's tileset textures. -->
 			<div id="texture-browser">
 				<div class="browser-top">

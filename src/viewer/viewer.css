@@ -2654,6 +2654,27 @@ body.playing :is(#tool-rail, #tool-panel) {
 	grid-template-columns: 1fr 1fr;
 }
 
+/* ---- Sample chunk (spec 7.5): a clicked chunk's textures above the browser ---- */
+
+#texture-sample {
+	margin-bottom: 6px;
+}
+
+#texture-sample-toggle.active {
+	background: var(--accent, #3a6ea5);
+	color: #fff;
+}
+
+.texture-grid.sample {
+	/* Up to 4 textures; they wrap when the panel is too narrow for a row of 4. */
+	grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+	max-height: none;
+}
+
+#texture-sample-empty {
+	margin-top: 4px;
+}
+
 /* ---- The texture asset browser (spec 7.3) ---- */
 
 #texture-browser .browser-top {

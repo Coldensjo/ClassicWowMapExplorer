@@ -8,7 +8,8 @@ import { BASE_TEXTURES, textureName } from './baseTextures';
  * The texture asset browser (spec 7.3, Phase 2's texture-only cut): the tileset textures of the
  * listfile with substring/token search and lazy thumbnails decoded in the worker. Files whose
  * data is not in the local install show greyed and cannot be picked (spec 7.1). Clicking an entry
- * selects it as the paint brush.
+ * selects it as the paint brush. Above the list, a sampled chunk's own textures (up to 4, spec 7.5)
+ * show the same way and pick the same way.
  */
 
 interface Item {
@@ -35,6 +36,8 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 
 export class TextureBrowser {
 	private items: Item[] = [];
+	/** The last sampled chunk's textures, shown above the list. */
+	private sampled: Item[] = [];
 	private readonly observer: IntersectionObserver;
 	private readonly queue: Item[] = [];
 	private loadingThumbs = false;
@@ -143,7 +146,36 @@ export class TextureBrowser {
 	}
 
 	private syncSelection(): void {
-		for (const item of this.items) item.element.classList.toggle('active', item.fdid === this.selected);
+		for (const item of [...this.items, ...this.sampled]) item.element.classList.toggle('active', item.fdid === this.selected);
+	}
+
+	/**
+	 * Shows a sampled chunk's textures (base first) above the list, or the empty message when the
+	 * sample found none; null clears the row.
+	 */
+	showSample(fdids: number[] | null): void {
+		const grid = $('texture-sample-grid');
+		const empty = $('texture-sample-empty');
+		this.sampled = [];
+		if (fdids === null) {
+			grid.hidden = true;
+			empty.hidden = true;
+			grid.replaceChildren();
+			return;
+		}
+		const seen = new Set<number>();
+		for (const fdid of fdids) {
+			if (seen.has(fdid)) continue;
+			seen.add(fdid);
+			const listed = this.items.find((i) => i.fdid === fdid);
+			this.sampled.push(this.makeItem(fdid, listed?.path ?? `tileset/${textureName(fdid).toLowerCase()}.blp`, listed?.status ?? 'ok'));
+		}
+		grid.replaceChildren(...this.sampled.map((i) => i.element));
+		grid.hidden = this.sampled.length === 0;
+		empty.hidden = this.sampled.length > 0;
+		this.syncSelection();
+		this.queue.push(...this.sampled);
+		void this.drainThumbnails();
 	}
 
 	/** Decodes queued thumbnails in worker batches and draws them. */
@@ -198,6 +230,7 @@ export class TextureBrowser {
 		this.observer.disconnect();
 		this.queue.length = 0;
 		$('texture-grid').replaceChildren();
+		this.showSample(null);
 		$('texture-search').oninput = null;
 		$('texture-refresh').onclick = null;
 	}

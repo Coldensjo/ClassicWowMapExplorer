@@ -30,8 +30,7 @@ Figma that needs design sign-off (§6).
 | `button-bg-primary` | `--color-accent` | `#006FB4` | track fill, on |
 | `surface-primary` | `--color-bg-surface` | `#383838` | track fill, off |
 | `button-border-outline` | `--color-border` | `#646464` | track border, on and off |
-| `content-primary` | `--color-text` | `#E7E7E7` | knob fill (on); row label text |
-| *(unbound)* | none | `#D9D9D9` | knob fill (off): **⚠ Figma issue**, see §2.4 |
+| `content-primary` | `--color-text` | `#E7E7E7` | knob fill, on and off (§2.4); row label text |
 | `interaction-hover` | `--color-bg-hover` | `#E7E7E7` @ 10% | hover wash |
 | `button-border-outline-focus` | `--color-focus` | `#E7E7E7` | focus ring (**Proposed**, §5) |
 
@@ -105,17 +104,16 @@ fill shows between border and knob).
 |---|---|---|
 | Track fill | `surface-primary` → `--color-bg-surface` `#383838` | `button-bg-primary` → `--color-accent` `#006FB4` |
 | Track border | 1px `button-border-outline` → `--color-border` `#646464` | same |
-| Knob fill | `#D9D9D9` (unbound, §2.4) | `content-primary` → `--color-text` `#E7E7E7` |
+| Knob fill | `content-primary` → `--color-text` `#E7E7E7` (§2.4) | `content-primary` → `--color-text` `#E7E7E7` |
 | Knob position | `left: 4px` (x 4) | `left: 21px` (x 21, i.e. `right: 4px`) |
 | Shadow / effects | none | none |
 
-### 2.4 ⚠ Figma issue: off knob colour
+### 2.4 Knob colour (decided)
 
-The off knob is filled `#D9D9D9` with **no variable bound** (it looks like Figma's default
-rectangle grey). There is no token with that value. Build the off knob with `--color-text-muted`
-(`content-secondary`, `#CACACA`), the nearest semantic role and a slightly dimmer knob than the
-on state, which reads as "off"; or with `--color-text` if design wants the knob identical in
-both states. Expose it as `--switch-knob-off` so the decision is one line. Confirm with design.
+The knob is `content-primary` → `--color-text` (`#E7E7E7`) in **both** states; only the track
+fill and the knob's position change between off and on. In the Figma file read on 2026-10-29 the
+off knob was still an unbound `#D9D9D9`; design has decided it takes `content-primary`, so build
+that and ignore the `#D9D9D9`. One component token, `--switch-knob`, serves both states.
 
 ### 2.5 Hover
 
@@ -125,8 +123,7 @@ track's rounded shape. It is the **top** layer, so it lies over the knob as well
 Nothing else changes: no knob movement, no colour or border change.
 
 Build it as a background layer on the track so only the track is washed, and let the knob show
-through unchanged (the 10% wash over a `#E7E7E7` knob is invisible anyway, and over `#D9D9D9`
-it is a ~1% lightening nobody will see):
+through unchanged (a 10% `#E7E7E7` wash over a `#E7E7E7` knob is invisible anyway):
 
 ```css
 .ds-switch:hover .ds-switch-track {
@@ -246,8 +243,8 @@ editor's existing checkbox rows can migrate (`index.html` has ~31 `<input type="
 
 ## 6. Open questions / feedback for design
 
-1. **Off knob is `#D9D9D9`, unbound.** Bind it to a variable (spec suggests
-   `content-secondary` `#CACACA`, or the same `content-primary` as on).
+1. ~~**Off knob is `#D9D9D9`, unbound.**~~ Decided: `content-primary` in both states (§2.4).
+   Bind the off knob to it in Figma too.
 2. **Pill-shaped knob** (30 × 15 on a 55 × 23 track) instead of the usual circle. Intended?
 3. **Row label is not a text property**, so it isn't editable per instance.
 4. **Axis names differ**: `Active?` on the switch, `Selected?` on the row. Pick one.
@@ -290,8 +287,7 @@ they become switches.
 --switch-track-off: var(--color-bg-surface);
 --switch-track-on: var(--color-accent);
 --switch-border: var(--color-border);
---switch-knob-on: var(--color-text);
---switch-knob-off: var(--color-text-muted);   /* pending §6.1 */
+--switch-knob: var(--color-text);
 --switch-hover-wash: var(--color-bg-hover);
 /* plus the size tokens in §1.3 */
 ```

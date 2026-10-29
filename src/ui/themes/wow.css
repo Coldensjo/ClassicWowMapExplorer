@@ -1,0 +1,12 @@
+/*
+ * The game's own look, as a theme. See DESIGN_SYSTEM.md §4.
+ *
+ * A theme is a scope that redefines semantic tokens and nothing else. This one is scoped to
+ * body.wow-ui, which uiAssets.ts sets once it has read the interface pictures from the install;
+ * the rules tied to those pictures (border images for buttons, boxes and sliders) stay in
+ * viewer.css under .wow-ui.
+ *
+ * No overrides are defined yet.
+ */
+body.wow-ui {
+}

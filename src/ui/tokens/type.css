@@ -1,0 +1,11 @@
+/*
+ * Type tokens. See DESIGN_SYSTEM.md §3.2.
+ *
+ * Primitives (--font-family-*, --font-size-*, --font-weight-*, --line-height-*) and the roles
+ * composed from them (--type-<role>), each role a complete `font` shorthand so a rule reads
+ * `font: var(--type-caption)`. Text utility classes that markup may use directly go at the end.
+ *
+ * No tokens are defined yet.
+ */
+:root {
+}

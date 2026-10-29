@@ -1,0 +1,10 @@
+/*
+ * Layout tokens. See DESIGN_SYSTEM.md §3.3.
+ *
+ * Spacing (--space-*), radii (--radius-*), line widths, motion and stacking (--z-*): the
+ * numbers a molecule pads, gaps and layers with, so none is a bare value in a component.
+ *
+ * No tokens are defined yet.
+ */
+:root {
+}

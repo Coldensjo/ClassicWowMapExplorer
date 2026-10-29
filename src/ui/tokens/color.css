@@ -1,0 +1,14 @@
+/*
+ * Colour tokens. See DESIGN_SYSTEM.md §3.1.
+ *
+ * Two tiers live here, both on :root:
+ *   Tier 1, the palette (--palette-<hue>-<step>): raw values. Only this file and the theme
+ *   files refer to them.
+ *   Tier 2, semantic (--color-<role>): named for what the colour is for, such as a panel
+ *   background or muted text. Component and page CSS use only these.
+ * A theme (../themes) redefines tier 2 on its scope and never touches a component.
+ *
+ * No tokens are defined yet.
+ */
+:root {
+}

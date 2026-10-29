@@ -13,3 +13,7 @@
 - Use it only when it is worth it: when you are confident it will give valuable information, such as reading console errors for a crash, checking a value at runtime, or confirming a bug you cannot reason out from the code.
 - Skip it for changes the build, type checks, or reading the code already verify, and for visual or feel changes that a screenshot or scripted input cannot judge well (camera movement, mouse capture, rendering subtleties).
 - When a change needs to be seen or played with, it is fine to stop and ask the user to test it manually. Say exactly what to try and what to look for.
+
+# UI
+
+- Colours, type and shared controls follow the design system in `src/ui`. Read `src/ui/DESIGN_SYSTEM.md` before adding or changing UI, and put new tokens and components there rather than in `viewer.css`.

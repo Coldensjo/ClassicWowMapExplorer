@@ -1069,13 +1069,11 @@ function setUpTravel(viewer: Viewer, arrow: HTMLCanvasElement | null): void {
 	const map = new WorldMap($('worldmap'), $<HTMLCanvasElement>('worldmap-canvas'), storage, () => viewer.worldMapView(), (mapId, x, y) => viewer.flyOverWow(mapId, x, y), (mapId, x, y) => viewer.areaNameAt(mapId, x, y), arrow, {
 		title: $('worldmap-title'),
 		up: $<HTMLButtonElement>('worldmap-up'),
-		count: $('worldmap-count'),
-		all: $<HTMLInputElement>('worldmap-all'),
-		forget: $<HTMLButtonElement>('worldmap-forget'),
+		arrow: $<HTMLInputElement>('worldmap-arrow'),
 		close: $<HTMLButtonElement>('worldmap-close'),
 		hover: $('worldmap-hover'),
 	});
-	viewer.onExplore = (areas) => map.explore(areas);
+	rereads.push(() => map.reread());
 	hudFollowers.push(() => map.update());
 	$('worldmap-open').addEventListener('click', () => {
 		($('travel') as HTMLDetailsElement).open = false;

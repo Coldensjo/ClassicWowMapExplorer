@@ -10,25 +10,21 @@ export interface WorldMapView {
 	facing: number;
 }
 
-const EXPLORED_KEY = 'mapExplorer.explored';
-const ALL_KEY = 'mapExplorer.worldMapAll';
+const ARROW_KEY = 'mapExplorer.worldMapArrow';
 /** UiMap types. */
 const CONTINENT = 2;
 const ZONE = 3;
 
 /**
- * The game's world map, zone by zone: its pictures, with the parts you've explored filled in as
- * in the game (WorldMapOverlay pieces revealed by their areas), where the camera is, and a click
- * to fly anywhere. Explored areas are those the camera has been down among, remembered between visits.
+ * The game's world map, zone by zone: its pictures, fully explored (every WorldMapOverlay piece
+ * filled in), where the camera is if wanted, and a click to fly anywhere.
  */
 export class WorldMap {
 	private maps: Map<number, WorldMapInfo> | null = null;
 	private loading: Promise<void> | null = null;
 	private readonly images = new Map<number, HTMLCanvasElement | null>();
 	private current: WorldMapInfo | null = null;
-	private explored = new Set<number>();
-	private showAll = false;
-	private saveTimer = 0;
+	private showArrow = true;
 	private readonly ctx: CanvasRenderingContext2D;
 
 	constructor(
@@ -39,28 +35,17 @@ export class WorldMap {
 		private readonly onPick: (mapId: number, x: number, y: number) => void,
 		private readonly areaName: (mapId: number, x: number, y: number) => string | null,
 		private readonly arrow: HTMLCanvasElement | null,
-		private readonly ui: { title: HTMLElement; up: HTMLButtonElement; count: HTMLElement; all: HTMLInputElement; forget: HTMLButtonElement; close: HTMLButtonElement; hover: HTMLElement },
+		private readonly ui: { title: HTMLElement; up: HTMLButtonElement; arrow: HTMLInputElement; close: HTMLButtonElement; hover: HTMLElement },
 	) {
 		this.ctx = canvas.getContext('2d')!;
-		try {
-			this.explored = new Set(JSON.parse(localStorage.getItem(EXPLORED_KEY) ?? '[]') as number[]);
-			this.showAll = localStorage.getItem(ALL_KEY) === '1';
-		} catch {
-			// Storage blocked: nothing explored yet.
-		}
-		ui.all.checked = this.showAll;
-		ui.all.addEventListener('change', () => {
-			this.showAll = ui.all.checked;
+		this.reread();
+		ui.arrow.addEventListener('change', () => {
+			this.showArrow = ui.arrow.checked;
 			try {
-				localStorage.setItem(ALL_KEY, this.showAll ? '1' : '0');
+				localStorage.setItem(ARROW_KEY, this.showArrow ? '1' : '0');
 			} catch {
 				// Not remembered.
 			}
-			this.draw();
-		});
-		ui.forget.addEventListener('click', () => {
-			this.explored.clear();
-			this.save();
 			this.draw();
 		});
 		ui.up.addEventListener('click', () => this.goUp());
@@ -89,43 +74,39 @@ export class WorldMap {
 		else void this.open();
 	}
 
-	async open(): Promise<void> {
+	/** The UiMap shown, while open: for another game version's world map to open at it. */
+	get shown(): number | null {
+		return this.isOpen ? this.current?.id ?? null : null;
+	}
+
+	/** Opens at a UiMap if given and this version has it, otherwise at the camera's zone. */
+	async open(uiMap?: number | null): Promise<void> {
 		this.panel.hidden = false;
 		document.exitPointerLock?.();
 		await this.load();
+		const chosen = uiMap ? this.maps?.get(uiMap) : undefined;
 		const view = this.where();
-		this.show(view ? this.mapAt(view.mapId, view.x, view.y, ZONE) ?? this.mapAt(view.mapId, view.x, view.y, CONTINENT) : null);
+		this.show(chosen ?? (view ? this.mapAt(view.mapId, view.x, view.y, ZONE) ?? this.mapAt(view.mapId, view.x, view.y, CONTINENT) : null));
 	}
 
 	close(): void {
 		this.panel.hidden = true;
 	}
 
-	/** Marks an area (and the zone it's in, passed too) as explored. */
-	explore(areas: number[]): void {
-		let added = false;
-		for (const a of areas) {
-			if (!a || this.explored.has(a)) continue;
-			this.explored.add(a);
-			added = true;
+	/** The player arrow setting as remembered, for a viewer kept out of sight while another changed it. */
+	reread(): void {
+		try {
+			this.showArrow = localStorage.getItem(ARROW_KEY) !== '0';
+		} catch {
+			// Storage blocked: the arrow shows.
 		}
-		if (!added) return;
-		clearTimeout(this.saveTimer);
-		this.saveTimer = window.setTimeout(() => this.save(), 2000);
+		this.ui.arrow.checked = this.showArrow;
 		if (this.isOpen) this.draw();
 	}
 
 	/** Called a few times a second while open, so the arrow follows the camera. */
 	update(): void {
 		if (this.isOpen && this.current) this.draw();
-	}
-
-	private save(): void {
-		try {
-			localStorage.setItem(EXPLORED_KEY, JSON.stringify([...this.explored]));
-		} catch {
-			// Not remembered.
-		}
 	}
 
 	private load(): Promise<void> {
@@ -189,7 +170,6 @@ export class WorldMap {
 		this.ui.title.textContent = m?.name ?? 'No map here';
 		if (!m) {
 			this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-			this.ui.count.textContent = '';
 			return;
 		}
 		const files = [...m.tiles.map((t) => t.fdid), ...m.overlays.flatMap((o) => o.tiles.map((t) => t.fdid))].filter((f) => !this.images.has(f));
@@ -207,10 +187,6 @@ export class WorldMap {
 		if (parent && this.current!.type !== CONTINENT) this.show(parent);
 	}
 
-	private revealed(o: WorldMapInfo['overlays'][number]): boolean {
-		return o.areas.some((a) => this.explored.has(a));
-	}
-
 	private draw(): void {
 		const m = this.current;
 		if (!m) return;
@@ -220,22 +196,15 @@ export class WorldMap {
 			const img = this.images.get(t.fdid);
 			if (img) ctx.drawImage(img, t.col * m.tileWidth, t.row * m.tileHeight);
 		}
-		let explored = 0;
 		for (const o of m.overlays) {
-			const shown = this.revealed(o);
-			if (shown) explored++;
-			if (!shown && !this.showAll) continue;
-			// Unexplored parts, when shown anyway, are faded so the explored ones stand out.
-			ctx.globalAlpha = shown ? 1 : 0.45;
 			for (const t of o.tiles) {
 				const img = this.images.get(t.fdid);
 				if (img) ctx.drawImage(img, o.x + t.col * o.tileSize, o.y + t.row * o.tileSize);
 			}
-			ctx.globalAlpha = 1;
 		}
-		this.ui.count.textContent = m.overlays.length ? `Explored ${explored} of ${m.overlays.length}` : '';
 
-		// The camera's place and heading, if it's on this map.
+		// The camera's place and heading, if wanted and it's on this map.
+		if (!this.showArrow) return;
 		const view = this.where();
 		const a = view ? this.assignment(m, view.mapId, view.x, view.y) : null;
 		if (!view || !a) return;

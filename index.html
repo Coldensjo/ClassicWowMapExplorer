@@ -307,15 +307,13 @@
 
 	</div>
 
-	<!-- The game's world map: zone pictures with the explored parts filled in. -->
+	<!-- The game's world map: zone pictures, fully explored. -->
 	<div id="worldmap" hidden>
 		<div class="worldmap-frame help-card" role="dialog" aria-label="World map">
 			<header>
 				<button id="worldmap-up" class="plain" hidden></button>
 				<h2 id="worldmap-title"></h2>
-				<span id="worldmap-count" class="muted small"></span>
-				<label class="small"><input type="checkbox" id="worldmap-all"> Show unexplored</label>
-				<button id="worldmap-forget" class="small" title="Start exploring afresh">Forget explored</button>
+				<label class="small"><input type="checkbox" id="worldmap-arrow"> Show player arrow</label>
 				<button id="worldmap-close" class="plain" title="Close (Tab or Esc)" aria-label="Close">×</button>
 			</header>
 			<canvas id="worldmap-canvas" width="1002" height="668"></canvas>
@@ -397,7 +395,7 @@
 					<div><kbd>F</kbd> name colours for Alliance or Horde</div>
 					<div><kbd>I</kbd> dungeon and raid names · <kbd>M</kbd> music and sound</div>
 					<div><kbd>H</kbd> highlight chests, herbs, ore, fishing pools or anything by name</div>
-					<div><kbd>Tab</kbd> world map, filled in where you've explored · <kbd>Esc</kbd> off a flight</div>
+					<div><kbd>Tab</kbd> world map · <kbd>Esc</kbd> off a flight</div>
 				</section>
 				<section>
 					<h3>Screen</h3>

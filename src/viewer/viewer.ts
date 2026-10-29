@@ -69,8 +69,6 @@ const INSTANCE_SPACING = 70;
 const MAP_ORDER: MapCategory[] = ['dungeon', 'raid', 'battleground', 'other'];
 /** Yards above the ground the camera must be for the maps' names to show. */
 const LABEL_ALTITUDE = 40;
-/** Yards above the ground under which the camera counts as having explored the area it's over (the world map). */
-const EXPLORE_ALTITUDE = 150;
 /** Where the light of the open sea between the laid-out maps is taken from (see updateLighting). */
 const OPEN_SEA_LIGHT = { mapId: 0, x: 1e6, y: 1e6 };
 const CATEGORY_NAMES: Record<MapCategory, string> = { continent: 'Continent', dungeon: 'Dungeon', raid: 'Raid', battleground: 'Battleground', other: 'Other map' };
@@ -476,11 +474,8 @@ export class Viewer {
 	private transports: Transports | null = null;
 	/** The boat or zeppelin being ridden. */
 	private voyage: Transport | null = null;
-	private lastExploreCheck = 0;
 	private lastWeatherRoomCheck = 0;
 	private weatherIndoors = false;
-	/** Called with the area under the camera (and its parents) when the camera is down among it, for the world map. */
-	onExplore: (areas: number[]) => void = () => {};
 	/** Names over the maps laid out in the sea. */
 	private readonly mapLabels: MapLabels | null;
 	private lastLabelCheck = 0;
@@ -1569,17 +1564,6 @@ export class Viewer {
 		this.weather.update(dt, this.camera, zone ? { id: zone.id, name: zone.name } : null, zone ? this.regionData!.weather(zone.id) : null, open);
 	}
 
-	/** The area under the camera and its parents count as explored once the camera is down among them. */
-	private explore(): void {
-		if (this.controls.altitude > EXPLORE_ALTITUDE) return;
-		const areas: number[] = [];
-		for (let id = this.areaHere() ?? 0, i = 0; id && i < 8; i++) {
-			areas.push(id);
-			id = this.areas.get(id)?.parent ?? 0;
-		}
-		if (areas.length) this.onExplore(areas);
-	}
-
 	/** What the ground tint's colours mean, for the panel's key. */
 	get tintKey(): [string, string][] {
 		return this.regionOverlay?.key ?? [];
@@ -1951,10 +1935,6 @@ export class Viewer {
 			this.flights?.update(this.camera, continent, this.canvas.clientWidth, this.canvas.clientHeight);
 		});
 		this.updateWeather(dt, now);
-		if (now - this.lastExploreCheck > 250) {
-			this.lastExploreCheck = now;
-			this.explore();
-		}
 		if (this.music) {
 			if (now - this.lastMusicCheck > 250) {
 				this.lastMusicCheck = now;

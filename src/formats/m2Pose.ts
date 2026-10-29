@@ -132,9 +132,10 @@ function resolveSequence(seqs: List, animation: number): { seq: number; embedded
 		const o = sequenceAt(seqs, i);
 		if (view.getUint16(o, true) !== animation || view.getUint16(o + 2, true) !== 0) continue;
 		// An alias plays another sequence of the model; follow it to one with keys of its own.
+		// aliasNext is the record's last field (offset 62); variationNext precedes it at 60.
 		let seq = i;
 		for (let hops = 0; hops < 8 && view.getUint32(sequenceAt(seqs, seq) + 12, true) & SEQUENCE_ALIAS; hops++) {
-			const next = view.getUint16(sequenceAt(seqs, seq) + 60, true);
+			const next = view.getUint16(sequenceAt(seqs, seq) + 62, true);
 			if (next >= seqs.count) break;
 			seq = next;
 		}

@@ -238,7 +238,7 @@ editor's existing checkbox rows can migrate (`index.html` has ~31 `<input type="
 | State | Selector | Proposed treatment |
 |---|---|---|
 | Focus-visible | `.ds-switch-input:focus-visible + .ds-switch-track` | 1px solid `--color-focus` outline, offset 2px, following the pill shape |
-| Disabled | `:disabled` | whole row `opacity: 0.4`, `cursor: not-allowed`, no hover wash |
+| Disabled | `:disabled` | whole row `opacity: var(--opacity-disabled)` (0.3, as the Radio components draw it: radio.md §1.3), `cursor: not-allowed`, no hover wash |
 | Pressed | `:active` | none needed (the toggle itself is the feedback) |
 | Mixed / indeterminate | n/a | not supported: a switch is strictly on/off; use a checkbox molecule for mixed |
 

@@ -465,7 +465,7 @@ proposals that reuse existing tokens, to be confirmed by design.
 | Focus-visible | `:focus-visible` | 1px solid `--color-focus` (`button-border-outline-focus`, `#E7E7E7`) outline, offset 2px, following the radius. Hover wash not added. | the focus token exists in Figma but no variant uses it |
 | Active / pressed | `:active` | the hover wash, doubled (`#E7E7E7` @ 20%) | no token; add `--color-bg-active` if adopted |
 | Toggled on | `[aria-pressed="true"]` | `--color-bg-selected` wash (`selection-overlay`) | DESIGN_SYSTEM.md already plans a pressed state (`setPressed`) for toolbar buttons |
-| Disabled | `:disabled` / `[aria-disabled="true"]` | `opacity: 0.4`, `cursor: not-allowed`, no hover wash | no token |
+| Disabled | `:disabled` / `[aria-disabled="true"]` | `opacity: var(--opacity-disabled)` (0.3), `cursor: not-allowed`, no hover wash | the Radio components' drawn Disabled state (radio.md §1.3) |
 
 Behaviour and accessibility (all buttons):
 

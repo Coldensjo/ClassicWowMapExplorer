@@ -72,7 +72,7 @@ In **unselected** chips the icon stroke is a raw `#E7E7E7` override with **no va
 | `--mode-bar-radius` | 12px | bar corners |
 | `--mode-bar-blur` | `var(--blur-panel)` (24px) | bar backdrop blur (§1.3) |
 | `--mode-chip-size` | 40px | chip height; unselected chip width |
-| `--mode-chip-padding` | 8px | chip padding, all sides, selected and unselected (§3.2) |
+| `--mode-chip-padding` | 8px | unselected chip padding, all sides; the selected chip uses 8px 10px 8px 8px (§3.2) |
 | `--mode-chip-gap` | 8px | icon ↔ label (§3.2) |
 | `--mode-chip-radius` | 8px | chip corners |
 | `--mode-chip-icon-stroke` | 2px | selected icon stroke (§3.4) |
@@ -94,7 +94,7 @@ In **unselected** chips the icon stroke is a raw `#E7E7E7` override with **no va
 |---|---|
 | Bar | horizontal, padding 8, gap 12, items vertically centred, **hugs** its chips (435 × 56 with Sculpt selected), radius 12 |
 | Unselected chip | 40 × 40, padding 8, radius 8, icon only, clips content |
-| Selected chip | 40px tall, padding 8 all sides, gap 8, icon then label, **hugs** its width, radius 8 |
+| Selected chip | 40px tall, padding 8 / 10 / 8 / 8 (10px on the right), gap 8, icon then label, **hugs** its width, radius 8 |
 | Icon | 24px (`--icon-size-lg`), `flex: none` |
 | Label | hugs, one line, no wrap |
 
@@ -132,8 +132,9 @@ The selected chips don't agree in Figma:
 | Holes, NPCs | 4px | **8px** | hug |
 
 **Build** (design decision, 2026-10-29) for every chip: **gap 8px** between icon and label,
-**padding 8px on all sides**, and **width hugs** its content (no fixed widths). Selected widths
-therefore come out as 8 + 24 + 8 + label + 8.
+**padding 8px 10px 8px 8px** (10px on the right, as most chips have it; Holes' and NPCs' 8px
+is the inconsistency), and **width hugs** its content (no fixed widths). Selected widths
+therefore come out as 8 + 24 + 8 + label + 10.
 
 ### 3.3 Visual spec by state
 
@@ -277,7 +278,7 @@ every existing tool's number up by one (Sculpt 1 → 2, …) and swaps Water and
 
 - Bar is 56px tall, radius 12, 8px padding, 12px between chips, translucent `#181818` with a 24px backdrop blur; its width follows the selected chip.
 - Unselected chips are 40 × 40 with a 24px, 1px-stroke `#E7E7E7` icon and no fill.
-- The selected chip is `#E7E7E7` with a 2px-stroke `#181818` icon and a 16px Bold `#181818` label, padding 8 on all sides, gap 8.
+- The selected chip is `#E7E7E7` with a 2px-stroke `#181818` icon and a 16px Bold `#181818` label, padding 8/10/8/8, gap 8.
 - Every chip uses the same spacing and hugs its width (no fixed width on Water).
 - Keys 1–7 select Environment, Sculpt, Paint, Water, Holes, Objects, NPCs.
 - Hovering an unselected chip shows the wash; hovering the selected chip shows nothing.
@@ -299,8 +300,8 @@ every existing tool's number up by one (Sculpt 1 → 2, …) and swaps Water and
 5. ~~**Revert.**~~ Decided: out of scope for now (§5.1).
 6. ~~**Order and shortcuts.**~~ Confirmed: the chip order, shortcuts 1–7 with Environment = 1
    (§5).
-7. ~~**Chip spacing inconsistencies.**~~ Decided: 8px gap, 8px padding on all sides, every chip
-   hugs (§3.2). Align the Figma chips to match.
+7. ~~**Chip spacing inconsistencies.**~~ Decided: 8px icon–label gap, 10px right padding,
+   every chip hugs (§3.2). Align the Figma chips to match.
 8. **No focus, disabled or motion states** (§4.3, §7).
 9. **Chip names vs labels**: "Chip - Hole" is labelled "Holes", "Chip - Object" "Objects",
    "Chip - Water v2" (is there a v1 to delete?), and the controller variant is "NPC" while the

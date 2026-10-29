@@ -11,7 +11,7 @@
  */
 :root {
 	/* Families */
-	--font-family-ui: 'Atkinson Hyperlegible Mono', ui-monospace, monospace; /* all interface text */
+	--font-family-ui: 'Atkinson Hyperlegible Mono Variable', 'Atkinson Hyperlegible Mono', ui-monospace, monospace; /* all interface text; the face is loaded by index.css */
 	--font-family-display: var(--font-family-ui); /* headings and names */
 	--font-family-numeric: var(--font-family-ui); /* figures in fields and readouts; the face is monospaced */
 	--font-family-mono: var(--font-family-ui); /* code, paths and IDs */

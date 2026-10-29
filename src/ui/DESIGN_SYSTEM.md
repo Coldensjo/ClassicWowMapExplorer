@@ -16,7 +16,7 @@ what goes in them. Fill them in the order of §8.
 ```
 src/ui/
 ├── DESIGN_SYSTEM.md      this file
-├── index.css             the one stylesheet index.html links: tokens → themes → icons → molecules
+├── index.css             the one stylesheet index.html links: fonts → tokens → themes → icons → molecules
 ├── index.ts              the one import for code: re-exports icons/ and molecules/
 ├── tokens/
 │   ├── color.css         palette (tier 1) and semantic colours (tier 2)
@@ -48,6 +48,7 @@ Rules of the layout:
 `index.html` links `src/ui/index.css` before `src/viewer/viewer.css`. Vite inlines the
 `@import`s. The order inside `index.css` is the cascade:
 
+0. **Fonts**: the `@font-face` rules of the self-hosted faces (§3.2).
 1. **Tokens** declare custom properties on `:root`.
 2. **Themes** redeclare semantic tokens on a scope (a class on `<body>`, or any element).
 3. **Icons** (`icons/icon.css`) size `.ds-icon` from layout tokens.
@@ -127,8 +128,12 @@ The file ends with the utility classes markup may use directly, a `.type-<role>`
 `.muted` and `.small` still live in `viewer.css` and move here with the colour migration
 (§7). Nothing else in the system is a utility class.
 
-The font is not yet loaded by the page: until it is (self-hosted with the build, since the app
-also runs offline), the roles fall back to the system monospace face.
+The face is self-hosted, so the app needs no network for it: `index.css` imports
+`@fontsource-variable/atkinson-hyperlegible-mono` first, whose upright variable font (weights
+200–800, Latin and Latin Extended) Vite bundles, and the browser fetches a subset only when
+text uses it. Its family name is "Atkinson Hyperlegible Mono Variable"; the token lists that
+first. A new face is added the same way: a `@fontsource` package imported at the top of
+`index.css`, and a family token naming it.
 
 ### 3.3 Layout (`tokens/layout.css`)
 

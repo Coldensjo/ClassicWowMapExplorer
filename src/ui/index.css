@@ -1,10 +1,13 @@
 /*
- * The design system's stylesheet, in cascade order: tokens, then the themes that override
+ * The design system's stylesheet, in cascade order: fonts, tokens, then the themes that override
  * them, then the icons and the molecules built on them. Linked from index.html before
  * viewer.css, so page CSS can use every token and override a molecule where one screen
  * needs to.
  * See DESIGN_SYSTEM.md §2.
  */
+/* The UI face, self-hosted from the bundle so the app needs no network for it: upright, variable
+   weight 200–800, Latin and Latin Extended. */
+@import '@fontsource-variable/atkinson-hyperlegible-mono';
 @import './tokens/color.css';
 @import './tokens/type.css';
 @import './tokens/layout.css';

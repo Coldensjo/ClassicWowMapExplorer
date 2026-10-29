@@ -5,6 +5,7 @@
     "": {
       "name": "map-explorer",
       "dependencies": {
+        "@fontsource-variable/atkinson-hyperlegible-mono": "^5.3.0",
         "fflate": "^0.8.3",
         "three": "^0.186.1",
         "three-mesh-bvh": "^0.9.15",
@@ -20,6 +21,8 @@
   },
   "packages": {
     "@dimforge/rapier3d-compat": ["@dimforge/rapier3d-compat@0.12.0", "", {}, "sha512-uekIGetywIgopfD97oDL5PfeezkFpNhwlzlaEYNOA0N6ghdsOvh/HYjSMek5Q2O1PYvRSDFcqFVJl4r4ZBwOow=="],
+
+    "@fontsource-variable/atkinson-hyperlegible-mono": ["@fontsource-variable/atkinson-hyperlegible-mono@5.3.0", "", {}, "sha512-0IbthhO18EEpLe69h+cmrsxCkl4yk80gMk+fAN3+9M5zQvoR1JlkzoJRR6U9/UXLYpVBGEXu+Md2LO8TIp30dw=="],
 
     "@oxc-project/types": ["@oxc-project/types@0.153.0", "", {}, "sha512-jSNrRIyvPVLL5E1z/tS5zLAprosGz/FuI1PWwEOz59j3E4TTTzSpqKb/RDGqJhhW0QHYISGXxq582wGx6T11Tw=="],
 

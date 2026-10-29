@@ -5,7 +5,57 @@
  * composed from them (--type-<role>), each role a complete `font` shorthand so a rule reads
  * `font: var(--type-caption)`. Text utility classes that markup may use directly go at the end.
  *
- * No tokens are defined yet.
+ * Values come from the text styles in the Figma file "Dungeon Builder". Each role's comment
+ * names the Figma style it came from. Every style there uses one family and Figma's "auto" line
+ * height, so the families other than ui are aliases of it and the roles use line-height normal.
  */
 :root {
+	/* Families */
+	--font-family-ui: 'Atkinson Hyperlegible Mono', ui-monospace, monospace; /* all interface text */
+	--font-family-display: var(--font-family-ui); /* headings and names */
+	--font-family-numeric: var(--font-family-ui); /* figures in fields and readouts; the face is monospaced */
+	--font-family-mono: var(--font-family-ui); /* code, paths and IDs */
+
+	/* Sizes */
+	--font-size-xs: 10px; /* small labels */
+	--font-size-sm: 12px; /* labels */
+	--font-size-md: 14px; /* secondary body text */
+	--font-size-lg: 16px; /* body text, second-level headings */
+	--font-size-xl: 18px; /* first-level headings */
+
+	/* Weights */
+	--font-weight-light: 200; /* de-emphasised labels (Figma "ExtraLight") */
+	--font-weight-regular: 400;
+	--font-weight-semibold: 600;
+	--font-weight-bold: 700;
+	--font-weight-heading: var(--font-weight-semibold); /* every heading */
+
+	/* Line heights */
+	--line-height-normal: normal; /* Figma's "auto": the face's own line height */
+
+	/* Roles */
+	--type-heading-1: var(--font-weight-heading) var(--font-size-xl) / var(--line-height-normal) var(--font-family-display); /* a panel's or dialog's title (heading/h1) */
+	--type-heading-2: var(--font-weight-heading) var(--font-size-lg) / var(--line-height-normal) var(--font-family-display); /* a section within a panel (heading/h2) */
+	--type-body: var(--font-weight-regular) var(--font-size-lg) / var(--line-height-normal) var(--font-family-ui); /* running text (body/body-primary) */
+	--type-body-bold: var(--font-weight-bold) var(--font-size-lg) / var(--line-height-normal) var(--font-family-ui); /* emphasis in running text (body/body-primary-bold) */
+	--type-body-secondary: var(--font-weight-regular) var(--font-size-md) / var(--line-height-normal) var(--font-family-ui); /* denser text: list rows, descriptions (body/body-secondary) */
+	--type-body-secondary-bold: var(--font-weight-semibold) var(--font-size-md) / var(--line-height-normal) var(--font-family-ui); /* emphasis in denser text (body/body-secondary-bold) */
+	--type-label: var(--font-weight-regular) var(--font-size-sm) / var(--line-height-normal) var(--font-family-ui); /* a control's or field's label (label/label) */
+	--type-label-bold: var(--font-weight-bold) var(--font-size-sm) / var(--line-height-normal) var(--font-family-ui); /* a label that leads, such as a group name (label/label-bold) */
+	--type-label-light: var(--font-weight-light) var(--font-size-sm) / var(--line-height-normal) var(--font-family-ui); /* a hint or value beside a label (label/label-light) */
+	--type-label-small: var(--font-weight-regular) var(--font-size-xs) / var(--line-height-normal) var(--font-family-ui); /* captions, badges, shortcuts (label/label-small) */
+	--type-label-small-bold: var(--font-weight-bold) var(--font-size-xs) / var(--line-height-normal) var(--font-family-ui); /* small section headers, set in capitals (label/label-small-bold); pair with text-transform: uppercase */
 }
+
+/* Utility classes, one per role, for markup that sets type directly. */
+.type-heading-1 { font: var(--type-heading-1); }
+.type-heading-2 { font: var(--type-heading-2); }
+.type-body { font: var(--type-body); }
+.type-body-bold { font: var(--type-body-bold); }
+.type-body-secondary { font: var(--type-body-secondary); }
+.type-body-secondary-bold { font: var(--type-body-secondary-bold); }
+.type-label { font: var(--type-label); }
+.type-label-bold { font: var(--type-label-bold); }
+.type-label-light { font: var(--type-label-light); }
+.type-label-small { font: var(--type-label-small); }
+.type-label-small-bold { font: var(--type-label-small-bold); text-transform: uppercase; }

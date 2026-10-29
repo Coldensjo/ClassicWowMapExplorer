@@ -7,8 +7,8 @@ the app is built (DOM made by hand in `src/editor` and `src/viewer`, one stylesh
 `src/viewer/viewer.css`).
 
 **Status:** the colour tokens are defined (from the Figma file "Dungeon Builder", mode
-"Mode 1"), and so is the icon set (§6) with its size tokens; the other type and layout
-tokens, the game theme's overrides and the molecules are not yet. The placeholder files say
+"Mode 1"), so are the type tokens (from its text styles) and the icon set (§6) with its size
+tokens; the other layout tokens, the game theme's overrides and the molecules are not yet. The placeholder files say
 what goes in them. Fill them in the order of §8.
 
 ## 1. Layout
@@ -97,18 +97,38 @@ and `ink-100` for body text, so a theme can slide a role by one step.
 
 ### 3.2 Type (`tokens/type.css`)
 
-Primitives, then roles:
+Primitives, then roles. Figma's text styles are the source: each role's comment names the
+style it came from, and the role name follows the style's name.
 
-- Families: `--font-family-ui`, `--font-family-display` (headings, names), `--font-family-book`
-  (pages of prose), `--font-family-numeric`, `--font-family-mono`.
-- Sizes `--font-size-xs … -3xl` on a fixed scale; weights `--font-weight-regular/medium/semibold`
-  plus `--font-weight-heading`; line heights `--line-height-tight/normal/relaxed`.
-- Roles `--type-<role>` (`body`, `caption`, `label`, `heading`, `title`, `display`, `mono`,
-  `book`): each a complete `font` shorthand, so a rule reads `font: var(--type-caption)` and a
-  theme can change a role's whole look at once.
+- Families: `--font-family-ui` (Atkinson Hyperlegible Mono, the one face Figma uses), with
+  `--font-family-display` (headings, names), `--font-family-numeric` and `--font-family-mono`
+  as aliases of it, so a theme can give any of them its own face. A family for pages of prose
+  (`--font-family-book`) is added when a screen needs one.
+- Sizes `--font-size-xs/sm/md/lg/xl` (10, 12, 14, 16, 18px); weights
+  `--font-weight-light/regular/semibold/bold` plus `--font-weight-heading` (semibold);
+  `--line-height-normal` (`normal`, Figma's "auto"). Add a size or line height to the scale
+  only when Figma gains a style that uses it.
+- Roles `--type-<role>`, each a complete `font` shorthand, so a rule reads
+  `font: var(--type-label)` and a theme can change a role's whole look at once:
 
-The file ends with the few utility classes markup may use directly (`.muted`, `.small`, and a
-`.type-<role>` per role). Nothing else in the system is a utility class.
+  | Role | Figma style | Use |
+  |---|---|---|
+  | `heading-1` | heading/h1 | a panel's or dialog's title |
+  | `heading-2` | heading/h2 | a section within a panel |
+  | `body`, `body-bold` | body/body-primary(-bold) | running text |
+  | `body-secondary`, `body-secondary-bold` | body/body-secondary(-bold) | denser text: list rows, descriptions |
+  | `label`, `label-bold`, `label-light` | label/label(-bold, -light) | a control's label; a leading label; a hint or value beside one |
+  | `label-small`, `label-small-bold` | label/label-small(-bold) | captions and badges; small section headers in capitals |
+
+  `label-small-bold` is set in capitals in Figma, which `font` cannot carry: a rule using it
+  also sets `text-transform: uppercase` (its utility class does).
+
+The file ends with the utility classes markup may use directly, a `.type-<role>` per role.
+`.muted` and `.small` still live in `viewer.css` and move here with the colour migration
+(§7). Nothing else in the system is a utility class.
+
+The font is not yet loaded by the page: until it is (self-hosted with the build, since the app
+also runs offline), the roles fall back to the system monospace face.
 
 ### 3.3 Layout (`tokens/layout.css`)
 

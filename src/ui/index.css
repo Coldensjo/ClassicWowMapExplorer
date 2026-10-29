@@ -1,11 +1,13 @@
 /*
  * The design system's stylesheet, in cascade order: tokens, then the themes that override
- * them, then the molecules built on them. Linked from index.html before viewer.css, so page
- * CSS can use every token and override a molecule where one screen needs to.
+ * them, then the icons and the molecules built on them. Linked from index.html before
+ * viewer.css, so page CSS can use every token and override a molecule where one screen
+ * needs to.
  * See DESIGN_SYSTEM.md §2.
  */
 @import './tokens/color.css';
 @import './tokens/type.css';
 @import './tokens/layout.css';
 @import './themes/wow.css';
+@import './icons/icon.css';
 /* Molecule stylesheets are imported here, one line each, as they are added. */

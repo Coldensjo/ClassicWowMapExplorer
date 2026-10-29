@@ -1,0 +1,29 @@
+/*
+ * Icons, made by icon() in index.ts. See DESIGN_SYSTEM.md §6.
+ * The drawing's colour is currentColor, so an icon takes the text colour of whatever holds it
+ * (a button, a hovered row); set `color` on the icon or its parent to change it.
+ */
+.ds-icon {
+	--icon-size: var(--icon-size-md);
+	--icon-stroke: var(--icon-stroke-width);
+
+	display: inline-block;
+	flex: none;
+	width: var(--icon-size);
+	height: var(--icon-size);
+	vertical-align: middle;
+	stroke-width: var(--icon-stroke);
+}
+
+.ds-icon[data-size='sm'] {
+	--icon-size: var(--icon-size-sm);
+}
+
+.ds-icon[data-size='lg'] {
+	--icon-size: var(--icon-size-lg);
+}
+
+/* Paths inherit the root's stroke-width; keep it in screen pixels at every icon size, as drawn. */
+.ds-icon * {
+	vector-effect: non-scaling-stroke;
+}

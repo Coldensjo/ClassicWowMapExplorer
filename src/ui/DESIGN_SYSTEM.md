@@ -7,22 +7,27 @@ the app is built (DOM made by hand in `src/editor` and `src/viewer`, one stylesh
 `src/viewer/viewer.css`).
 
 **Status:** the colour tokens are defined (from the Figma file "Dungeon Builder", mode
-"Mode 1"); type and layout tokens, the game theme's overrides and the molecules are not yet. The
-placeholder files say what goes in them. Fill them in the order of §7.
+"Mode 1"), and so is the icon set (§6) with its size tokens; the other type and layout
+tokens, the game theme's overrides and the molecules are not yet. The placeholder files say
+what goes in them. Fill them in the order of §8.
 
 ## 1. Layout
 
 ```
 src/ui/
 ├── DESIGN_SYSTEM.md      this file
-├── index.css             the one stylesheet index.html links: tokens → themes → molecules
-├── index.ts              the one import for code: re-exports molecules/
+├── index.css             the one stylesheet index.html links: tokens → themes → icons → molecules
+├── index.ts              the one import for code: re-exports icons/ and molecules/
 ├── tokens/
 │   ├── color.css         palette (tier 1) and semantic colours (tier 2)
 │   ├── type.css          families, sizes, weights, line heights, and the type roles
 │   └── layout.css        spacing, radii, line widths, motion, z-index
 ├── themes/
 │   └── wow.css           the game's look: semantic tokens overridden under body.wow-ui
+├── icons/
+│   ├── <name>.svg        one 24×24 line icon per file, from Figma, drawn in currentColor
+│   ├── index.ts          icon(name, options) and the IconName type
+│   └── icon.css          .ds-icon: size and line width from tokens
 └── molecules/
     ├── index.ts          one export line per molecule
     ├── <name>.ts         a factory returning an element  (added per molecule)
@@ -45,7 +50,8 @@ Rules of the layout:
 
 1. **Tokens** declare custom properties on `:root`.
 2. **Themes** redeclare semantic tokens on a scope (a class on `<body>`, or any element).
-3. **Molecules** read tokens and style their own class, and the bare element where the static
+3. **Icons** (`icons/icon.css`) size `.ds-icon` from layout tokens.
+4. **Molecules** read tokens and style their own class, and the bare element where the static
    markup in `index.html` should look the same (see §5).
 
 Page CSS (`viewer.css` and any future per-screen stylesheet) comes after, so a screen can
@@ -55,7 +61,7 @@ override a molecule for its own layout with an ordinary selector. Page CSS takes
 Code imports from `src/ui` only:
 
 ```ts
-import { button } from '../ui';
+import { button, icon } from '../ui';
 ```
 
 ## 3. Tokens
@@ -109,6 +115,9 @@ The file ends with the few utility classes markup may use directly (`.muted`, `.
 `--space-1 … -8` on a 2px-based scale, `--radius-sm/md/lg/xl`, `--border-width`,
 `--focus-ring`, `--duration-fast/slow`, and `--z-<layer>` for stacking. A molecule pads, gaps
 and layers only with these.
+
+Defined so far: the icon tokens, `--icon-size-sm/md/lg` (16, 20, 24px) and
+`--icon-stroke-width` (1px), used by `icons/icon.css` (§6).
 
 ### 3.4 Tokens that stay local
 
@@ -170,7 +179,70 @@ The first molecules to make, from the controls the editor's panels already use: 
 `field` with `slider`, `number-input`, `select`, `text-input`, `checkbox` (the `.prop-row`
 rows), and `search-box` (the asset browsers' `.browser-top`).
 
-## 6. Migrating what exists
+## 6. Icons
+
+The icon set is a folder of SVG files exported from the Figma file "Dungeon Builder", plus a
+factory that turns a name into an inline `<svg>` element. Icons are not molecules: they hold
+no state and no tokens of their own beyond size, and molecules and screens put them inside
+buttons, rows and headings.
+
+### 6.1 The set
+
+All icons are 24×24 line drawings with round caps, drawn at a 1px line (`more` is three filled
+dots). Names are the Figma layer names:
+
+| Group | Icons |
+|---|---|
+| Tools | `sculpt`, `paint`, `hole`, `water`, `npc`, `container` (objects), `eyedropped` (eyedropper / pick) |
+| Scene and file | `scene`, `save`, `download`, `play`, `reset`, `log-out`, `sun` (time of day / lighting) |
+| Actions | `plus`, `minus`, `close`, `checkmark`, `search`, `menu`, `more`, `drag-to-expand` (resize grip) |
+| Direction | `up`, `down`, `left`, `right` |
+| Status | `info`, `help`, `alert` |
+
+`eyedropped` keeps the Figma layer's spelling so a re-export overwrites it; rename it in Figma
+and here together.
+
+### 6.2 Using an icon
+
+```ts
+import { icon } from '../ui';
+
+saveButton.prepend(icon('save'));                       // decorative, 20px
+toolRow.append(icon('sculpt', { size: 'lg' }));          // 24px
+closeButton.append(icon('close', { label: 'Close' }));   // the button's only content: name it
+```
+
+- `icon(name, { size?, label? })` returns `<svg class="ds-icon" data-icon="name">`. `name` is
+  typed (`IconName`), so a missing icon is a type error; `iconNames` lists them all.
+- **Colour** is `currentColor`: the icon takes the `color` of its parent (a button's text
+  colour, a hovered row's, `--color-danger` for an error). Never set `fill` or `stroke` on an
+  icon; set `color`.
+- **Size** is `data-size`: `sm` 16px, `md` 20px (default), `lg` 24px, from
+  `--icon-size-sm/md/lg`. A scope may override `--icon-size` on `.ds-icon` for a one-off.
+- **Line width** is `--icon-stroke-width` (1px), kept in screen pixels at every size with
+  `vector-effect: non-scaling-stroke`, so a 16px icon is as crisp as a 24px one.
+- **Accessibility**: without `label` the icon is `aria-hidden` (the text next to it names the
+  control). An icon-only button must pass `label`, or set `aria-label` on the button itself.
+- In static markup in `index.html`, where no factory runs, call `icon()` from the code that
+  wires that markup up rather than pasting SVG into the HTML.
+
+### 6.3 Adding or updating an icon
+
+1. Export it from Figma as SVG, 24×24, outlined to strokes, in the set's style (1px line,
+   round caps and joins).
+2. Normalise the file before adding it to `icons/`: remove `width`/`height` (keep
+   `viewBox="0 0 24 24"`), replace the hex colour on `stroke`/`fill` with `currentColor`,
+   remove any `stroke-width` (the token sets it), and remove Figma's `clip-path` wrapper and
+   `<defs>`. Nothing in the file may name a colour.
+3. Name the file in kebab case after the Figma layer, then add one `?raw` import and one entry
+   to `sources` in `icons/index.ts`.
+4. Updating an icon is replacing its file; its name and every use stay the same.
+
+The files are inlined into the bundle at build time and parsed once each on first use (with
+`DOMParser`, since they are the folder's own files, never user input); each `icon()` call
+clones the parsed element.
+
+## 7. Migrating what exists
 
 `viewer.css` predates the system. It defines six colour variables on `:root` (`--panel`,
 `--line`, `--text`, `--muted`, `--accent`, `--bad`), re-declares them under `#start` and
@@ -188,7 +260,7 @@ The static markup in `index.html` keeps its class names (`.prop-row`, `.mode-row
 class (§5). New UI is built with factories. The one ad-hoc helper in code, `button()` in
 `src/editor/scenesUi.ts`, is replaced by the button molecule when it exists.
 
-## 7. Adding things: checklists
+## 8. Adding things: checklists
 
 **A token**
 1. Does an existing role mean the same thing? Use it.
@@ -199,6 +271,11 @@ class (§5). New UI is built with factories. The one ad-hoc helper in code, `but
 1. One file in `themes/`, one scope, semantic and type tokens only (§4).
 2. Import it in `index.css` after the tokens.
 3. Say here how the scope is set.
+
+**An icon**
+1. Normalise the SVG and add it to `icons/` as in §6.3.
+2. One import and one `sources` entry in `icons/index.ts`.
+3. List it in the table in §6.1.
 
 **A molecule**
 1. `molecules/<name>.css` and `molecules/<name>.ts` as in §5.

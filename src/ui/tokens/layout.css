@@ -4,7 +4,11 @@
  * Spacing (--space-*), radii (--radius-*), line widths, motion and stacking (--z-*): the
  * numbers a molecule pads, gaps and layers with, so none is a bare value in a component.
  *
- * No tokens are defined yet.
+ * Only the icon tokens are defined yet.
  */
 :root {
+	--icon-size-sm: 16px; /* icons inside dense rows and small buttons */
+	--icon-size-md: 20px; /* the default icon, in buttons and tool rows */
+	--icon-size-lg: 24px; /* the drawing's own size; toolbar and empty states */
+	--icon-stroke-width: 1px; /* icon line width at every size, as drawn in Figma */
 }

@@ -26,15 +26,15 @@ build; **Proposed** marks something not drawn that needs design sign-off (§7).
 
 | Figma variable | Code token (tier 2) | Value | Used for |
 |---|---|---|---|
-| `surface-primary` | `--color-bg-surface` | `#383838` | circle fill, selected **and** unselected |
-| `button-border-outline` | `--color-border` | `#646464` | circle border |
-| *(unbound)* | none | `#D9D9D9` | selected dot: **⚠ Figma issue**, §2.4 |
-| `content-primary` | `--color-text` | `#E7E7E7` | option label; info icon stroke (via the Ghost button) |
+| `surface-primary` | `--color-bg-surface` | `#383838` | circle fill, unselected |
+| `button-bg-primary` | `--color-accent` | `#006FB4` | circle fill, selected |
+| `button-border-outline` | `--color-border` | `#646464` | circle border, both states |
+| `content-primary` | `--color-text` | `#E7E7E7` | selected dot; option label; info icon stroke (via the Ghost button) |
 | `interaction-hover` | `--color-bg-hover` | `#E7E7E7` @ 10% | hover wash |
 | `button-border-outline-focus` | `--color-focus` | `#E7E7E7` | focus ring (**Proposed**, §6) |
 
-The accent (`button-bg-primary`) is **not** used: a selected radio is shown only by its dot.
-See §7.2.
+A selected radio uses the same colours as an on switch: accent fill with a `content-primary`
+dot/knob (Figma updated 2026-10-29).
 
 ### 1.2 Type token used
 
@@ -85,7 +85,8 @@ specs only propose a disabled look, can use the same value.
 ```
 
 - **Circle**: 24 × 24px, corner radius 24px (build `border-radius: 50%`), fill
-  `--color-bg-surface`, 1px border `--color-border` drawn **inside** (`box-sizing: border-box`),
+  `--color-bg-surface` (unselected) or `--color-accent` (selected), 1px border `--color-border`
+  drawn **inside** (`box-sizing: border-box`),
   clips its content. Figma gives it auto-layout padding 4px, which has no visible effect
   (the dot is absolutely positioned); ignore it.
 - **Dot**: 12 × 12px circle, centred both ways (Figma constraints centre/centre): 6px from the
@@ -98,21 +99,22 @@ specs only propose a disabled look, can use the same value.
 | Unselected · Rest | `#383838` `--color-bg-surface` | 1px `#646464` `--color-border` | none | none | 1 |
 | Unselected · Hover | same | same | none | `interaction-hover` wash over the whole circle | 1 |
 | Unselected · Disabled | same | same | none | none | **0.3** |
-| Selected · Rest | same | same | 12px `#D9D9D9` (§2.4) | none | 1 |
+| Selected · Rest | `#006FB4` `--color-accent` | 1px `#646464` `--color-border` | 12px `#E7E7E7` `--color-text` | none | 1 |
 | Selected · Hover | same | same | same | wash over circle **and** dot | 1 |
 | Selected · Disabled | same | same | same | none | **0.3** |
 
-### 2.4 ⚠ Figma issue: dot colour
+### 2.4 Selected colours
 
-As with the switch's off knob, the dot is `#D9D9D9` with **no variable bound**. Build it with
-`--radio-dot: var(--color-text)` (`content-primary`, `#E7E7E7`), the same light value the
-switch's *on* knob uses, since a selected radio is the "on" state; confirm with design (§7.1).
+Selected = circle fill `button-bg-primary` → `--color-accent` (`#006FB4`) and dot
+`content-primary` → `--color-text` (`#E7E7E7`), both bound in Figma. The border stays
+`button-border-outline` (`#646464`) in both states. This matches the switch's on state
+(switch.md §2.3), so "on" looks the same across both controls.
 
 ### 2.5 Hover
 
 Hover = Rest + a "Hover State" rectangle covering the whole control (left-right/top-bottom
 constraints), fill `interaction-hover` (`#E7E7E7` @ 10%), clipped to the circle. It is the top
-layer, so it sits over the dot too; the result over a light dot is invisible. Build as a
+layer, so it sits over the dot too; over the `#E7E7E7` dot it is invisible. Build as a
 background layer on the circle:
 
 ```css
@@ -178,7 +180,8 @@ padding, 4px radius, no fill) showing the **`help`** icon (Figma component `17:4
 icon's stroke weight (the override value isn't exposed by the API); build with the system's
 `--icon-stroke-width` (1px), as for every other icon.
 
-It is a **separate control**: clicking it must not select the option. Render it as a sibling
+It is a **separate control**: clicking it must not select the option, and it stays usable when
+the option is disabled (§3.4). Render it as a sibling
 `<button type="button">` outside the `<label>` (§5), with `aria-label` e.g. "About Raise/lower".
 It opens whatever help the caller supplies (tooltip/popover is out of scope for this molecule).
 
@@ -189,13 +192,16 @@ It opens whatever help the caller supplies (tooltip/popover is out of scope for 
 | Rest · Selected | Selected · Rest (§2.3) | `--color-text`, opacity 1 | Ghost Rest |
 | Rest · Unselected | Unselected · Rest | same | same |
 | Hover (not drawn) | circle hover wash when the pointer is anywhere on the label/circle area; **Proposed** | unchanged | its own Ghost hover, only when it is hovered |
-| Disabled · Selected | Selected · Disabled (opacity 0.3) | opacity 0.3 | opacity 0.3, not interactive |
-| Disabled · Unselected | Unselected · Disabled (opacity 0.3) | opacity 0.3 | opacity 0.3, not interactive |
+| Disabled · Selected | Selected · Disabled (opacity 0.3) | opacity 0.3 | **full opacity, stays usable** |
+| Disabled · Unselected | Unselected · Disabled (opacity 0.3) | opacity 0.3 | **full opacity, stays usable** |
 
-In code, apply `opacity: var(--opacity-disabled)` once on the row rather than on each part;
-the result is the same because nothing in the row overlaps. Whether the info button should stay
-usable when the option is disabled (help is often still useful) is a question for design (§7.6);
-Figma dims it.
+The info button **stays enabled when the option is disabled** (design decision, 2026-10-29):
+help is still useful, often to explain why the option is unavailable. It keeps full opacity, its
+hover wash, focus and click. Figma still draws it at 30% in the Disabled variants; ignore that.
+
+In code, apply `opacity: var(--opacity-disabled)` to the `<label>` (circle and text) only, not
+to the row, so the info button is unaffected. The info button stays in the Tab order even when
+its option's radio is skipped.
 
 ---
 
@@ -257,16 +263,15 @@ Build on native radios so arrow-key navigation, single selection and form behavi
 
 ## 7. Open questions / feedback for design
 
-1. **The dot is `#D9D9D9`, unbound**, same as the switch's off knob. Bind it; spec uses
-   `content-primary` (`#E7E7E7`).
-2. **Selected radios don't use the accent**, while an on switch fills with
-   `button-bg-primary`. Mixed in one panel, "on" will look different between the two
-   controls. Intended? If not, the selected circle could take the accent fill or border.
+1. ~~**The dot is `#D9D9D9`, unbound.**~~ Resolved in Figma: bound to `content-primary`.
+2. ~~**Selected radios don't use the accent.**~~ Resolved in Figma: selected fill is
+   `button-bg-primary`, matching the on switch.
 3. **"Radio Group" is one option.** Consider "Radio Option" / "Radio Row", and drawing an actual
    group (spacing between options, group label).
 4. **Label not a text property**, so it isn't editable per instance.
 5. **Row width 267.25px** is fractional and differs from the switch row's 320px.
-6. **Should the info button stay active when the option is disabled?** Figma dims it to 30%.
+6. ~~**Should the info button stay active when the option is disabled?**~~ Decided: yes (§3.4).
+   The Figma Disabled variants still dim it to 30%; update them to full opacity.
 7. **Label is Hug + truncate**, which can't truncate; spec makes it shrinkable.
 8. **Defaults and axis order differ** between the control and the row.
 9. **No row Hover variant, no focus state.** Proposals in §2.5 and §6.
@@ -302,8 +307,9 @@ export function setOptionDisabled(root: HTMLElement, value: string, disabled: bo
 
 ```css
 --radio-bg: var(--color-bg-surface);
+--radio-bg-selected: var(--color-accent);
 --radio-border: var(--color-border);
---radio-dot: var(--color-text);           /* pending §7.1 */
+--radio-dot: var(--color-text);
 --radio-hover-wash: var(--color-bg-hover);
 /* plus the size tokens in §1.4 */
 ```
@@ -311,9 +317,10 @@ export function setOptionDisabled(root: HTMLElement, value: string, disabled: bo
 ### Acceptance checks
 
 - Circle 24 × 24 with the border inside; dot 12 × 12, exactly centred.
-- Selected and unselected circles have the same fill and border; only the dot differs.
+- Unselected circles are `#383838`, selected ones `#006FB4` with the `#E7E7E7` dot; the border is `#646464` in both.
 - Clicking the circle or label selects; clicking the info button does not.
 - Arrow keys move the selection within a group and skip disabled options.
-- Disabled rows render at 30% opacity, show no hover, and can't be selected.
+- Disabled rows render the circle and label at 30% opacity, show no hover, and can't be selected;
+  their info button stays at full opacity and still works.
 - A long label truncates with an ellipsis and keeps the info button visible.
 - No hex values in `radio.css`: every colour is a `var(--color-*)` or `--radio-*` token.

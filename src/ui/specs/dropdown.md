@@ -62,7 +62,7 @@ behind it. No drop shadow is drawn. Add a `--blur-panel: 24px` token (proposed f
 | Token | Value | Meaning |
 |---|---|---|
 | `--menu-padding` | 12px | panel padding |
-| `--menu-gap` | 12px | between options |
+| `--menu-gap` | **4px** | between options (decided 2026-10-29; Figma still draws 12px) |
 | `--menu-radius` | 8px | panel corners |
 | `--menu-offset` | 4px | gap between trigger and panel |
 | `--menu-option-height` | 26px | option block size |
@@ -80,14 +80,14 @@ The trigger uses the `--field-*` tokens from text-input.md §1.3.
 Weather effects                         ← label, 12px #CACACA                     (Show label?)
                               4px
 ┌──────────────────────────────────┐
-│ No weather                    ⌄  │    ← trigger: field box 40px, #383838, 1px #646464 (open: #E7E7E7), r 8
-└──────────────────────────────────┘      value 14px #E7E7E7, chevron 16px
+│ No weather                    ⌃  │    ← trigger: field box 40px, #383838, 1px #646464 (open: #E7E7E7), r 8
+└──────────────────────────────────┘      value 14px #E7E7E7, chevron 16px (`down` closed, `up` open)
                               4px
 ┌──────────────────────────────────┐
 │ ┌──────────────────────────────┐ │    ← menu: #181818@85% + blur 24, 1px #383838, r 8, padding 12
 │ │ Option                       │ │       option 26px, padding 4
 │ └──────────────────────────────┘ │
-│              12px                │
+│               4px                │
 │ ┌──────────────────────────────┐ │
 │ │ Selected option (600)     ✓  │ │       selected: SemiBold + 16px checkmark
 │ └──────────────────────────────┘ │
@@ -116,8 +116,11 @@ Same as the text input (text-input.md §2): root vertical stack, gap 4, **fills 
 (218px in the drawing); label one line with an ellipsis; field 40px, padding 10 × 12, gap 8,
 radius 8, 1px border inside.
 
-Inside the field: **value** (fills, one line, ellipsis) then **chevron** (`down` icon, Figma
-`7:743`, 16px, `--icon-size-sm`, `flex: none`, colour `currentColor` = `--color-text`).
+Inside the field: **value** (fills, one line, ellipsis) then **chevron** (16px,
+`--icon-size-sm`, `flex: none`, colour `currentColor` = `--color-text`): the **`down`** icon
+(Figma `7:743`) when closed and the **`up`** icon (Figma `18:5683`) when open (design decision,
+2026-10-29; Figma's Open variants still show `down`). Swap the icon on `aria-expanded`; no
+rotation animation is specified.
 
 ### 3.3 Visual spec by state
 
@@ -126,8 +129,8 @@ Inside the field: **value** (fills, one line, ellipsis) then **chevron** (`down`
 | Closed · Rest | `#383838` `--color-bg-surface` | 1px `#646464` `--color-border` | none | `down` | 1 |
 | Closed · Hover | same | same | `interaction-hover` wash over the field | `down` | 1 |
 | Closed · Disabled | same | same | none | `down` | **0.3**, whole component |
-| Open · Rest | same | **1px `#E7E7E7`** (§3.4) | none | `down` (unchanged, §10.3) | 1 |
-| Open · Hover | same | 1px `#E7E7E7` | wash | `down` | 1 |
+| Open · Rest | same | **1px `#E7E7E7`** (§3.4) | none | **`up`** | 1 |
+| Open · Hover | same | 1px `#E7E7E7` | wash | **`up`** | 1 |
 
 ### 3.4 Open border and focus
 
@@ -145,12 +148,12 @@ for the same reason as text-input.md §4.2. Rebind in Figma (§10.1).
 |---|---|
 | Position | absolutely positioned **4px below** the trigger field, left edges aligned |
 | Width | **same as the trigger** (218px in the drawing); `min-width: 100%` of the trigger, may grow for long options (**Proposed**) |
-| Height | hugs its options; **Proposed** `max-height` ~8 options (8 × 26 + 7 × 12 + 24 ≈ 316px), then scrolls with the Scrollbar component |
+| Height | hugs its options; **Proposed** `max-height` ~8 options (8 × 26 + 7 × 4 + 24 = 260px), then scrolls with the Scrollbar component |
 | Fill | `surface-transparent-primary` → `--color-bg-panel` (`#181818` @ 85%) |
 | Border | 1px `surface-primary` → `--color-bg-surface` `#383838`, inside |
 | Radius | 8px |
 | Padding | 12px |
-| Gap | 12px between options |
+| Gap | **4px** between options (design decision, 2026-10-29; Figma draws 12px) |
 | Effect | background blur 24px (§1.3); no shadow |
 | Layering | above panels and the 3D view: a `--z-popover` token (DESIGN_SYSTEM.md's `--z-*` scale) |
 | Slot | `Options`; accepts only the two option components (Figma "preferred values only"), each stretched to full width |
@@ -306,10 +309,11 @@ Two steps:
    focus border is bound to `button-border-outline-focus`. Same colour; please bind to the focus
    variable. There is also no Focused (keyboard) state; spec uses the open look.
 2. **Option radius** varies: 0 or 2px at rest, 4px on hover (§5.3). Spec builds 4px.
-3. **The chevron doesn't change when open.** Flip it to `up` (the icon exists) when open?
+3. ~~**The chevron doesn't change when open.**~~ Decided: `up` when open (§3.2). Update the
+   Figma Open variants to match.
 4. **No max height / scrolling** for long lists; spec proposes ~8 options then scroll.
-5. **12px between options** is generous next to 26px rows (the menu gets long fast). Intended,
-   or should options sit closer with the hover wash showing the row?
+5. ~~**12px between options.**~~ Decided: 4px (§4). Update the Dropdown Menu's Options slot
+   spacing in Figma to match.
 6. **Menu border `#383838`** on an 85% `#181818` panel, plus blur, but **no shadow**: over the 3D
    view the edge may disappear. Consider a shadow.
 7. **No disabled option, placeholder or group heading** designs.
@@ -347,8 +351,8 @@ export function menu(anchor: HTMLElement, items: MenuItem[]): { open(): void; cl
 ### Acceptance checks
 
 - Closed trigger matches the text input box: 40px, `#383838`, 1px `#646464`, radius 8; value 14px; chevron 16px.
-- Opening turns the border `#E7E7E7` and shows the panel 4px below, same width, with blur and the `#383838` border.
-- Options are 26px tall, 12px apart; hover and arrow-key focus show the same 4px-radius wash.
+- Opening turns the border `#E7E7E7`, swaps the chevron from `down` to `up`, and shows the panel 4px below, same width, with blur and the `#383838` border.
+- Options are 26px tall, 4px apart; hover and arrow-key focus show the same 4px-radius wash.
 - The selected option is SemiBold with a trailing checkmark, and is scrolled into view on open.
 - Keyboard: Enter/Space/↓ opens; arrows move; typeahead jumps; Enter selects; Escape and Tab close without changing.
 - Clicking outside closes; the menu is never clipped by a scrolling panel.

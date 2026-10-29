@@ -8,7 +8,38 @@
  *   background or muted text. Component and page CSS use only these.
  * A theme (../themes) redefines tier 2 on its scope and never touches a component.
  *
- * No tokens are defined yet.
+ * Values come from the Figma file "Dungeon Builder" (variable collection mode "Mode 1"). Each
+ * semantic token's comment names the Figma variable it came from. Figma's button-* variables
+ * are component (tier 3) knobs: they land here as the semantic role they mean, and button.css
+ * will declare --button-* defaulting to these roles.
  */
 :root {
+	/* Tier 1: palette. Larger step is darker. */
+	--palette-ink-900: #181818; /* darkest neutral: panels, control fills */
+	--palette-ink-800: #383838; /* solid surface */
+	--palette-ink-600: #646464; /* lines */
+	--palette-ink-200: #cacaca; /* secondary text */
+	--palette-ink-100: #e7e7e7; /* primary text, focus, light overlays */
+	--palette-blue-600: #006fb4; /* the accent */
+	--palette-red-400: #f45060; /* destructive actions */
+
+	/* Tier 2, surfaces */
+	--color-bg-panel: color-mix(in srgb, var(--palette-ink-900) 85%, transparent); /* translucent panel over the 3D view (surface-transparent-primary) */
+	--color-bg-surface: var(--palette-ink-800); /* opaque surface (surface-primary) */
+	--color-bg-inverse: color-mix(in srgb, var(--palette-ink-100) 40%, transparent); /* light translucent surface on a dark one (surface-transparent-inverse) */
+	--color-bg-control: var(--palette-ink-900); /* an outline button or other control's fill (button-bg-outline) */
+	--color-bg-hover: color-mix(in srgb, var(--palette-ink-100) 10%, transparent); /* wash laid over anything hovered (interaction-hover) */
+	--color-bg-selected: color-mix(in srgb, var(--palette-blue-600) 20%, transparent); /* wash laid over a selection (selection-overlay) */
+
+	/* Tier 2, lines */
+	--color-border: var(--palette-ink-600); /* a control's or panel's outline (button-border-outline) */
+
+	/* Tier 2, text */
+	--color-text: var(--palette-ink-100); /* body text (content-primary) */
+	--color-text-muted: var(--palette-ink-200); /* secondary text (content-secondary) */
+
+	/* Tier 2, accent and states */
+	--color-accent: var(--palette-blue-600); /* primary button fill and other emphasis (button-bg-primary) */
+	--color-danger: var(--palette-red-400); /* destructive button fill and errors (button-bg-destructive) */
+	--color-focus: var(--palette-ink-100); /* keyboard focus outline (button-border-outline-focus) */
 }

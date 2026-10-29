@@ -6,8 +6,9 @@ properties and plain TypeScript factories, with no framework, because that is ho
 the app is built (DOM made by hand in `src/editor` and `src/viewer`, one stylesheet in
 `src/viewer/viewer.css`).
 
-**Status:** the structure exists; no tokens or molecules are defined yet. The placeholder files
-say what goes in them. Fill them in the order of §7.
+**Status:** the colour tokens are defined (from the Figma file "Dungeon Builder", mode
+"Mode 1"); type and layout tokens, the game theme's overrides and the molecules are not yet. The
+placeholder files say what goes in them. Fill them in the order of §7.
 
 ## 1. Layout
 
@@ -73,11 +74,17 @@ Three tiers, so a customisation touches one tier and nothing below it:
 | 2 Semantic | `--color-<role>` | what a colour is for, e.g. `--color-bg-panel`, `--color-text-muted`, `--color-accent` | molecules and page CSS |
 | 3 Component | `--<molecule>-<part>` | a molecule's own knobs, e.g. `--button-bg`, defaulting to a semantic token | that molecule's CSS; a scope may override one |
 
-Semantic roles are grouped by purpose: surfaces (`bg-page`, `bg-panel`, `bg-control`,
-`bg-inset`, `bg-hover`, `bg-selected`, `scrim`), lines (`border`, `border-strong`), text
+Semantic roles are grouped by purpose: surfaces (`bg-page`, `bg-panel`, `bg-surface` (opaque),
+`bg-inverse` (light on dark), `bg-control`, `bg-inset`, `bg-hover`, `bg-selected`, `scrim`),
+lines (`border`, `border-strong`), text
 (`text`, `text-muted`, `text-heading`, `text-on-accent`), and the accent with its states
 (`accent`, `accent-hover`, `active`, `danger`, `focus`, `link`). Add a role when two or more
 places need the same meaning, not for one element's one-off.
+
+Figma is the source of the values: each semantic token's comment names the Figma variable it
+came from, and a translucent Figma colour is written as `color-mix()` of a palette token with
+`transparent`, so the palette holds only opaque values. Figma's `button-*` variables become
+the button molecule's tier 3 tokens, defaulting to the semantic roles they were mapped to.
 
 Hue steps run dark to light with a larger number meaning darker, like `ink-950` for the page
 and `ink-100` for body text, so a theme can slide a role by one step.

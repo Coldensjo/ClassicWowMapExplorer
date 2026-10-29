@@ -53,8 +53,9 @@ It is the largest, heaviest text of any control so far.
 
 ### 1.3 Effects
 
-The bar has a **background blur of 8px** (`backdrop-filter: blur(8px)`). The dropdown menu
-blurs 24px; see §9.4.
+The bar has a **background blur of 24px** (`backdrop-filter: blur(var(--blur-panel))`), the
+same value as the dropdown menu (design decision, 2026-10-29; Figma still draws 8px here). Both
+use the shared `--blur-panel: 24px` token proposed in [dropdown.md](dropdown.md) §1.3.
 
 ### 1.4 ⚠ Figma issue: unbound icon colour
 
@@ -69,10 +70,10 @@ In **unselected** chips the icon stroke is a raw `#E7E7E7` override with **no va
 | `--mode-bar-padding` | 8px | bar padding |
 | `--mode-bar-gap` | 12px | between chips |
 | `--mode-bar-radius` | 12px | bar corners |
-| `--mode-bar-blur` | 8px | bar backdrop blur |
+| `--mode-bar-blur` | `var(--blur-panel)` (24px) | bar backdrop blur (§1.3) |
 | `--mode-chip-size` | 40px | chip height; unselected chip width |
-| `--mode-chip-padding` | 8px | chip padding (8px 10px 8px 8px when selected, §3.2) |
-| `--mode-chip-gap` | 4px | icon ↔ label |
+| `--mode-chip-padding` | 8px | chip padding, all sides, selected and unselected (§3.2) |
+| `--mode-chip-gap` | 8px | icon ↔ label (§3.2) |
 | `--mode-chip-radius` | 8px | chip corners |
 | `--mode-chip-icon-stroke` | 2px | selected icon stroke (§3.4) |
 
@@ -81,7 +82,7 @@ In **unselected** chips the icon stroke is a raw `#E7E7E7` override with **no va
 ## 2. Anatomy and layout
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐  bar: #181818@85%, blur 8, r 12
+┌──────────────────────────────────────────────────────────────────────────┐  bar: #181818@85%, blur 24, r 12
 │ ┌────┐ ┌────────────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐                 │  padding 8, gap 12
 │ │ ☀ │ │ ⛰  Sculpt  │ │ 🖌 │ │ ≈  │ │ ◯  │ │ ▢  │ │ ☺  │                 │  height 56
 │ └────┘ └────────────┘ └────┘ └────┘ └────┘ └────┘ └────┘                 │
@@ -93,14 +94,16 @@ In **unselected** chips the icon stroke is a raw `#E7E7E7` override with **no va
 |---|---|
 | Bar | horizontal, padding 8, gap 12, items vertically centred, **hugs** its chips (435 × 56 with Sculpt selected), radius 12 |
 | Unselected chip | 40 × 40, padding 8, radius 8, icon only, clips content |
-| Selected chip | 40px tall, padding 8 / 10 / 8 / 8, gap 4, icon then label, **hugs** its width (Sculpt 107px, Environment 162px), radius 8 |
+| Selected chip | 40px tall, padding 8 all sides, gap 8, icon then label, **hugs** its width, radius 8 |
 | Icon | 24px (`--icon-size-lg`), `flex: none` |
 | Label | hugs, one line, no wrap |
 
 Chip order is fixed: **Environment, Sculpt, Paint, Water, Holes, Objects, NPCs**.
 
 Because the bar hugs and the selected chip shows its label, **the bar's width changes when the
-mode changes** (e.g. 435px with Sculpt, wider with Environment). See §9.3.
+mode changes** (wider with Environment than with Sculpt). This is **intended** (design decision,
+2026-10-29): don't reserve space for the widest label or fix the bar's width. The editor layout
+positions the bar; if it is centred, the chips shift when the mode changes, and that is accepted.
 
 ---
 
@@ -117,9 +120,9 @@ mode changes** (e.g. 435px with Sculpt, wider with Environment). See §9.3.
 The icon and label are fixed per chip set in Figma (not properties), which is right for this
 control.
 
-### 3.2 ⚠ Figma issues in chip spacing
+### 3.2 Chip spacing (decided)
 
-The selected chips don't agree:
+The selected chips don't agree in Figma:
 
 | Chip | Gap icon ↔ label | Right padding | Width |
 |---|---|---|---|
@@ -128,8 +131,9 @@ The selected chips don't agree:
 | Water | 4px | 10px | **fixed** 97px |
 | Holes, NPCs | 4px | **8px** | hug |
 
-**Build** gap 4px, padding 8px 10px 8px 8px, width hugs, for every chip (the majority). The
-extra 2px on the right balances the label's side bearing against the icon on the left.
+**Build** (design decision, 2026-10-29) for every chip: **gap 8px** between icon and label,
+**padding 8px on all sides**, and **width hugs** its content (no fixed widths). Selected widths
+therefore come out as 8 + 24 + 8 + label + 8.
 
 ### 3.3 Visual spec by state
 
@@ -178,7 +182,7 @@ see §9.2.
 | Radius | 12px |
 | Padding | 8px |
 | Gap | 12px |
-| Effect | background blur 8px; no shadow |
+| Effect | background blur 24px (`--blur-panel`, §1.3); no shadow |
 | Placement | floating over the 3D view (in Figma it sits in the "Bottom Controls" frame above a grab bar and the tool panel); the molecule doesn't position itself, the editor layout does |
 
 ### 4.3 Motion (Proposed)
@@ -196,12 +200,12 @@ like the segmented control.
 
 ```html
 <div class="ds-mode-controller" role="radiogroup" aria-label="Editor mode">
-	<label class="ds-mode-chip" title="Environment">
+	<label class="ds-mode-chip" title="Environment (1)">
 		<input class="ds-mode-chip-input" type="radio" name="editor-mode" value="environment">
 		<svg class="ds-icon" aria-hidden="true">…sun…</svg>
 		<span class="ds-mode-chip-label">Environment</span>
 	</label>
-	<label class="ds-mode-chip" title="Sculpt the ground (1)">
+	<label class="ds-mode-chip" title="Sculpt the ground (2)">
 		<input class="ds-mode-chip-input" type="radio" name="editor-mode" value="sculpt" checked>
 		<svg class="ds-icon" aria-hidden="true">…sculpt…</svg>
 		<span class="ds-mode-chip-label">Sculpt</span>
@@ -217,7 +221,9 @@ like the segmented control.
   "Sculpt the ground (1)"), since they show only an icon. Use the file's **Tooltip - Simple**
   component when it is specced; `title` until then.
 - Keyboard (native radios): Tab enters on the selected chip; ←/→ move **and switch mode**; Tab
-  leaves. The editor's number-key shortcuts (1–6 today) call `setValue` and work from anywhere.
+  leaves. Number-key shortcuts **1–7 follow the chip order** (design confirmed, 2026-10-29):
+  1 Environment, 2 Sculpt, 3 Paint, 4 Water, 5 Holes, 6 Objects, 7 NPCs. They call `setValue`
+  and work from anywhere; update each chip's tooltip to show its number.
 - `onChange(mode)` fires from the inputs' `change` event; the editor owns the current mode and
   calls `setValue(root, mode)` when it changes elsewhere (shortcut, undo).
 
@@ -233,12 +239,14 @@ replaces it, with these differences the editor code must absorb:
 | Modes | 6 (+ Revert) | 7: adds **Environment** |
 | Order | Sculpt, Paint, **Holes, Water**, Place, NPCs | Environment, Sculpt, Paint, **Water, Holes**, Objects, NPCs |
 | Names | "Place" | "Objects" |
-| Revert | a hidden tool button | not in the controller; see §9.5 |
+| Revert | a hidden tool button | **out of scope for now** (design decision, 2026-10-29): leave the existing Revert behaviour as it is and don't add a chip |
+| Shortcuts | 1–6 in rail order | 1–7 in chip order (Environment = 1) |
 | Semantics | toolbar of buttons | radio group |
 
 Keep the `tool-*` ids' behaviour (panel switching in `src/editor/editorPanels.ts`) and map
-`objects` ↔ the existing `place` tool. Shortcut numbers should follow the new order once design
-confirms it (§9.6).
+`objects` ↔ the existing `place` tool. Renumber the shortcuts to the new order, which moves
+every existing tool's number up by one (Sculpt 1 → 2, …) and swaps Water and Holes; update the
+`title` hints that mention them.
 
 ---
 
@@ -267,10 +275,11 @@ confirms it (§9.6).
 
 ## 8. Acceptance checks
 
-- Bar is 56px tall, radius 12, 8px padding, 12px between chips, translucent `#181818` with an 8px backdrop blur.
+- Bar is 56px tall, radius 12, 8px padding, 12px between chips, translucent `#181818` with a 24px backdrop blur; its width follows the selected chip.
 - Unselected chips are 40 × 40 with a 24px, 1px-stroke `#E7E7E7` icon and no fill.
-- The selected chip is `#E7E7E7` with a 2px-stroke `#181818` icon and a 16px Bold `#181818` label, padding 8/10/8/8, gap 4.
-- Every chip uses the same spacing (no 8px gap on Environment, no fixed width on Water).
+- The selected chip is `#E7E7E7` with a 2px-stroke `#181818` icon and a 16px Bold `#181818` label, padding 8 on all sides, gap 8.
+- Every chip uses the same spacing and hugs its width (no fixed width on Water).
+- Keys 1–7 select Environment, Sculpt, Paint, Water, Holes, Objects, NPCs.
 - Hovering an unselected chip shows the wash; hovering the selected chip shows nothing.
 - ←/→ switch modes; number shortcuts switch modes from anywhere; the screen reader reads each chip's name even when its label is hidden.
 - Unselected chips show a tooltip with name and shortcut.
@@ -284,16 +293,14 @@ confirms it (§9.6).
 1. **Unselected icon colour is unbound** (`#E7E7E7` override). Bind it to `content-primary`.
 2. **Selected chip hover is invisible** (10% light wash on a light fill). Drop it, or should the
    selected chip have a hover (e.g. 10% dark wash)?
-3. **The bar changes width when the mode changes**, since the selected chip shows its label
-   (Environment is ~55px wider than Sculpt). If the bar is centred, the chips will shift under
-   the pointer. Keep it, pin the bar's left edge, or reserve the widest label's width?
-4. **Blur differs**: 8px here, 24px on the dropdown menu. Should panels share one blur value?
-5. **Revert** is a tool in today's rail but not in the controller. Where does it go?
-6. **Order and shortcuts.** The controller swaps Water and Holes compared with the current rail
-   and adds Environment first. Confirm the order, and whether shortcuts become 1–7 in this order
-   (Environment = 1).
-7. **Chip spacing inconsistencies** (§3.2): Environment's 8px gap, Water's fixed width, Holes' and
-   NPCs' 8px right padding. Please align them.
+3. ~~**The bar changes width when the mode changes.**~~ Decided: keep it (§2).
+4. ~~**Blur differs.**~~ Decided: 24px, shared with the dropdown menu (§1.3). Update the Figma
+   bar's blur to 24.
+5. ~~**Revert.**~~ Decided: out of scope for now (§5.1).
+6. ~~**Order and shortcuts.**~~ Confirmed: the chip order, shortcuts 1–7 with Environment = 1
+   (§5).
+7. ~~**Chip spacing inconsistencies.**~~ Decided: 8px gap, 8px padding on all sides, every chip
+   hugs (§3.2). Align the Figma chips to match.
 8. **No focus, disabled or motion states** (§4.3, §7).
 9. **Chip names vs labels**: "Chip - Hole" is labelled "Holes", "Chip - Object" "Objects",
    "Chip - Water v2" (is there a v1 to delete?), and the controller variant is "NPC" while the

@@ -53,9 +53,10 @@ not drawn that needs design sign-off (§10).
 ### 1.3 Effects
 
 The menu has a **background blur of 24px** (Figma effect style `7:760`): build as
-`backdrop-filter: blur(24px)` (with `-webkit-` prefix), so the 85% panel fill frosts what is
-behind it. No drop shadow is drawn. Add a `--blur-panel: 24px` token (proposed for
-`tokens/layout.css`), since panels elsewhere in the file likely use the same style.
+`backdrop-filter: blur(var(--blur-panel))` (with `-webkit-` prefix), so the 85% panel fill
+frosts what is behind it. No drop shadow is drawn. Add a `--blur-panel: 24px` token (proposed
+for `tokens/layout.css`): design decided (2026-10-29) that translucent panels share this value,
+so the Mode Controller bar uses it too ([mode-controller.md](mode-controller.md) §1.3).
 
 ### 1.4 Proposed tokens for raw values
 

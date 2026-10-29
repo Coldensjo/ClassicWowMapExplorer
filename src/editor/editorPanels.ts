@@ -13,6 +13,8 @@ import type { NpcAsset } from './npcs';
 import { PresetLibrary } from '../scene/presetLibrary';
 import { SCENE_WEATHERS, type NpcPreset, type PlacedNpc } from '../scene/types';
 import { animationName } from '../formats/animationNames';
+import { NPC_POSES, type NpcPose } from '../scene/types';
+import { POSE_LABELS, poseSequences } from '../scene/npcPoses';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -465,14 +467,35 @@ export class EditorPanels {
 	// ---- NPCs (spec 7.9) ----
 
 	/**
-	 * The idle select (spec 7.9.1): the sequences the selected NPCs' model has, by name, Stand
-	 * first, with the chosen one selected. Offered only while every selected NPC shares one model,
-	 * since each model has sequences of its own.
+	 * The pose and idle selects (spec 7.9.1). Pose: standing, or a held pose, with those the
+	 * model has no sequence for marked. Idle: the sequences the selected NPCs' model has, by
+	 * name, Stand first, with the chosen one selected; disabled while the NPCs hold a pose, since
+	 * the idle applies only standing. Both are offered only while every selected NPC shares one
+	 * model, since each model has sequences of its own.
 	 */
 	private syncNpcIdle(npcs: PlacedNpc[]): void {
 		const select = $<HTMLSelectElement>('sel-npc-idle');
+		const poseSelect = $<HTMLSelectElement>('sel-npc-pose');
 		const layer = this.editor.objects.npcs;
 		const npc = npcs[npcs.length - 1];
+		// '' standing, '-1' varies.
+		const pose = npcs.every((n) => (n.pose ?? '') === (npc.pose ?? '')) ? npc.pose ?? '' : '-1';
+		const poseOptions = (has: (ids: number[]) => boolean) => [
+			new Option('Standing', ''),
+			...NPC_POSES.map((p) => {
+				const sequences = poseSequences(p);
+				const missing = !has(sequences);
+				const option = new Option(missing ? `${POSE_LABELS[p]} (not in this model, stands instead)` : POSE_LABELS[p], p);
+				option.disabled = missing && pose !== p;
+				return option;
+			}),
+			...(pose === '-1' ? [new Option('Varies', '-1')] : []),
+		];
+		const showPose = (options: HTMLOptionElement[], enabled: boolean) => {
+			poseSelect.replaceChildren(...options);
+			poseSelect.disabled = !enabled;
+			poseSelect.value = pose;
+		};
 		const model = layer.modelOf(npc.appearance);
 		const key = model ? `${model.kind}:${model.fdid}` : null;
 		const shared = model !== null && npcs.every((n) => {
@@ -488,6 +511,7 @@ export class EditorPanels {
 		};
 		if (!shared || !model) {
 			show([new Option(key ? 'Varies by model' : 'Model not in this scene', '')], false);
+			showPose(poseOptions(() => true), false);
 			return;
 		}
 		let list = this.idleLists.get(key!);
@@ -500,14 +524,17 @@ export class EditorPanels {
 			this.idleLists.set(key!, list);
 		}
 		show([new Option('Loading…', String(idle))], false);
+		showPose(poseOptions(() => true), false);
 		void list.then((ids) => {
 			if (serial !== this.idleSerial) return;
+			showPose(poseOptions((sequences) => sequences.some((s) => ids.includes(Math.abs(s)))), true);
 			const named = ids.filter((id) => id !== 0).map((id) => ({ id, name: animationName(id) })).sort((a, b) => a.name.localeCompare(b.name));
 			const options = [new Option('Stand (default)', '0'), ...named.map((n) => new Option(n.name, String(n.id)))];
 			// A chosen sequence this model turns out to lack (the look was changed since) still shows, so it can be seen and reset.
 			if (idle > 0 && !ids.includes(idle)) options.push(new Option(`${animationName(idle)} (not in this model, stands instead)`, String(idle)));
 			if (idle < 0) options.unshift(new Option('Varies', '-1'));
-			show(options, true);
+			// Posed NPCs keep their idle for when they stand again, but can't change it meanwhile.
+			show(options, pose === '');
 			select.value = String(idle);
 		});
 	}
@@ -526,6 +553,12 @@ export class EditorPanels {
 		this.listen($('sel-npc-subname'), 'change', names);
 		this.listen($('sel-npc-facing'), 'change', () => objects.setNpcFacing(Number($<HTMLInputElement>('sel-npc-facing').value) || 0));
 		this.listen($('sel-npc-scale'), 'change', () => objects.setNpcScale(Number($<HTMLInputElement>('sel-npc-scale').value) || 1));
+		this.listen($('sel-npc-pose'), 'change', () => {
+			const select = $<HTMLSelectElement>('sel-npc-pose');
+			const value = select.value as NpcPose | '' | '-1';
+			if (value === '-1') return;
+			objects.setNpcPose(value || null, value ? POSE_LABELS[value] : 'Standing');
+		});
 		this.listen($('sel-npc-idle'), 'change', () => {
 			const select = $<HTMLSelectElement>('sel-npc-idle');
 			const id = Number(select.value) || 0;

@@ -41,9 +41,10 @@ export interface StorageApi {
 	loadCopyTile(wdtFdid: number, x: number, y: number): CopyTile;
 	/**
 	 * Models to draw; NPCs by creature display ID ('creature') or preset handle ('npcPreset', see
-	 * defineNpcPreset), looping the idle sequence given (an AnimationData ID) in place of Stand.
+	 * defineNpcPreset), looping the first idle sequence given (AnimationData IDs) the model has in
+	 * place of Stand.
 	 */
-	loadModels(models: { fdid: number; kind: ModelKind; idle?: number }[]): (ModelData | null)[];
+	loadModels(models: { fdid: number; kind: ModelKind; idle?: number[] }[]): (ModelData | null)[];
 	/** The sequences an NPC's model can idle in (AnimationData IDs), for the idle picker (spec 7.9.1). */
 	npcSequences(kind: 'creature' | 'npcPreset', fdid: number): number[];
 	/** Every creature display with a model, for the NPCs tab (spec 7.9.2). */

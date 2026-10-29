@@ -184,7 +184,7 @@ test('NPCs and their presets round-trip, unused presets are dropped, and bad NPC
 	scene.setPreset(worn);
 	scene.setPreset(spare);
 	scene.npcs.push({ id: 'npc-1', appearance: { kind: 'custom', presetId: 'preset-1' }, name: 'Thomas', subName: '<Guard>', position: [3, 0, 4], facing: 90, scale: 1.1, animation: 'idle', group: 'gate' });
-	scene.npcs.push({ id: 'npc-2', appearance: { kind: 'creature', displayId: 31 }, position: [6, 0, 4], facing: 0, scale: 1, animation: 'idle', idle: 97 });
+	scene.npcs.push({ id: 'npc-2', appearance: { kind: 'creature', displayId: 31 }, position: [6, 0, 4], facing: 0, scale: 1, animation: 'idle', idle: 97, pose: 'sit' });
 	const loaded = decodeScene(encodeScene(scene)).model;
 	// Only the preset an NPC wears travels with the scene (spec 6.6).
 	expect(loaded.npcPresets.map((p) => p.id)).toEqual(['preset-1']);
@@ -204,6 +204,8 @@ test('NPCs and their presets round-trip, unused presets are dropped, and bad NPC
 	expect(() => decodeScene(tamper((j) => ((j.npcs[1] as { scale: number }).scale = 0)))).toThrow(/scale/);
 	// An idle sequence that isn't a positive AnimationData ID falls back to Stand rather than refusing the scene.
 	expect(decodeScene(tamper((j) => ((j.npcs[1] as { idle: unknown }).idle = 'sit'))).model.npcs[1].idle).toBeUndefined();
+	// A pose the format doesn't know stands the NPC up rather than refusing the scene.
+	expect(decodeScene(tamper((j) => ((j.npcs[1] as { pose: unknown }).pose = 'dancing'))).model.npcs[1].pose).toBeUndefined();
 	expect(() => decodeScene(tamper((j) => ((j.npcPresets[0] as { equipment: unknown }).equipment = { hat: 1 })))).toThrow(/slot/);
 });
 

@@ -415,16 +415,16 @@ export class WorldLoader {
 	/**
 	 * Renderable geometry for models; null where a model can't be read. NPCs (spec 7.9) load by
 	 * creature display ID or preset handle, dressed by the display tables or the character builder,
-	 * looping the idle sequence asked for in place of Stand.
+	 * looping the first idle sequence asked for that the model has in place of Stand.
 	 */
-	async loadModels(models: { fdid: number; kind: ModelKind; idle?: number }[]): Promise<(ModelData | null)[]> {
+	async loadModels(models: { fdid: number; kind: ModelKind; idle?: number[] }[]): Promise<(ModelData | null)[]> {
 		return Promise.all(models.map(async ({ fdid, kind, idle }) => {
 			try {
 				if (kind === 'wmo') return await loadWmo(this.storage, fdid, await this.liquidKind());
 				if (kind === 'creature' || kind === 'npcPreset') {
 					const look = await this.npcs.look(kind === 'creature' ? { kind, displayId: fdid } : { kind, handle: fdid });
 					if (!look) return null;
-					const model = await loadM2(this.storage, look.fdid, idle ? { ...look.options, idle } : look.options);
+					const model = await loadM2(this.storage, look.fdid, idle?.length ? { ...look.options, idle } : look.options);
 					return look.missing?.length ? { ...model, missingGear: look.missing } : model;
 				}
 				if (kind === 'itemDisplay') {

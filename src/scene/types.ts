@@ -175,6 +175,10 @@ export type EquipSlot =
 	| 'wrist' | 'hands' | 'waist' | 'legs' | 'feet'
 	| 'mainHand' | 'offHand' | 'ranged';
 
+/** A placed NPC's held pose; standing is the absence of one. */
+export type NpcPose = 'sit' | 'kneel' | 'lie' | 'dead';
+export const NPC_POSES: NpcPose[] = ['sit', 'kneel', 'lie', 'dead'];
+
 export interface PlacedNpc {
 	/** UUID, stable across edits. */
 	id: string;
@@ -197,6 +201,12 @@ export interface PlacedNpc {
 	 * out to lack plays Stand instead.
 	 */
 	idle?: number;
+	/**
+	 * How the NPC holds itself (spec 7.9.1): sitting, kneeling, lying down or dead, each a held
+	 * sequence looked up per model (see npcPoses.ts); left out for standing, which is when the
+	 * idle sequence applies.
+	 */
+	pose?: NpcPose;
 	locked?: boolean;
 	group?: string;
 }

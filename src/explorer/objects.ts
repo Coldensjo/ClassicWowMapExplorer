@@ -222,10 +222,11 @@ export interface M2Options {
 	/** Pose the mesh with the first frame of its Stand animation instead of the bind pose. */
 	stand?: boolean;
 	/**
-	 * Loop this sequence (an AnimationData ID) in place of Stand: a placed NPC's chosen idle
-	 * (spec 7.9.1). Stand when the model lacks it. Ignored with clips.
+	 * Loop the first of these sequences (AnimationData IDs) the model has in place of Stand: a
+	 * placed NPC's chosen idle, or its pose's preferences (spec 7.9.1). Stand when it has none.
+	 * Ignored with clips.
 	 */
-	idle?: number;
+	idle?: number[];
 	/**
 	 * Animate with these sequences (AnimationData IDs) rather than Stand and Walk: the walking
 	 * character, whose clips carry their IDs and speeds.
@@ -305,8 +306,8 @@ function safeSequences(skeleton: Skeleton, animFiles: { id: number; sub: number;
 	}
 }
 
-function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Uint8Array, clips?: number[], idle?: number): Promise<PreparedM2> {
-	const key = `${fdid}:${stand ? 1 : 0}:${clips?.join('.') ?? ''}:${idle ?? ''}`;
+function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Uint8Array, clips?: number[], idle?: number[]): Promise<PreparedM2> {
+	const key = `${fdid}:${stand ? 1 : 0}:${clips?.join('.') ?? ''}:${idle?.join('.') ?? ''}`;
 	let entry = preparedM2.get(key);
 	if (entry) {
 		// Refresh its place in the least-recently-used order.
@@ -329,7 +330,7 @@ function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Ui
 		const skeleton = (m2.skelFdid && storage.status(m2.skelFdid) === 'ok' && skelSkeleton(await storage.readFile(m2.skelFdid), bytes, m2.md20)) || m2Skeleton(bytes, m2.md20);
 		// Stand and Walk (and a chosen idle), or the clips asked for, may be kept in .anim files.
 		const animFiles = skeleton.animFiles ?? m2.animFiles;
-		const external = await readAnimFiles(storage, skeleton, animFiles, clips ?? [ANIM.Stand, ANIM.Walk, ...(idle ? [idle] : [])]);
+		const external = await readAnimFiles(storage, skeleton, animFiles, clips ?? [ANIM.Stand, ANIM.Walk, ...(idle ?? [])]);
 		// Moving models are skinned on the GPU from bind space; still ones are posed here once.
 		// Creatures (posed standing) also get their walk, for those that roam.
 		const animation = clips ? sequenceAnimation(skeleton, clips, external) : standAnimation(skeleton, stand, external, idle);
@@ -540,7 +541,7 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 		radius: prepared.m2.bounds.radius || boundingRadius(positions), height: topOf(positions, packed.indices, packed.batches),
 		// The bone data is shared by every look of this model, so it's keyed for reuse on the GPU.
 		animation: anim && boneIndex && boneWeight
-			? { key: `m2:${fdid}${options.clips ? `:clips:${options.clips.join('.')}` : options.idle ? `:idle:${options.idle}` : ''}`, bones: anim.bones, clips: anim.clips, data: anim.data.slice(), boneIndex, boneWeight }
+			? { key: `m2:${fdid}${options.clips ? `:clips:${options.clips.join('.')}` : options.idle?.length ? `:idle:${options.idle.join('.')}` : ''}`, bones: anim.bones, clips: anim.clips, data: anim.data.slice(), boneIndex, boneWeight }
 
 			: undefined,
 		emitters: emitters.length ? emitters : undefined,

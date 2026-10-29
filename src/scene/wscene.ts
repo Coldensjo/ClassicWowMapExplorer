@@ -5,6 +5,7 @@ import { ALPHA_SIZE } from '../formats/adtTex';
 import { baseObjectsFromCopy, baseTileFromCopy, cloneChunk, composeObjects, matchesTemplate } from './copyScene';
 import { sameWater, SceneModel, type SceneBaseData, type SceneChunk, type SceneTile, type SceneWater } from './sceneModel';
 import { MAX_COPIED_TILES, SCENE_VERSION, SCENE_WEATHERS, type BinRef, type Chunk, type ChunkLayer, type ChunkOverride, type EquipSlot, type NpcAppearance, type NpcPreset, type PlacedNpc, type PlacedObject, type Scene, type Tile, type Vec3, type WaterSettings } from './types';
+import { isNpcPose } from './npcPoses';
 
 /**
  * The .wscene container (spec 6.2): a zip holding scene.json plus the binary arrays it references
@@ -452,6 +453,7 @@ export function validNpcs(npcs: PlacedNpc[], presets: NpcPreset[]): PlacedNpc[] 
 			scale: n.scale,
 			animation: 'idle',
 			...(Number.isInteger(n.idle) && n.idle! > 0 ? { idle: n.idle } : {}),
+			...(isNpcPose(n.pose) ? { pose: n.pose } : {}),
 			...(n.locked === true ? { locked: true } : {}),
 			...(typeof n.group === 'string' && n.group ? { group: n.group } : {}),
 		};

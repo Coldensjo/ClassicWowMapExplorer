@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { CreatureDisplaySummary } from '../explorer/npcs';
 import type { ModelKind } from '../explorer/objects';
 import type { SceneModel } from '../scene/sceneModel';
+import { poseSequences } from '../scene/npcPoses';
 import type { NpcAppearance, NpcPreset, PlacedNpc } from '../scene/types';
 import type { ObjectManager } from '../viewer/objects';
 import type { AsyncStorageApi } from '../worker/protocol';
@@ -84,12 +85,13 @@ export class SceneNpcs {
 	}
 
 	/**
-	 * The manager entry an NPC draws from: its model looping its chosen idle sequence (spec 7.9.1),
-	 * or null when its preset isn't in the scene. NPCs of one look and idle share one entry.
+	 * The manager entry an NPC draws from: its model looping its pose's sequence, else its chosen
+	 * idle (spec 7.9.1), or null when its preset isn't in the scene. NPCs of one look, pose and
+	 * idle share one entry.
 	 */
-	private entryOf(n: PlacedNpc): { kind: ModelKind; fdid: number; idle: number } | null {
+	private entryOf(n: PlacedNpc): { kind: ModelKind; fdid: number; idle: number[] } | null {
 		const m = this.modelOf(n.appearance);
-		return m ? { ...m, idle: n.idle ?? 0 } : null;
+		return m ? { ...m, idle: n.pose ? poseSequences(n.pose) : n.idle ? [n.idle] : [] } : null;
 	}
 
 	/**
@@ -119,7 +121,7 @@ export class SceneNpcs {
 
 	private placedKey(n: PlacedNpc): string | null {
 		const m = this.entryOf(n);
-		return m ? `${m.kind}:${m.fdid}@${m.idle}` : null;
+		return m ? `${m.kind}:${m.fdid}@${m.idle.join('.')}` : null;
 	}
 
 	spawn(n: PlacedNpc): void {
@@ -136,7 +138,7 @@ export class SceneNpcs {
 		this.spawned.delete(id);
 	}
 
-	/** Moves an NPC's instance; a changed appearance or idle sequence re-places it as the new model. */
+	/** Moves an NPC's instance; a changed appearance, pose or idle sequence re-places it as the new model. */
 	move(n: PlacedNpc): void {
 		const visible = this.visibleAt(n.position[0], n.position[2]);
 		const key = this.placedKey(n);

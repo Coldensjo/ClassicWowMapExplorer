@@ -285,9 +285,9 @@ function poseAt(s: StandSequence, t: number): Mat4[] {
  * Bone matrices for the first frame of the model's Stand animation, so models can be drawn
  * standing instead of in their bind pose. Returns null if the model has no embedded Stand.
  */
-export function standPose(skeleton: Skeleton, external?: Map<number, Uint8Array>, idle?: number): Mat4[] | null {
-	const s = findIdle(skeleton, idle, external);
-	return s ? poseAt(s, 0) : null;
+export function standPose(skeleton: Skeleton, external?: Map<number, Uint8Array>, idle?: number[]): Mat4[] | null {
+	const found = findIdle(skeleton, idle, external);
+	return found ? poseAt(found.s, found.hold ? found.s.duration : 0) : null;
 }
 
 /**
@@ -383,15 +383,18 @@ const SAMPLES_PER_SECOND = 15;
 const MAX_FRAMES = 64;
 
 /**
- * The sequence a model idles in: the one asked for (an AnimationData ID), or Stand when the
- * model lacks it or when none is asked for.
+ * The sequence a model idles in: the first of those asked for (AnimationData IDs, a chosen idle
+ * or a pose's preferences) that it has, or Stand when it has none or none are asked for. A
+ * negative ID asks for that sequence's last frame held still (a corpse at the end of Death).
  */
-function findIdle(skeleton: Skeleton, idle: number | undefined, external?: Map<number, Uint8Array>): StandSequence | null {
-	if (idle) {
-		const s = findStand(skeleton, idle, external);
-		if (s && s.duration >= 50) return s;
+function findIdle(skeleton: Skeleton, idle: number[] | undefined, external?: Map<number, Uint8Array>): { s: StandSequence; hold: boolean } | null {
+	for (const id of idle ?? []) {
+		if (!id) continue;
+		const s = findStand(skeleton, Math.abs(id), external);
+		if (s && s.duration >= 50) return { s, hold: id < 0 };
 	}
-	return findStand(skeleton, ANIM_STAND, external);
+	const s = findStand(skeleton, ANIM_STAND, external);
+	return s && { s, hold: false };
 }
 
 /**
@@ -399,10 +402,11 @@ function findIdle(skeleton: Skeleton, idle: number | undefined, external?: Map<n
  * skinning. Returns null when nothing would move (then the model is drawn in its static
  * first-frame pose instead).
  */
-export function standAnimation(skeleton: Skeleton, walk = false, external?: Map<number, Uint8Array>, idle?: number): BoneAnimation | null {
-	const stand = findIdle(skeleton, idle, external);
-	if (!stand || stand.duration < 50) return null;
-	const standLoop = sampleLoop(stand);
+export function standAnimation(skeleton: Skeleton, walk = false, external?: Map<number, Uint8Array>, idle?: number[]): BoneAnimation | null {
+	const found = findIdle(skeleton, idle, external);
+	if (!found || found.s.duration < 50) return null;
+	const stand = found.s;
+	const standLoop = found.hold ? holdFrame(stand) : sampleLoop(stand);
 	const walkSeq = walk ? findStand(skeleton, ANIM_WALK, external) : null;
 	const walkLoop = walkSeq && walkSeq.duration >= 50 ? sampleLoop(walkSeq) : null;
 	if (!standLoop.moving && !walkLoop) return null;
@@ -447,6 +451,25 @@ export function sequenceAnimation(skeleton: Skeleton, ids: number[], external?: 
 		at += p.length;
 	}
 	return { bones, clips, data };
+}
+
+/** A still "loop" of a sequence's last frame (two frames alike, so the shader's blend reads it), as sampleLoop shapes one. */
+function holdFrame(s: StandSequence): { frames: number; data: Float32Array; moving: boolean } {
+	const boneCount = s.skeleton.bones.count;
+	const data = new Float32Array(2 * boneCount * 12);
+	const pose = poseAt(s, s.duration);
+	for (let f = 0; f < 2; f++) {
+		pose.forEach((m, b) => {
+			const o = (f * boneCount + b) * 12;
+			for (let r = 0; r < 3; r++) {
+				data[o + r * 4] = m[r];
+				data[o + r * 4 + 1] = m[4 + r];
+				data[o + r * 4 + 2] = m[8 + r];
+				data[o + r * 4 + 3] = m[12 + r];
+			}
+		});
+	}
+	return { frames: 2, data, moving: false };
 }
 
 /** One loop's frames, and whether anything in it moves. */

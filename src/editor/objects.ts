@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { materialize } from '../scene/copyScene';
 import type { SceneModel } from '../scene/sceneModel';
-import type { NpcAppearance, PlacedNpc, PlacedObject, Vec3 } from '../scene/types';
+import type { NpcAppearance, PlacedNpc, PlacedObject, Vec3, NpcPose } from '../scene/types';
 import { ObjectManager } from '../viewer/objects';
 import type { AsyncStorageApi } from '../worker/protocol';
 import type { CommandStack } from './commands';
@@ -67,12 +67,14 @@ interface Snapshot {
 	appearance?: NpcAppearance;
 	/** NPCs: the idle sequence chosen (spec 7.9.1); undefined for Stand. */
 	idle?: number;
+	/** NPCs: the held pose (spec 7.9.1); undefined for standing. */
+	pose?: NpcPose;
 }
 
 function snapshot(e: Entity): Snapshot {
 	if (e.kind === 'npc') {
 		const n = e.n;
-		return { id: n.id, npc: true, position: [...n.position] as Vec3, rotation: [0, n.facing, 0], scale: n.scale, locked: n.locked, group: n.group, name: n.name, subName: n.subName, appearance: structuredClone(n.appearance), idle: n.idle };
+		return { id: n.id, npc: true, position: [...n.position] as Vec3, rotation: [0, n.facing, 0], scale: n.scale, locked: n.locked, group: n.group, name: n.name, subName: n.subName, appearance: structuredClone(n.appearance), idle: n.idle, pose: n.pose };
 	}
 	const o = e.o;
 	return { id: o.id, npc: false, position: [...o.position] as Vec3, rotation: [...o.rotation] as Vec3, scale: o.scale, doodadSet: o.doodadSet, nameSet: o.nameSet, locked: o.locked, group: o.group };
@@ -90,6 +92,7 @@ function sameSnapshot(a: Snapshot, b: Snapshot): boolean {
 		a.name === b.name &&
 		a.subName === b.subName &&
 		a.idle === b.idle &&
+		a.pose === b.pose &&
 		JSON.stringify(a.appearance) === JSON.stringify(b.appearance)
 	);
 }
@@ -754,7 +757,7 @@ export class SceneObjects {
 			const extra = s as Snapshot & { kind?: 'm2' | 'wmo'; fdid?: number };
 			if (s.npc) {
 				if (!s.appearance) return [];
-				return [{ kind: 'npc', n: { id: s.id, appearance: s.appearance, position: s.position, facing: s.rotation[1], scale: s.scale, animation: 'idle', name: s.name, subName: s.subName, group: s.group, ...(s.idle ? { idle: s.idle } : {}) } }];
+				return [{ kind: 'npc', n: { id: s.id, appearance: s.appearance, position: s.position, facing: s.rotation[1], scale: s.scale, animation: 'idle', name: s.name, subName: s.subName, group: s.group, ...(s.idle ? { idle: s.idle } : {}), ...(s.pose ? { pose: s.pose } : {}) } }];
 			}
 			if (!extra.kind || !extra.fdid) return [];
 			return [{ kind: 'object', o: { id: s.id, kind: extra.kind, fdid: extra.fdid, position: s.position, rotation: s.rotation, scale: s.scale, doodadSet: s.doodadSet, nameSet: s.nameSet, group: s.group } }];
@@ -854,6 +857,13 @@ export class SceneObjects {
 		});
 	}
 
+	/** Sets how the selected NPCs hold themselves (spec 7.9.1); null stands them up, where their idle sequence applies. */
+	setNpcPose(pose: NpcPose | null, label: string): void {
+		this.editSelection(pose ? `Pose as ${label}` : 'Stand up', (after, e) => {
+			if (e.kind === 'npc') after.pose = pose ?? undefined;
+		});
+	}
+
 	/** Sets the sequence the selected NPCs idle in (an AnimationData ID; 0 for the model's Stand), spec 7.9.1. */
 	setNpcIdle(idle: number, label: string): void {
 		this.editSelection(`Idle as ${label}`, (after, e) => {
@@ -938,6 +948,8 @@ export class SceneObjects {
 					n.subName = snap.subName;
 					if (snap.idle) n.idle = snap.idle;
 					else delete n.idle;
+					if (snap.pose) n.pose = snap.pose;
+					else delete n.pose;
 					if (snap.appearance) n.appearance = structuredClone(snap.appearance);
 					this.npcs.move(n);
 				} else {

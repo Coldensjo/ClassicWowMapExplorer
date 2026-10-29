@@ -79,7 +79,7 @@ Label                                          ← caption, 12px, #CACACA       
 | Part | Layout |
 |---|---|
 | Root | vertical stack, gap 4px, width **fills the panel column** (fixed 212px in the drawing) |
-| Label | full width, left aligned, hugs its height (one line; §2.1) |
+| Label | fills the width, left aligned, one line truncated with an ellipsis (§2.1) |
 | Row | horizontal, gap 8px, items vertically centred, 40px tall, fills width |
 | Track area | fills the remaining width (`flex: 1 1 auto; min-width: 0`), 40px tall |
 | Rail | 4px tall, fills the track area's width, vertically centred |
@@ -88,12 +88,12 @@ Label                                          ← caption, 12px, #CACACA       
 
 Total height with label: 16 + 4 + 40 = **60px**; without: 40px.
 
-### 2.1 ⚠ Figma issues in the layout
+### 2.1 Label sizing (decided)
 
-- The label is **218px wide inside a 212px component**, so it overflows by 6px. Build it as
-  `width: 100%`.
-- The label auto-grows in height with no line limit; a long label would wrap. Build one line
-  with `text-overflow: ellipsis`.
+The label **fills the component's width and truncates at one line** (design decision,
+2026-10-29): `width: 100%; min-width: 0; white-space: nowrap; overflow: hidden;
+text-overflow: ellipsis`, with `title` set to the full text when it truncates. In Figma it is
+still a fixed 218px inside the 212px component, set to wrap; ignore that.
 
 ---
 
@@ -139,8 +139,8 @@ which design resolved to `content-primary`. **Build it with `--color-text` (`#E7
 ### 3.4 Figma slots
 
 The component defines **three slot properties**, `Slider`, `Slider2` and `Slider3`, but only
-`Slider` is placed (it holds the thumb). `Slider2`/`Slider3` look like leftovers, or possibly
-meant for a second thumb (range) or a filled track. **Build a single thumb**; see §9.3.
+`Slider` is placed (it holds the thumb). `Slider2` and `Slider3` are **leftovers** (design
+confirmed, 2026-10-29): ignore them. Build a single thumb; there is no range (two-thumb) slider.
 
 ---
 
@@ -151,7 +151,7 @@ meant for a second thumb (range) or a filled track. **Build a single thumb**; se
 | `Show label?` | boolean | `true` | `label?: string`: caption shown when given. The control always needs an accessible name; when hidden, pass it as `aria-label` |
 | `Show value input?` | boolean | `true` | `showInput?: boolean`, default `true` |
 | `Slider` (slot) | slot | thumb | not a prop: the thumb is built in |
-| `Slider2`, `Slider3` (slots) | slot | empty | not used (§3.4) |
+| `Slider2`, `Slider3` (slots) | slot | empty | leftovers, not built (§3.4) |
 | (none) | | | `value: number` (required) |
 | (none) | | | `min: number`, `max: number`, `step: number` (defaults 0, 100, 1) |
 | (none) | | | `suffix?: string` (e.g. "%", "yd"); `prefix?` exists on Text Input but is hidden here |
@@ -218,10 +218,13 @@ Build the track on a native range input so keyboard, pointer, touch and accessib
 **Migrating existing markup.** `index.html` has 16 sliders written as
 `<label class="prop-row">Radius <input type="range" id="brush-radius" …><output id="brush-radius-out"></output></label>`,
 with a read-only `<output>` instead of an editable field and the label inline to the left
-rather than above. Following DESIGN_SYSTEM.md §5's legacy-selector rule, list
-`.prop-row input[type="range"]` beside `.ds-slider-range` so the existing tracks and thumbs get
-the new look at once; the layout (label above, editable value) changes only when a panel moves
-to the molecule.
+rather than above. **All 16 move to the Figma layout** (design decision, 2026-10-29): label
+above, editable value input beside the track. Each `.prop-row` slider is replaced by the
+`slider()` factory (or equivalent `.ds-slider` markup), keeping its `id`, `min`, `max`, `step`
+and `title`, and the panel code that read the `<output>` switches to the factory's
+`onInput`/`onChange` and `setValue`. Until a panel is migrated, listing
+`.prop-row input[type="range"]` beside `.ds-slider-range` (DESIGN_SYSTEM.md §5's legacy-selector
+rule) gives its track and thumb the new look; remove that selector once all 16 are migrated.
 
 ---
 
@@ -258,20 +261,20 @@ Figma draws only rest. Proposed, reusing the system's existing treatments:
 2. **No filled track.** The rail is the same `#646464` on both sides of the thumb, so the value
    reads only from the thumb's position. Most sliders fill the part below the thumb (here that
    would be `button-bg-primary`, matching the on states). Intended?
-3. **Three slot properties, one used.** `Slider2`/`Slider3` are empty. Remove them, or are they
-   for a range (two-thumb) slider?
+3. ~~**Three slot properties, one used.**~~ Decided: `Slider2`/`Slider3` are leftovers (§3.4);
+   they can be deleted from the Figma component.
 4. **No states at all.** Slider is a plain component, not a set: no hover, focus, dragging or
    disabled. Proposals in §7.
-5. **Label is 218px in a 212px component** and can wrap (§2.1).
+5. ~~**Label is 218px in a 212px component** and can wrap.~~ Decided: fills the width and
+   truncates at one line (§2.1). The Figma label should be set to Fill and 1 line too.
 6. **Label colour** is `content-secondary` (#CACACA), while the switch and radio row labels are
    `content-primary`. Fine for a caption above a field, but confirm it's deliberate.
 7. **Value input radius 8px** vs 4px on buttons and segments; same 8px as the segmented trough.
    Confirm the input radius in the Text Input spec.
 8. **Thumb shape**: a 16 × 32 bar taller than the 4px rail and nearly as tall as the 40px input.
    Fine, just unusual; confirm it isn't a placeholder.
-9. **Existing panels show the label inline** to the left of the slider with a read-only value;
-   the Figma design puts the label above and makes the value editable. Confirm the new layout
-   applies everywhere (16 sliders).
+9. ~~**Existing panels show the label inline.**~~ Decided: all 16 sliders move to the Figma
+   layout, label above and value editable (§6).
 
 ---
 
@@ -309,5 +312,7 @@ export function setValue(root: HTMLElement, value: number): void;
   clamped and stepped.
 - Arrow keys, PageUp/PageDown, Home/End work on the slider; the screen reader reads the value
   with its unit.
-- Long labels stay on one line with an ellipsis.
+- Long labels fill the width and stay on one line with an ellipsis.
+- All 16 existing sliders render with the label above and an editable value, and the panels
+  still update their models from them.
 - No hex values in `slider.css`.

@@ -284,9 +284,41 @@ function poseAt(s: StandSequence, t: number): Mat4[] {
  * Bone matrices for the first frame of the model's Stand animation, so models can be drawn
  * standing instead of in their bind pose. Returns null if the model has no embedded Stand.
  */
-export function standPose(skeleton: Skeleton, external?: Map<number, Uint8Array>): Mat4[] | null {
-	const s = findStand(skeleton, ANIM_STAND, external);
+export function standPose(skeleton: Skeleton, external?: Map<number, Uint8Array>, idle?: number): Mat4[] | null {
+	const s = findIdle(skeleton, idle, external);
 	return s ? poseAt(s, 0) : null;
+}
+
+/**
+ * The sequences a model can be asked to idle in (spec 7.9.1): the AnimationData ID of each of its
+ * sequences (variation 0, aliases followed) that lasts long enough to loop and whose keys are at
+ * hand: in the model, or in a .anim file the client has (readable says whether a file is). An ID
+ * that only aliases another's keys (a creature's ReadyUnarmed that is its Stand) is left out for
+ * the lowest ID with those keys. Sorted by ID; Stand first when the model has it.
+ */
+export function playableSequences(skeleton: Skeleton, animFiles: { id: number; sub: number; fdid: number }[], readable: (fdid: number) => boolean): number[] {
+	const seqs = skeleton.sequences;
+	const { view } = seqs;
+	const ids = new Set<number>();
+	for (let i = 0; i < seqs.count; i++) {
+		const o = sequenceAt(seqs, i);
+		if (view.getUint16(o + 2, true) === 0) ids.add(view.getUint16(o, true));
+	}
+	const keysOf = new Set<number>();
+	const out: number[] = [];
+	for (const id of [...ids].sort((a, b) => a - b)) {
+		const found = resolveSequence(seqs, id);
+		if (!found || keysOf.has(found.seq)) continue;
+		const s = sequenceAt(seqs, found.seq);
+		if (view.getUint32(s + 4, true) < 50) continue;
+		if (!found.embedded) {
+			const file = animFiles.find((a) => a.id === view.getUint16(s, true) && a.sub === view.getUint16(s + 2, true));
+			if (!file || !readable(file.fdid)) continue;
+		}
+		keysOf.add(found.seq);
+		out.push(id);
+	}
+	return out;
 }
 
 /** Bone matrices sampled over the Stand loop (duration in seconds), or null without a Stand. */
@@ -350,11 +382,24 @@ const SAMPLES_PER_SECOND = 15;
 const MAX_FRAMES = 64;
 
 /**
- * Samples the Stand loop (and with walk, the Walk loop) for GPU skinning. Returns null when
- * nothing would move (then the model is drawn in its static first-frame pose instead).
+ * The sequence a model idles in: the one asked for (an AnimationData ID), or Stand when the
+ * model lacks it or when none is asked for.
  */
-export function standAnimation(skeleton: Skeleton, walk = false, external?: Map<number, Uint8Array>): BoneAnimation | null {
-	const stand = findStand(skeleton, ANIM_STAND, external);
+function findIdle(skeleton: Skeleton, idle: number | undefined, external?: Map<number, Uint8Array>): StandSequence | null {
+	if (idle) {
+		const s = findStand(skeleton, idle, external);
+		if (s && s.duration >= 50) return s;
+	}
+	return findStand(skeleton, ANIM_STAND, external);
+}
+
+/**
+ * Samples the idle loop (Stand, or the sequence asked for; and with walk, the Walk loop) for GPU
+ * skinning. Returns null when nothing would move (then the model is drawn in its static
+ * first-frame pose instead).
+ */
+export function standAnimation(skeleton: Skeleton, walk = false, external?: Map<number, Uint8Array>, idle?: number): BoneAnimation | null {
+	const stand = findIdle(skeleton, idle, external);
 	if (!stand || stand.duration < 50) return null;
 	const standLoop = sampleLoop(stand);
 	const walkSeq = walk ? findStand(skeleton, ANIM_WALK, external) : null;

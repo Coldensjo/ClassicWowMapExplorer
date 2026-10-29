@@ -3,7 +3,7 @@ import { MeshBVH } from 'three-mesh-bvh';
 import type { CascStorage } from '../casc/storage';
 import { chunks } from '../formats/chunks';
 import { Blend, M2_MATERIAL_TWO_SIDED, M2_MATERIAL_UNFOGGED, M2_MATERIAL_UNLIT, parseM2, parseSkin, type M2File, type M2Skin } from '../formats/m2';
-import { ANIM, attachmentPoints, externalSequences, m2Skeleton, sequenceAnimation, skelSkeleton, skinVertex, standAnimation, standPose, type AnimationClip, type AttachmentPoint, type BoneAnimation, type Skeleton } from '../formats/m2Pose';
+import { ANIM, attachmentPoints, externalSequences, m2Skeleton, playableSequences, sequenceAnimation, skelSkeleton, skinVertex, standAnimation, standPose, type AnimationClip, type AttachmentPoint, type BoneAnimation, type Skeleton } from '../formats/m2Pose';
 import { parseParticleEmitters, type ParticleEmitter } from '../formats/m2Particles';
 import {
 	parseWmoGroup, parseWmoRoot, WMO_GROUP_INTERIOR, WMO_LIQUID_CELL, type WmoGroup, visibleWmoGroups, WMO_MATERIAL_TWO_SIDED, WMO_MATERIAL_UNFOGGED, WMO_MATERIAL_UNLIT,
@@ -222,6 +222,11 @@ export interface M2Options {
 	/** Pose the mesh with the first frame of its Stand animation instead of the bind pose. */
 	stand?: boolean;
 	/**
+	 * Loop this sequence (an AnimationData ID) in place of Stand: a placed NPC's chosen idle
+	 * (spec 7.9.1). Stand when the model lacks it. Ignored with clips.
+	 */
+	idle?: number;
+	/**
 	 * Animate with these sequences (AnimationData IDs) rather than Stand and Walk: the walking
 	 * character, whose clips carry their IDs and speeds.
 	 */
@@ -261,6 +266,8 @@ interface PreparedM2 {
 	boneIndex: Uint16Array | null;
 	boneWeight: Uint8Array | null;
 	emitters: ParticleEmitter[];
+	/** The sequences the model can idle in (see playableSequences), for the editor's idle picker. */
+	sequences: number[];
 }
 
 /**
@@ -289,8 +296,17 @@ async function readAnimFiles(storage: CascStorage, skeleton: Skeleton, animFiles
 	return out;
 }
 
-function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Uint8Array, clips?: number[]): Promise<PreparedM2> {
-	const key = `${fdid}:${stand ? 1 : 0}:${clips?.join('.') ?? ''}`;
+/** The model's idle choices (playableSequences); a model whose sequence list can't be read offers none rather than failing to load. */
+function safeSequences(skeleton: Skeleton, animFiles: { id: number; sub: number; fdid: number }[], readable: (fdid: number) => boolean): number[] {
+	try {
+		return playableSequences(skeleton, animFiles, readable);
+	} catch {
+		return [];
+	}
+}
+
+function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Uint8Array, clips?: number[], idle?: number): Promise<PreparedM2> {
+	const key = `${fdid}:${stand ? 1 : 0}:${clips?.join('.') ?? ''}:${idle ?? ''}`;
 	let entry = preparedM2.get(key);
 	if (entry) {
 		// Refresh its place in the least-recently-used order.
@@ -311,12 +327,13 @@ function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Ui
 		const v = new DataView(vertices.buffer, vertices.byteOffset, vertices.byteLength);
 		// Bones and sequences in a .skel file of their own (the goblins), else in the model.
 		const skeleton = (m2.skelFdid && storage.status(m2.skelFdid) === 'ok' && skelSkeleton(await storage.readFile(m2.skelFdid), bytes, m2.md20)) || m2Skeleton(bytes, m2.md20);
-		// Stand and Walk, or the clips asked for, may be kept in .anim files.
-		const external = await readAnimFiles(storage, skeleton, skeleton.animFiles ?? m2.animFiles, clips ?? [ANIM.Stand, ANIM.Walk]);
+		// Stand and Walk (and a chosen idle), or the clips asked for, may be kept in .anim files.
+		const animFiles = skeleton.animFiles ?? m2.animFiles;
+		const external = await readAnimFiles(storage, skeleton, animFiles, clips ?? [ANIM.Stand, ANIM.Walk, ...(idle ? [idle] : [])]);
 		// Moving models are skinned on the GPU from bind space; still ones are posed here once.
 		// Creatures (posed standing) also get their walk, for those that roam.
-		const animation = clips ? sequenceAnimation(skeleton, clips, external) : standAnimation(skeleton, stand, external);
-		const bones = !animation && stand ? standPose(skeleton, external) : null;
+		const animation = clips ? sequenceAnimation(skeleton, clips, external) : standAnimation(skeleton, stand, external, idle);
+		const bones = !animation && stand ? standPose(skeleton, external, idle) : null;
 		const boneIndex = animation ? new Uint16Array(n * 4) : null;
 		const boneWeight = animation ? new Uint8Array(n * 4) : null;
 		for (let i = 0; i < n; i++) {
@@ -344,6 +361,7 @@ function prepareM2(storage: CascStorage, fdid: number, stand: boolean, file?: Ui
 			// Animated bodies still need the resting frames, for held items' particles.
 			attachments: attachmentPoints(skeleton, bones ?? (animation ? standPose(skeleton, external) : null)), animation, boneIndex, boneWeight,
 			emitters: parseParticleEmitters(bytes, m2.md20, m2.textures.map((t) => t.fdid), skeleton),
+			sequences: safeSequences(skeleton, animFiles, (f) => storage.status(f) === 'ok'),
 		};
 	})();
 	entry.catch(() => preparedM2.delete(key));
@@ -415,8 +433,13 @@ function dressM2(prepared: PreparedM2, options: M2Options) {
 
 const brokenGear = new Set<number>();
 
+/** The sequences a model can idle in (AnimationData IDs), for the editor's idle picker (spec 7.9.1). */
+export async function m2Sequences(storage: CascStorage, fdid: number, options: M2Options = {}): Promise<number[]> {
+	return (await prepareM2(storage, fdid, !!options.stand, undefined, options.clips, options.idle)).sequences;
+}
+
 export async function loadM2(storage: CascStorage, fdid: number, options: M2Options = {}, file?: Uint8Array): Promise<ModelData> {
-	const prepared = await prepareM2(storage, fdid, !!options.stand, file, options.clips);
+	const prepared = await prepareM2(storage, fdid, !!options.stand, file, options.clips, options.idle);
 	const animated = prepared.animation !== null;
 	// rest: where the part sits in the resting pose, for its particle emitters.
 	const parts: { prepared: PreparedM2; batches: ModelBatch[]; transform: Mat4 | null; rest: Mat4 | null; bone: number }[] = [
@@ -517,7 +540,7 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 		radius: prepared.m2.bounds.radius || boundingRadius(positions), height: topOf(positions, packed.indices, packed.batches),
 		// The bone data is shared by every look of this model, so it's keyed for reuse on the GPU.
 		animation: anim && boneIndex && boneWeight
-			? { key: `m2:${fdid}${options.clips ? ':clips' : ''}`, bones: anim.bones, clips: anim.clips, data: anim.data.slice(), boneIndex, boneWeight }
+			? { key: `m2:${fdid}${options.clips ? `:clips:${options.clips.join('.')}` : options.idle ? `:idle:${options.idle}` : ''}`, bones: anim.bones, clips: anim.clips, data: anim.data.slice(), boneIndex, boneWeight }
 
 			: undefined,
 		emitters: emitters.length ? emitters : undefined,

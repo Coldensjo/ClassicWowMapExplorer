@@ -11,7 +11,8 @@ import { NpcBrowser, presetThumbKey } from './npcBrowser';
 import { NpcEditor } from './npcEditor';
 import type { NpcAsset } from './npcs';
 import { PresetLibrary } from '../scene/presetLibrary';
-import { SCENE_WEATHERS, type NpcPreset } from '../scene/types';
+import { SCENE_WEATHERS, type NpcPreset, type PlacedNpc } from '../scene/types';
+import { animationName } from '../formats/animationNames';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -79,6 +80,10 @@ export class EditorPanels {
 	/** Made when the NPCs tool first opens (spec 7.9). */
 	private npcBrowser: NpcBrowser | null = null;
 	private npcEditor: NpcEditor | null = null;
+	/** The sequences each NPC model can idle in (spec 7.9.1), by model, asked for once. */
+	private readonly idleLists = new Map<string, Promise<number[]>>();
+	/** Which fill of the idle select is current, so a slower earlier one doesn't replace it. */
+	private idleSerial = 0;
 	private readonly presets = new PresetLibrary();
 
 	constructor(
@@ -422,6 +427,7 @@ export class EditorPanels {
 			if (active !== $('sel-npc-subname')) $<HTMLInputElement>('sel-npc-subname').value = npcs.every((n) => n.subName === npc.subName) ? npc.subName ?? '' : '';
 			if (active !== $('sel-npc-facing')) $<HTMLInputElement>('sel-npc-facing').value = String(Math.round(((npc.facing % 360) + 360) % 360));
 			if (active !== $('sel-npc-scale')) $<HTMLInputElement>('sel-npc-scale').value = String(Math.round(npc.scale * 100) / 100);
+			this.syncNpcIdle(npcs);
 			const picked = objects.npcPlace.asset;
 			$<HTMLButtonElement>('sel-npc-appearance').disabled = !picked;
 			$('sel-npc-appearance').title = picked ? `Give the selected NPC${npcs.length === 1 ? '' : 's'} the look picked in the NPCs tab: ${picked.label}` : 'Pick a creature or custom NPC in the NPCs tab first';
@@ -458,6 +464,54 @@ export class EditorPanels {
 
 	// ---- NPCs (spec 7.9) ----
 
+	/**
+	 * The idle select (spec 7.9.1): the sequences the selected NPCs' model has, by name, Stand
+	 * first, with the chosen one selected. Offered only while every selected NPC shares one model,
+	 * since each model has sequences of its own.
+	 */
+	private syncNpcIdle(npcs: PlacedNpc[]): void {
+		const select = $<HTMLSelectElement>('sel-npc-idle');
+		const layer = this.editor.objects.npcs;
+		const npc = npcs[npcs.length - 1];
+		const model = layer.modelOf(npc.appearance);
+		const key = model ? `${model.kind}:${model.fdid}` : null;
+		const shared = model !== null && npcs.every((n) => {
+			const m = layer.modelOf(n.appearance);
+			return m !== null && m.kind === model.kind && m.fdid === model.fdid;
+		});
+		// -1: the selection idles in more than one way.
+		const idle = npcs.every((n) => (n.idle ?? 0) === (npc.idle ?? 0)) ? npc.idle ?? 0 : -1;
+		const serial = ++this.idleSerial;
+		const show = (options: HTMLOptionElement[], enabled: boolean) => {
+			select.replaceChildren(...options);
+			select.disabled = !enabled;
+		};
+		if (!shared || !model) {
+			show([new Option(key ? 'Varies by model' : 'Model not in this scene', '')], false);
+			return;
+		}
+		let list = this.idleLists.get(key!);
+		if (!list) {
+			list = this.storage.npcSequences(model.kind, model.fdid).catch((e) => {
+				this.idleLists.delete(key!);
+				this.editor.onNotice(`The model's animations couldn't be read: ${e instanceof Error ? e.message : e}`);
+				return [];
+			});
+			this.idleLists.set(key!, list);
+		}
+		show([new Option('Loading…', String(idle))], false);
+		void list.then((ids) => {
+			if (serial !== this.idleSerial) return;
+			const named = ids.filter((id) => id !== 0).map((id) => ({ id, name: animationName(id) })).sort((a, b) => a.name.localeCompare(b.name));
+			const options = [new Option('Stand (default)', '0'), ...named.map((n) => new Option(n.name, String(n.id)))];
+			// A chosen sequence this model turns out to lack (the look was changed since) still shows, so it can be seen and reset.
+			if (idle > 0 && !ids.includes(idle)) options.push(new Option(`${animationName(idle)} (not in this model, stands instead)`, String(idle)));
+			if (idle < 0) options.unshift(new Option('Varies', '-1'));
+			show(options, true);
+			select.value = String(idle);
+		});
+	}
+
 	private wireNpcs(): void {
 		const settings = this.editor.objects.npcPlace;
 		for (const mode of ['place', 'select'] as const) {
@@ -472,6 +526,11 @@ export class EditorPanels {
 		this.listen($('sel-npc-subname'), 'change', names);
 		this.listen($('sel-npc-facing'), 'change', () => objects.setNpcFacing(Number($<HTMLInputElement>('sel-npc-facing').value) || 0));
 		this.listen($('sel-npc-scale'), 'change', () => objects.setNpcScale(Number($<HTMLInputElement>('sel-npc-scale').value) || 1));
+		this.listen($('sel-npc-idle'), 'change', () => {
+			const select = $<HTMLSelectElement>('sel-npc-idle');
+			const id = Number(select.value) || 0;
+			objects.setNpcIdle(id, id ? animationName(id) : 'Stand');
+		});
 		this.listen($('sel-npc-appearance'), 'click', () => {
 			const picked = objects.npcPlace.asset;
 			if (picked) objects.setNpcAppearance(picked.appearance, picked.label);

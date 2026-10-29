@@ -451,6 +451,7 @@ export function validNpcs(npcs: PlacedNpc[], presets: NpcPreset[]): PlacedNpc[] 
 			facing: n.facing,
 			scale: n.scale,
 			animation: 'idle',
+			...(Number.isInteger(n.idle) && n.idle! > 0 ? { idle: n.idle } : {}),
 			...(n.locked === true ? { locked: true } : {}),
 			...(typeof n.group === 'string' && n.group ? { group: n.group } : {}),
 		};

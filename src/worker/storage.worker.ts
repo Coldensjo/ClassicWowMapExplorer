@@ -71,6 +71,9 @@ const api: AsyncStorageApi = {
 	async loadModels(models) {
 		return requireWorld().loadModels(models);
 	},
+	async npcSequences(kind, fdid) {
+		return requireWorld().npcSequences(kind, fdid);
+	},
 	async listCreatureDisplays() {
 		return requireWorld().listCreatureDisplays();
 	},

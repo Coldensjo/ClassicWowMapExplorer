@@ -82,8 +82,12 @@ class ModelEntry {
 	unusedSince = 0;
 	readonly onReady: ((entry: ModelEntry) => void)[] = [];
 
-	constructor(readonly kind: Kind, readonly fdid: number) {}
+	/** idle: the sequence NPCs of this entry loop in place of Stand (an AnimationData ID), 0 for Stand. */
+	constructor(readonly kind: Kind, readonly fdid: number, readonly idle = 0) {}
 }
+
+/** The key a model is kept under: its kind and file (or display, or handle), and for NPCs their idle sequence. */
+const modelId = (kind: Kind, fdid: number, idle = 0) => (idle ? `${kind}:${fdid}@${idle}` : `${kind}:${fdid}`);
 
 /** A placed object; objects crossing tile borders are listed by several tiles. */
 interface PlacedObject {
@@ -266,11 +270,11 @@ export class ObjectManager {
 	 * if it's placed already. Buildings bring their doodads along: set 0 plus the chosen set, as the
 	 * client shows them (spec 7.8). Shown at any distance until removeLoose.
 	 */
-	placeLoose(key: string, kind: Kind, fdid: number, matrix: THREE.Matrix4, doodadSet = 0): void {
+	placeLoose(key: string, kind: Kind, fdid: number, matrix: THREE.Matrix4, doodadSet = 0, idle = 0): void {
 		const object = this.loose.get(key);
 		if (!object) {
 			const own = matrix.clone();
-			const placed: LooseObject = { matrix: own, part: this.addInstance(kind, fdid, key, own), doodads: [] };
+			const placed: LooseObject = { matrix: own, part: this.addInstance(kind, fdid, key, own, idle), doodads: [] };
 			this.loose.set(key, placed);
 			if (kind === 'wmo') {
 				this.whenReady('wmo', fdid, (entry) => {
@@ -318,8 +322,8 @@ export class ObjectManager {
 		this.moved.add(entry);
 	}
 
-	private addInstance(kind: Kind, fdid: number, key: string, matrix: THREE.Matrix4): { entry: ModelEntry; key: string } {
-		const entry = this.entry(kind, fdid);
+	private addInstance(kind: Kind, fdid: number, key: string, matrix: THREE.Matrix4, idle = 0): { entry: ModelEntry; key: string } {
+		const entry = this.entry(kind, fdid, idle);
 		entry.instances.set(key, matrix);
 		entry.dirty = true;
 		return { entry, key };
@@ -329,11 +333,11 @@ export class ObjectManager {
 		part.entry.instances.delete(part.key);
 		part.entry.dirty = true;
 	}
-	private entry(kind: Kind, fdid: number): ModelEntry {
-		const id = `${kind}:${fdid}`;
+	private entry(kind: Kind, fdid: number, idle = 0): ModelEntry {
+		const id = modelId(kind, fdid, idle);
 		let entry = this.models.get(id);
 		if (!entry) {
-			entry = new ModelEntry(kind, fdid);
+			entry = new ModelEntry(kind, fdid, idle);
 			this.models.set(id, entry);
 			this.queue.push(entry);
 		}
@@ -429,7 +433,7 @@ export class ObjectManager {
 		for (const e of batch) e.state = 'loading';
 		try {
 			const start = performance.now();
-			const results = await this.storage.loadModels(batch.map((e) => ({ fdid: e.fdid, kind: e.kind })));
+			const results = await this.storage.loadModels(batch.map((e) => ({ fdid: e.fdid, kind: e.kind, ...(e.idle ? { idle: e.idle } : {}) })));
 			perf.log('model', `read ${batch.length} models in ${(performance.now() - start).toFixed(0)} ms (${this.queue.length} queued)`);
 			await Promise.all(batch.map((entry, i) => this.build(entry, results[i])));
 		} catch (e) {
@@ -874,26 +878,26 @@ export class ObjectManager {
 	}
 
 	/** Where a model's load stands; undefined for one never asked for. */
-	modelState(kind: Kind, fdid: number): ModelEntry['state'] | undefined {
-		return this.models.get(`${kind}:${fdid}`)?.state;
+	modelState(kind: Kind, fdid: number, idle = 0): ModelEntry['state'] | undefined {
+		return this.models.get(modelId(kind, fdid, idle))?.state;
 	}
 
 	/** Whether a model could not be loaded (not in the client, or nothing to draw): the editor shows a placeholder. */
-	modelFailed(kind: Kind, fdid: number): boolean {
-		return this.models.get(`${kind}:${fdid}`)?.state === 'failed';
+	modelFailed(kind: Kind, fdid: number, idle = 0): boolean {
+		return this.models.get(modelId(kind, fdid, idle))?.state === 'failed';
 	}
 
 	/** Gear a custom NPC's model left off because the client lacks it (ModelData.missingGear), once loaded. */
-	missingGear(kind: Kind, fdid: number): string[] {
-		return this.models.get(`${kind}:${fdid}`)?.data?.missingGear ?? [];
+	missingGear(kind: Kind, fdid: number, idle = 0): string[] {
+		return this.models.get(modelId(kind, fdid, idle))?.data?.missingGear ?? [];
 	}
 
 	/**
 	 * A loaded model's local bounds and (for WMOs) its doodad set names, for the editor's selection
 	 * box and properties; null until the model is ready.
 	 */
-	modelInfo(kind: Kind, fdid: number): { box: THREE.Box3; doodadSets: string[] } | null {
-		const entry = this.models.get(`${kind}:${fdid}`);
+	modelInfo(kind: Kind, fdid: number, idle = 0): { box: THREE.Box3; doodadSets: string[] } | null {
+		const entry = this.models.get(modelId(kind, fdid, idle));
 		if (!entry?.geometry || entry.state !== 'ready') return null;
 		if (!entry.geometry.boundingBox) entry.geometry.computeBoundingBox();
 		return { box: entry.geometry.boundingBox!, doodadSets: (entry.data?.doodadSets ?? []).map((s) => s.name) };

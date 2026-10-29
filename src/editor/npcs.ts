@@ -77,10 +77,19 @@ export class SceneNpcs {
 	}
 
 	/** The model an appearance draws with, or null when its preset isn't in the scene. */
-	modelOf(appearance: NpcAppearance): { kind: ModelKind; fdid: number } | null {
+	modelOf(appearance: NpcAppearance): { kind: 'creature' | 'npcPreset'; fdid: number } | null {
 		if (appearance.kind === 'creature') return { kind: 'creature', fdid: appearance.displayId };
 		const preset = this.model.preset(appearance.presetId);
 		return preset ? { kind: 'npcPreset', fdid: this.handle(preset) } : null;
+	}
+
+	/**
+	 * The manager entry an NPC draws from: its model looping its chosen idle sequence (spec 7.9.1),
+	 * or null when its preset isn't in the scene. NPCs of one look and idle share one entry.
+	 */
+	private entryOf(n: PlacedNpc): { kind: ModelKind; fdid: number; idle: number } | null {
+		const m = this.modelOf(n.appearance);
+		return m ? { ...m, idle: n.idle ?? 0 } : null;
 	}
 
 	/**
@@ -109,16 +118,16 @@ export class SceneNpcs {
 	}
 
 	private placedKey(n: PlacedNpc): string | null {
-		const m = this.modelOf(n.appearance);
-		return m ? `${m.kind}:${m.fdid}` : null;
+		const m = this.entryOf(n);
+		return m ? `${m.kind}:${m.fdid}@${m.idle}` : null;
 	}
 
 	spawn(n: PlacedNpc): void {
 		if (!this.visibleAt(n.position[0], n.position[2])) return;
-		const m = this.modelOf(n.appearance);
+		const m = this.entryOf(n);
 		if (!m) return;
-		this.manager.placeLoose(n.id, m.kind, m.fdid, this.matrix(n));
-		this.spawned.set(n.id, `${m.kind}:${m.fdid}`);
+		this.manager.placeLoose(n.id, m.kind, m.fdid, this.matrix(n), 0, m.idle);
+		this.spawned.set(n.id, this.placedKey(n)!);
 	}
 
 	despawn(id: string): void {
@@ -127,7 +136,7 @@ export class SceneNpcs {
 		this.spawned.delete(id);
 	}
 
-	/** Moves an NPC's instance; a changed appearance re-places it as the new model. */
+	/** Moves an NPC's instance; a changed appearance or idle sequence re-places it as the new model. */
 	move(n: PlacedNpc): void {
 		const visible = this.visibleAt(n.position[0], n.position[2]);
 		const key = this.placedKey(n);
@@ -140,8 +149,8 @@ export class SceneNpcs {
 			this.spawn(n);
 			return;
 		}
-		const m = this.modelOf(n.appearance)!;
-		this.manager.placeLoose(n.id, m.kind, m.fdid, this.matrix(n));
+		const m = this.entryOf(n)!;
+		this.manager.placeLoose(n.id, m.kind, m.fdid, this.matrix(n), 0, m.idle);
 	}
 
 	/** Spawns NPCs whose terrain streamed in and removes those whose terrain streamed out. */
@@ -159,14 +168,14 @@ export class SceneNpcs {
 
 	/** The NPC's model bounds in its own space, once loaded; null until then. */
 	modelBox(n: PlacedNpc): THREE.Box3 | null {
-		const m = this.modelOf(n.appearance);
-		return m ? this.manager.modelInfo(m.kind, m.fdid)?.box ?? null : null;
+		const m = this.entryOf(n);
+		return m ? this.manager.modelInfo(m.kind, m.fdid, m.idle)?.box ?? null : null;
 	}
 
 	/** Whether the NPC's model failed to load (its display or race isn't in the client), so a placeholder stands in. */
 	isMissing(n: PlacedNpc): boolean {
-		const m = this.modelOf(n.appearance);
-		return !m || this.manager.modelFailed(m.kind, m.fdid);
+		const m = this.entryOf(n);
+		return !m || this.manager.modelFailed(m.kind, m.fdid, m.idle);
 	}
 
 	/**
@@ -179,15 +188,15 @@ export class SceneNpcs {
 		const gear = new Set<string>();
 		for (const n of this.model.npcs) {
 			if (!this.spawned.has(n.id)) continue;
-			const m = this.modelOf(n.appearance);
+			const m = this.entryOf(n);
 			if (!m) {
 				missing++;
 				continue;
 			}
-			const state = this.manager.modelState(m.kind, m.fdid);
+			const state = this.manager.modelState(m.kind, m.fdid, m.idle);
 			if (state === 'queued' || state === 'loading') return null;
 			if (state === 'failed' || state === undefined) missing++;
-			for (const g of this.manager.missingGear(m.kind, m.fdid)) gear.add(g);
+			for (const g of this.manager.missingGear(m.kind, m.fdid, m.idle)) gear.add(g);
 		}
 		return { missing, gear: [...gear] };
 	}

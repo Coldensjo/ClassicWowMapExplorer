@@ -191,6 +191,12 @@ export interface PlacedNpc {
 	scale: number;
 	/** MVP: idle only; reserved for later behaviors. */
 	animation: 'idle';
+	/**
+	 * The sequence played while idle, as an AnimationData ID the model has (Stand, EmoteSitGround,
+	 * Sleep, ReadyUnarmed...), looped; left out for the model's Stand. A sequence the model turns
+	 * out to lack plays Stand instead.
+	 */
+	idle?: number;
 	locked?: boolean;
 	group?: string;
 }

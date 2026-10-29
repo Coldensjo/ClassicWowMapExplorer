@@ -39,8 +39,13 @@ export interface StorageApi {
 	listCopyMaps(): CopyMap[];
 	/** One source tile's terrain, water and placements for Copy from world (spec 6.5). */
 	loadCopyTile(wdtFdid: number, x: number, y: number): CopyTile;
-	/** Models to draw; NPCs by creature display ID ('creature') or preset handle ('npcPreset', see defineNpcPreset). */
-	loadModels(models: { fdid: number; kind: ModelKind }[]): (ModelData | null)[];
+	/**
+	 * Models to draw; NPCs by creature display ID ('creature') or preset handle ('npcPreset', see
+	 * defineNpcPreset), looping the idle sequence given (an AnimationData ID) in place of Stand.
+	 */
+	loadModels(models: { fdid: number; kind: ModelKind; idle?: number }[]): (ModelData | null)[];
+	/** The sequences an NPC's model can idle in (AnimationData IDs), for the idle picker (spec 7.9.1). */
+	npcSequences(kind: 'creature' | 'npcPreset', fdid: number): number[];
 	/** Every creature display with a model, for the NPCs tab (spec 7.9.2). */
 	listCreatureDisplays(): CreatureDisplaySummary[];
 	/** The playable race and sex models the custom NPC editor can dress (spec 7.9.3). */

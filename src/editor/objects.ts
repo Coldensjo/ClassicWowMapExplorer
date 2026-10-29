@@ -65,12 +65,14 @@ interface Snapshot {
 	name?: string;
 	subName?: string;
 	appearance?: NpcAppearance;
+	/** NPCs: the idle sequence chosen (spec 7.9.1); undefined for Stand. */
+	idle?: number;
 }
 
 function snapshot(e: Entity): Snapshot {
 	if (e.kind === 'npc') {
 		const n = e.n;
-		return { id: n.id, npc: true, position: [...n.position] as Vec3, rotation: [0, n.facing, 0], scale: n.scale, locked: n.locked, group: n.group, name: n.name, subName: n.subName, appearance: structuredClone(n.appearance) };
+		return { id: n.id, npc: true, position: [...n.position] as Vec3, rotation: [0, n.facing, 0], scale: n.scale, locked: n.locked, group: n.group, name: n.name, subName: n.subName, appearance: structuredClone(n.appearance), idle: n.idle };
 	}
 	const o = e.o;
 	return { id: o.id, npc: false, position: [...o.position] as Vec3, rotation: [...o.rotation] as Vec3, scale: o.scale, doodadSet: o.doodadSet, nameSet: o.nameSet, locked: o.locked, group: o.group };
@@ -87,6 +89,7 @@ function sameSnapshot(a: Snapshot, b: Snapshot): boolean {
 		a.group === b.group &&
 		a.name === b.name &&
 		a.subName === b.subName &&
+		a.idle === b.idle &&
 		JSON.stringify(a.appearance) === JSON.stringify(b.appearance)
 	);
 }
@@ -751,7 +754,7 @@ export class SceneObjects {
 			const extra = s as Snapshot & { kind?: 'm2' | 'wmo'; fdid?: number };
 			if (s.npc) {
 				if (!s.appearance) return [];
-				return [{ kind: 'npc', n: { id: s.id, appearance: s.appearance, position: s.position, facing: s.rotation[1], scale: s.scale, animation: 'idle', name: s.name, subName: s.subName, group: s.group } }];
+				return [{ kind: 'npc', n: { id: s.id, appearance: s.appearance, position: s.position, facing: s.rotation[1], scale: s.scale, animation: 'idle', name: s.name, subName: s.subName, group: s.group, ...(s.idle ? { idle: s.idle } : {}) } }];
 			}
 			if (!extra.kind || !extra.fdid) return [];
 			return [{ kind: 'object', o: { id: s.id, kind: extra.kind, fdid: extra.fdid, position: s.position, rotation: s.rotation, scale: s.scale, doodadSet: s.doodadSet, nameSet: s.nameSet, group: s.group } }];
@@ -851,6 +854,13 @@ export class SceneObjects {
 		});
 	}
 
+	/** Sets the sequence the selected NPCs idle in (an AnimationData ID; 0 for the model's Stand), spec 7.9.1. */
+	setNpcIdle(idle: number, label: string): void {
+		this.editSelection(`Idle as ${label}`, (after, e) => {
+			if (e.kind === 'npc') after.idle = idle > 0 ? idle : undefined;
+		});
+	}
+
 	/** Preset edits re-dress every NPC wearing it (the model is re-placed as the new look). */
 	refreshPreset(presetId: string): void {
 		for (const n of this.model.npcs) {
@@ -926,6 +936,8 @@ export class SceneObjects {
 					n.group = snap.group;
 					n.name = snap.name;
 					n.subName = snap.subName;
+					if (snap.idle) n.idle = snap.idle;
+					else delete n.idle;
 					if (snap.appearance) n.appearance = structuredClone(snap.appearance);
 					this.npcs.move(n);
 				} else {

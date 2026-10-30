@@ -1,0 +1,118 @@
+/*
+ * Asset tile and asset grid. Spec: specs/asset-tile.md.
+ *
+ * .ds-asset-tile is a <button> holding a square picture and a one-line label: a texture, a
+ * model, a piece of gear. The picture is whatever the caller draws into (a canvas or an img);
+ * empty, it shows the inset fill. Hover lays a wash over the picture; the selected tile
+ * (aria-pressed="true") gets an accent border, the selection wash and a bold accent label.
+ * .ds-asset-grid lays tiles out in --asset-grid-columns equal columns.
+ */
+.ds-asset-tile {
+	--asset-tile-fg: var(--color-text-muted);
+	--asset-tile-fg-selected: var(--color-accent);
+	--asset-tile-bg: var(--color-bg-surface);
+	--asset-tile-border-selected: var(--color-accent);
+	--asset-tile-border-selected-width: 2px;
+	--asset-tile-hover-wash: var(--color-bg-hover);
+	--asset-tile-selected-wash: var(--color-bg-selected);
+	--asset-tile-radius: var(--radius-lg);
+	--asset-tile-gap: var(--space-2);
+
+	display: flex;
+	flex-direction: column;
+	gap: var(--asset-tile-gap);
+	box-sizing: border-box;
+	inline-size: 100%;
+	min-inline-size: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--asset-tile-fg);
+	font: var(--type-label-light);
+	text-align: center;
+	cursor: pointer;
+	appearance: none;
+	-webkit-appearance: none;
+	outline: none;
+}
+
+.ds-asset-tile-picture {
+	position: relative;
+	aspect-ratio: 1;
+	inline-size: 100%;
+	border-radius: var(--asset-tile-radius);
+	background-color: var(--asset-tile-bg);
+	overflow: hidden;
+}
+
+.ds-asset-tile-picture > canvas,
+.ds-asset-tile-picture > img {
+	display: block;
+	inline-size: 100%;
+	block-size: 100%;
+	object-fit: cover;
+}
+
+/* The hover wash (::before) and the selection wash and border (::after) are layers over the
+   picture, so nothing moves by a pixel. */
+.ds-asset-tile-picture::before,
+.ds-asset-tile-picture::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	pointer-events: none;
+	transition: background-color var(--duration-fast) var(--easing-out);
+}
+
+@media (hover: hover) {
+	.ds-asset-tile:not(:disabled):hover .ds-asset-tile-picture::before {
+		background-color: var(--asset-tile-hover-wash);
+	}
+}
+
+.ds-asset-tile[aria-pressed='true'] .ds-asset-tile-picture::after {
+	background-color: var(--asset-tile-selected-wash);
+	box-shadow: inset 0 0 0 var(--asset-tile-border-selected-width) var(--asset-tile-border-selected);
+}
+
+.ds-asset-tile-label {
+	min-inline-size: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ds-asset-tile[aria-pressed='true'] .ds-asset-tile-label {
+	color: var(--asset-tile-fg-selected);
+	font: var(--type-label-bold);
+}
+
+.ds-asset-tile:focus-visible .ds-asset-tile-picture {
+	outline: var(--focus-ring-width) solid var(--color-focus);
+	outline-offset: var(--focus-ring-offset);
+}
+
+.ds-asset-tile:disabled {
+	opacity: var(--opacity-disabled);
+	cursor: not-allowed;
+}
+
+/* The grid: equal columns, tiles filling them, the same gap both ways. */
+.ds-asset-grid {
+	--asset-grid-columns: 3;
+	--asset-grid-gap: var(--space-4);
+
+	display: grid;
+	grid-template-columns: repeat(var(--asset-grid-columns), minmax(0, 1fr));
+	gap: var(--asset-grid-gap);
+	align-content: start;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ds-asset-tile-picture::before,
+	.ds-asset-tile-picture::after {
+		transition: none;
+	}
+}

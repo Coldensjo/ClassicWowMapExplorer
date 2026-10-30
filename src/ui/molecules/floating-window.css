@@ -1,0 +1,162 @@
+/*
+ * Floating window. Spec: specs/floating-window.md.
+ *
+ * .ds-floating-window is a translucent, blurred panel that floats over the viewport: a header
+ * with a drag handle (three dots), a title and an expand/collapse button, a body the caller
+ * fills, and a resize grip in the bottom-right corner. Dragging the header moves it; dragging
+ * the grip resizes it; collapsed (data-collapsed) it shrinks to the header alone. Its place
+ * and size are the --window-x/y/width/height variables the factory sets on the element.
+ */
+.ds-floating-window {
+	--window-bg: var(--color-bg-panel);
+	--window-border: var(--color-bg-surface);
+	--window-blur: var(--blur-panel);
+	--window-fg: var(--color-text);
+	--window-handle: var(--color-bg-inverse);
+	--window-handle-active: var(--color-text);
+	--window-radius: var(--radius-lg);
+	--window-dot-size: 4px;
+	--window-grip-size: 24px;
+
+	position: fixed;
+	top: 0;
+	left: 0;
+	z-index: var(--z-window);
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	inline-size: var(--window-width);
+	block-size: var(--window-height);
+	max-inline-size: 100vw;
+	max-block-size: 100vh;
+	border: var(--border-width) solid var(--window-border);
+	border-radius: var(--window-radius);
+	background-color: var(--window-bg);
+	backdrop-filter: blur(var(--window-blur));
+	-webkit-backdrop-filter: blur(var(--window-blur));
+	color: var(--window-fg);
+	overflow: hidden;
+	transform: translate(var(--window-x), var(--window-y));
+}
+
+.ds-floating-window[hidden] {
+	display: none;
+}
+
+.ds-floating-window[data-collapsed] {
+	block-size: auto;
+}
+
+.ds-floating-window[data-collapsed] .ds-floating-window-body,
+.ds-floating-window[data-collapsed] .ds-floating-window-grip {
+	display: none;
+}
+
+/* The header is the drag surface: 8px above the dots, the title row, 16px below. */
+.ds-floating-window-header {
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	padding: var(--space-2) 0 var(--space-4);
+	cursor: grab;
+	touch-action: none;
+	user-select: none;
+	-webkit-user-select: none;
+	outline: none;
+}
+
+.ds-floating-window[data-dragging] .ds-floating-window-header {
+	cursor: grabbing;
+}
+
+.ds-floating-window-handle {
+	display: flex;
+	justify-content: center;
+	gap: var(--space-1-5);
+	block-size: var(--window-dot-size);
+}
+
+.ds-floating-window-handle span {
+	inline-size: var(--window-dot-size);
+	block-size: var(--window-dot-size);
+	border-radius: var(--radius-full);
+	background-color: var(--window-handle);
+	transition: background-color var(--duration-fast) var(--easing-out);
+}
+
+@media (hover: hover) {
+	.ds-floating-window-header:hover .ds-floating-window-handle span {
+		background-color: var(--window-handle-active);
+	}
+}
+
+.ds-floating-window[data-dragging] .ds-floating-window-handle span,
+.ds-floating-window-header:focus-visible .ds-floating-window-handle span {
+	background-color: var(--window-handle-active);
+}
+
+.ds-floating-window-title-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2-5);
+	min-block-size: 32px;
+	padding: 0 var(--space-4);
+}
+
+.ds-floating-window-title {
+	flex: 1 1 auto;
+	min-inline-size: 0;
+	margin: 0;
+	font: var(--type-heading-1);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ds-floating-window-title-row .ds-icon-button {
+	flex: none;
+	cursor: pointer;
+}
+
+/* The body takes the rest; the caller decides what scrolls inside it. */
+.ds-floating-window-body {
+	position: relative;
+	flex: 1 1 auto;
+	display: flex;
+	flex-direction: column;
+	min-block-size: 0;
+	border-block-start: var(--border-width) solid var(--window-border);
+	overflow: hidden;
+}
+
+.ds-floating-window-grip {
+	position: absolute;
+	right: var(--space-1);
+	bottom: var(--space-1);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	inline-size: var(--window-grip-size);
+	block-size: var(--window-grip-size);
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--window-fg);
+	cursor: nwse-resize;
+	touch-action: none;
+	outline: none;
+}
+
+.ds-floating-window-grip:focus-visible {
+	outline: var(--focus-ring-width) solid var(--color-focus);
+	outline-offset: calc(-1 * var(--focus-ring-offset));
+	border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ds-floating-window-handle span {
+		transition: none;
+	}
+}

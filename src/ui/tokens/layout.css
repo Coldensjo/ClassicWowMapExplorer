@@ -40,6 +40,7 @@
 	--easing-out: ease-out;
 
 	/* Stacking, above the page's own layers (viewer.css uses up to 40) */
+	--z-window: 50; /* floating windows (the texture browser) over the page's panels, under popovers */
 	--z-popover: 100; /* menus and select lists */
 	--z-tooltip: 110;
 	--z-toast: 120;

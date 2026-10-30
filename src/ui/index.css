@@ -34,3 +34,5 @@
 @import './molecules/swatch-picker.css';
 @import './molecules/tile.css';
 @import './molecules/mode-controller.css';
+@import './molecules/asset-tile.css';
+@import './molecules/floating-window.css';

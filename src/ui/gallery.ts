@@ -3,9 +3,12 @@
  * eyeballed without loading the game. See DESIGN_SYSTEM.md §8. Not part of the build.
  */
 import {
+	assetGrid,
+	assetTile,
 	attachTooltip,
 	bindModeShortcuts,
 	button,
+	floatingWindow,
 	grabBar,
 	icon,
 	iconButton,
@@ -18,6 +21,8 @@ import {
 	radioGroup,
 	segmentedControl,
 	select,
+	setAssetGridColumns,
+	setAssetTileSelected,
 	setInvalid,
 	showToast,
 	slider,
@@ -279,6 +284,72 @@ const status = () => el('div', { class: 'status' }, '—');
 // Loading
 {
 	section('Loading', 'loading-indicator.md', 'A CSS ring in the text colour, shown after a 300ms delay. Reduced motion stops it turning.', row(loading({ label: 'Loading models…' }), loading({ label: 'Loading', size: 48 }), loading({ label: 'Loading', size: 24 })));
+}
+
+// Asset tile and grid
+{
+	const s = status();
+	const swatch = (hue: number) => {
+		const canvas = document.createElement('canvas');
+		canvas.width = canvas.height = 64;
+		const ctx = canvas.getContext('2d')!;
+		const g = ctx.createLinearGradient(0, 0, 64, 64);
+		g.addColorStop(0, `hsl(${hue} 30% 35%)`);
+		g.addColorStop(1, `hsl(${hue + 40} 30% 20%)`);
+		ctx.fillStyle = g;
+		ctx.fillRect(0, 0, 64, 64);
+		return canvas;
+	};
+	const names = ['elwynn / elwynngrassbase01', 'elwynn / elwynndirt', 'westfall / westfallgrass', 'dun morogh / snow01', 'barrens / barrensdirt', 'durotar / durotarrocks'];
+	const grid = assetGrid(3);
+	grid.style.width = '416px';
+	let selected: HTMLElement | null = null;
+	const tiles = names.map((name, i) =>
+		assetTile({
+			label: name,
+			picture: swatch(i * 50),
+			disabled: i === 5,
+			onActivate: (e) => {
+				const root = e.currentTarget as HTMLElement;
+				if (selected) setAssetTileSelected(selected, false);
+				selected = selected === root ? null : root;
+				if (selected) setAssetTileSelected(selected, true);
+				s.textContent = selected ? `Selected: ${name}` : 'Nothing selected';
+			},
+		}),
+	);
+	setAssetTileSelected(tiles[1].root, true);
+	selected = tiles[1].root;
+	grid.append(...tiles.map((t) => t.root));
+	const columns = slider({ label: 'Columns', value: 3, min: 3, max: 5, stops: 3, showInput: false, onInput: (v) => setAssetGridColumns(grid, v) });
+	columns.root.style.width = '200px';
+	section('Asset tile', 'asset-tile.md', 'A square picture with a one-line caption; hover washes the picture, the selected tile has the accent border, wash and bold caption; the last tile is unavailable. The slider changes the grid\'s columns.', columns.root, grid, s);
+}
+
+// Floating window
+{
+	const s = status();
+	let demo: ReturnType<typeof floatingWindow> | null = null;
+	const open = button({
+		label: 'Open a demo window',
+		variant: 'primary',
+		onClick: () => {
+			if (demo) demo.dispose();
+			demo = floatingWindow({
+				title: 'Demo window',
+				defaultRect: { right: 24, y: 80, width: 360, height: 400 },
+				onCollapsedChange: (collapsed) => (s.textContent = collapsed ? 'Collapsed' : 'Expanded'),
+			});
+			const body = el('div', { style: 'padding: var(--space-4); color: var(--color-text-muted); font: var(--type-body-secondary);' });
+			body.append(
+				el('p', { style: 'margin: 0 0 var(--space-3)' }, 'Drag the header to move, the corner grip to resize, the button to collapse. Arrow keys work on the focused header and grip.'),
+				button({ label: 'Close', variant: 'outline', onClick: () => demo?.dispose() }),
+			);
+			demo.body.append(body);
+			s.textContent = 'Opened';
+		},
+	});
+	section('Floating window', 'floating-window.md', 'The frame the texture, object and NPC browsers share. It floats over the page, so open it and look to the right.', row(open), s);
 }
 
 // Icons

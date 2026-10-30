@@ -20,3 +20,5 @@ export * from './loading';
 export * from './swatch-picker';
 export * from './tile';
 export * from './mode-controller';
+export * from './asset-tile';
+export * from './floating-window';

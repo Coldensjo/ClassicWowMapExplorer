@@ -4,3 +4,4 @@
  */
 export * from './icons';
 export * from './molecules';
+export { el, append, uid } from './dom';

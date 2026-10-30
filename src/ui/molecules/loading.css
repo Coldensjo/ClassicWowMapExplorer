@@ -1,0 +1,51 @@
+/*
+ * Loading indicator. Spec: specs/loading-indicator.md.
+ *
+ * Figma holds an animated GIF; this is the spec's preferred rebuild as CSS: a ring in the
+ * text colour turning over a faint track, drawn with tokens so it is crisp at any size. It
+ * appears only after a short delay, so a fast load never flashes it, and stops turning under
+ * reduced motion.
+ */
+.ds-loading {
+	--loading-size: 124px;
+	--loading-color: var(--color-text);
+	--loading-track: var(--color-bg-inverse);
+	--loading-delay: 300ms;
+
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	inline-size: var(--loading-size);
+	block-size: var(--loading-size);
+}
+
+.ds-loading-ring {
+	box-sizing: border-box;
+	inline-size: 100%;
+	block-size: 100%;
+	border: calc(var(--loading-size) / 12) solid var(--loading-track);
+	border-top-color: var(--loading-color);
+	border-radius: 50%;
+	opacity: 0;
+	animation:
+		ds-loading-appear var(--duration-slow) var(--easing-out) var(--loading-delay) forwards,
+		ds-loading-spin 900ms linear infinite;
+}
+
+@keyframes ds-loading-appear {
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes ds-loading-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ds-loading-ring {
+		animation: ds-loading-appear var(--duration-slow) var(--easing-out) var(--loading-delay) forwards;
+	}
+}

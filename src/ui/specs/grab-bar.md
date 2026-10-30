@@ -58,8 +58,11 @@ Conventions match the other specs in this folder (Figma variable → code token 
 
 ## 4. Open questions
 
-1. What exactly does dragging do: resize the tool panel, or move/collapse the whole bottom
-   controls? Min/max sizes?
+1. ~~What exactly does dragging do: resize the tool panel, or move/collapse the whole bottom
+   controls? Min/max sizes?~~ Decided (2026-10-30, [bottom-controls.md](bottom-controls.md)
+   §1.1): dragging resizes the tool panel between 180px and the viewport's limit; a double
+   click or Enter collapses it to the mode bar. The hit area is 10px there, to keep the drawn
+   4px gaps.
 2. Is there a hover or dragging look?
 3. 47px vs 48px?
 4. Does it also need to work vertically (side panels)?

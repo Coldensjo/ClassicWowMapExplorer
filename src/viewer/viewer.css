@@ -8,6 +8,7 @@
 	--bad: #e58080;
 	/* The menu bar's height: what sits at the top of the screen goes under it. */
 	--bar: 34px;
+	--status-bar-height: 22px; /* the editor's status bar; the bottom controls sit above it */
 	font: 14px/1.45 system-ui, sans-serif;
 }
 
@@ -2345,7 +2346,214 @@ body.wow-ui {
 
 /* --- The dungeon builder: the scene library, the new-scene dialog and the editor bar. --- */
 
-#scenes, #scene-create, #npc-editor {
+#scenes, #scene-create, /* ---- The bottom controls (src/ui/specs/bottom-controls.md) ----
+   The mode controller over a grab bar over the tool panel, docked across the bottom of the
+   viewport by src/editor/bottomControls.ts, holding the active tool's modules from
+   src/editor/editorPanels.ts. Controls are molecules; tokens only. */
+#bottom-controls {
+	--dock-panel-height: 240px;
+	--dock-module-width: 320px;
+	--dock-module-min-width: 240px;
+
+	position: fixed;
+	left: 50%;
+	bottom: calc(var(--status-bar-height) + var(--space-4));
+	z-index: 30; /* over the page's panels, under the floating windows (--z-window) */
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	box-sizing: border-box;
+	inline-size: calc(100vw - 2 * var(--space-4));
+	max-inline-size: 1280px;
+	transform: translateX(-50%);
+	pointer-events: none; /* the room beside the mode bar stays the scene's */
+}
+
+#bottom-controls[hidden] {
+	display: none;
+}
+
+#bottom-controls > * {
+	pointer-events: auto;
+}
+
+.bottom-controls-grab {
+	display: flex;
+	justify-content: center;
+	inline-size: 100%;
+}
+
+/* A 10px hit area keeps the drawn 4px gaps above and below the 2px bar. */
+.bottom-controls-grab .ds-grab-bar {
+	--grab-bar-hit: 10px;
+}
+
+.bottom-controls-panel {
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	inline-size: 100%;
+	block-size: var(--dock-panel-height);
+	min-block-size: 180px;
+	border: var(--border-width) solid var(--color-bg-surface);
+	border-radius: var(--radius-lg);
+	background-color: var(--color-bg-panel);
+	backdrop-filter: blur(var(--blur-panel));
+	-webkit-backdrop-filter: blur(var(--blur-panel));
+	color: var(--color-text);
+	overflow: hidden;
+}
+
+#bottom-controls[data-collapsed] .bottom-controls-panel {
+	display: none;
+}
+
+.bottom-controls-description {
+	flex: none;
+	margin: 0;
+	padding: var(--space-3) var(--space-4);
+	border-block-end: var(--border-width) solid var(--color-bg-surface);
+	font: var(--type-body-secondary);
+	text-align: center;
+	text-wrap: balance;
+}
+
+.bottom-controls-description[hidden] {
+	display: none;
+}
+
+.bottom-controls-modules {
+	flex: 1 1 auto;
+	display: flex;
+	min-block-size: 0;
+	overflow: auto hidden;
+}
+
+.dock-module {
+	flex: 1 1 var(--dock-module-width);
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	min-inline-size: var(--dock-module-min-width);
+	max-inline-size: var(--dock-module-width);
+	min-block-size: 0;
+	border-inline-end: var(--border-width) solid var(--color-bg-surface);
+}
+
+.dock-module-header {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-block-size: 24px;
+	padding: var(--space-4);
+	border-block-end: var(--border-width) solid var(--color-bg-surface);
+}
+
+.dock-module-title {
+	flex: 1 1 auto;
+	min-inline-size: 0;
+	margin: 0;
+	font: var(--type-heading-2);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.dock-module-content {
+	position: relative;
+	flex: 1 1 auto;
+	display: flex;
+	min-block-size: 0;
+}
+
+.dock-module-body {
+	flex: 1 1 auto;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-inline-size: 0;
+	min-block-size: 0;
+	padding: var(--space-4);
+	overflow: hidden auto;
+	transition: opacity var(--duration-fast) var(--easing-out);
+}
+
+.dock-module[data-empty] .dock-module-body {
+	opacity: var(--opacity-disabled);
+}
+
+.dock-module-empty {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: var(--space-2);
+	padding: var(--space-4);
+	font: var(--type-body-secondary);
+	text-align: center;
+	text-wrap: balance;
+	pointer-events: none;
+}
+
+.dock-module-empty[hidden] {
+	display: none;
+}
+
+.dock-row {
+	display: flex;
+	gap: var(--space-3);
+}
+
+.dock-row > * {
+	flex: 1 1 0;
+	min-inline-size: 0;
+}
+
+.dock-note {
+	margin: 0;
+	color: var(--color-text-muted);
+	font: var(--type-label);
+	text-align: center;
+	text-wrap: balance;
+}
+
+/* Settings nested under a radio option: the option's hotkeys, Flatten's target height. */
+.dock-nested {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+.dock-nested[hidden] {
+	display: none;
+}
+
+/* The terms a module's help tooltip explains (Falloff, Full chunk). */
+.dock-tip-terms {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	margin: 0;
+}
+
+.dock-tip-terms dt {
+	font: var(--type-label-bold);
+}
+
+.dock-tip-terms dd {
+	margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.dock-module-body {
+		transition: none;
+	}
+}
+
+#npc-editor {
 	position: fixed;
 	inset: 0;
 	display: grid;
@@ -2488,8 +2696,8 @@ body.wow-ui {
 
 /* ---- Scene editing panels (spec 8) ---- */
 
-/* Playing (spec 7.10): the tool rail and properties panel go; the top bar and its Edit button stay put. */
-body.playing :is(#tool-rail, #tool-panel) {
+/* Playing (spec 7.10): the bottom controls go; the top bar and its Edit button stay put. */
+body.playing #bottom-controls {
 	display: none;
 }
 
@@ -2518,90 +2726,6 @@ body.playing :is(#tool-rail, #tool-panel) {
 	opacity: 0.4;
 }
 
-#tool-rail {
-	position: fixed;
-	top: calc(var(--bar) + 10px);
-	left: 10px;
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	padding: 6px;
-	background: var(--panel);
-	border: 1px solid var(--line);
-	border-radius: 8px;
-}
-
-#tool-rail button {
-	min-width: 64px;
-	text-align: center;
-}
-
-#tool-rail button.active {
-	background: var(--accent, #3a6ea5);
-	color: #fff;
-}
-
-#tool-panel {
-	position: fixed;
-	top: calc(var(--bar) + 10px);
-	right: 10px;
-	width: 240px;
-	max-height: calc(100vh - var(--bar) - 60px);
-	overflow: auto;
-	padding: 10px;
-	background: var(--panel);
-	border: 1px solid var(--line);
-	border-radius: 8px;
-}
-
-#tool-panel h3 {
-	margin: 0 0 8px;
-	font-size: 14px;
-}
-
-.tool-props {
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-}
-
-.tool-props .mode-row {
-	display: grid;
-	grid-template-columns: 1fr 1fr 1fr;
-	gap: 4px;
-}
-
-.tool-props .mode-row button.active {
-	background: var(--accent, #3a6ea5);
-	color: #fff;
-}
-
-.tool-props .prop-row {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	font-size: 13px;
-}
-
-.tool-props .prop-row input[type='range'] {
-	flex: 1;
-	min-width: 0;
-}
-
-.tool-props .prop-row input[type='number'] {
-	width: 90px;
-}
-
-.tool-props .prop-row select {
-	flex: 1;
-}
-
-.tool-props .prop-row output {
-	min-width: 44px;
-	text-align: right;
-	font-variant-numeric: tabular-nums;
-}
-
 #status-bar {
 	position: fixed;
 	left: 0;
@@ -2624,34 +2748,6 @@ body.playing :is(#tool-rail, #tool-panel) {
 #status-bar #status-fps {
 	margin-left: auto;
 	font-variant-numeric: tabular-nums;
-}
-
-.texture-list {
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-	max-height: 180px;
-	overflow: auto;
-	border: 1px solid var(--line);
-	border-radius: 6px;
-	padding: 4px;
-}
-
-.texture-list button {
-	text-align: left;
-	border: none;
-	background: none;
-	padding: 4px 6px;
-	border-radius: 4px;
-}
-
-.texture-list button.active {
-	background: var(--accent);
-	color: #fff;
-}
-
-.tool-props .paint-modes {
-	grid-template-columns: 1fr 1fr;
 }
 
 /* ---- The browser windows (spec 7.3, 7.9; src/ui/specs/texture-browser.md, object-browser.md
@@ -2942,19 +3038,6 @@ body.playing :is(#texture-browser, #object-browser, #npc-library) {
 	object-fit: contain;
 }
 
-#place-props input[type='number'] {
-	width: 64px;
-}
-
-/* The box-select rectangle dragged over the viewport (spec 7.8). */
-.select-box {
-	position: fixed;
-	z-index: 30;
-	border: 1px dashed rgba(255, 194, 75, 0.9);
-	background: rgba(255, 194, 75, 0.08);
-	pointer-events: none;
-}
-
 .texture-item span {
 	max-width: 100%;
 	overflow: hidden;
@@ -2971,25 +3054,6 @@ body.playing :is(#texture-browser, #object-browser, #npc-library) {
 .texture-item.greyed {
 	opacity: 0.35;
 }
-
-/* ---- The NPCs panel (spec 7.9): the picker is the NPC library window ---- */
-
-.tool-props .mode-row.two {
-	grid-template-columns: 1fr 1fr;
-}
-
-#sel-npc {
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-}
-
-#sel-npc input[type='text'] {
-	flex: 1;
-	min-width: 0;
-}
-
-/* ---- The custom NPC editor (spec 7.9.3) ---- */
 
 #npc-editor {
 	z-index: 40;

@@ -102,7 +102,8 @@ interface TileMesh {
 }
 
 /** The tools on the rail (spec 8). */
-export type Tool = 'sculpt' | 'paint' | 'holes' | 'water' | 'place' | 'npcs' | 'revert';
+/** The editor's tools: the bottom controls' modes (Environment has no brush; Objects is `place`) plus Revert to base for copied scenes. */
+export type Tool = 'environment' | 'sculpt' | 'paint' | 'holes' | 'water' | 'place' | 'npcs' | 'revert';
 
 /** A terrain chunk the user clicked, for the paint panel's chunk sampling (spec 7.5). */
 export interface PickedChunk {
@@ -1416,7 +1417,7 @@ export class SceneEditor {
 	/** Lays the brush ring (and the ramp's anchor ring) on the terrain. */
 	private updateRings(): void {
 		if (this.tool !== 'sculpt' || this.brush.mode !== 'ramp') this.rampStart = null;
-		const show = this.cursor !== null && !this.walker.active && !this.controls.locked && !this.objectTool;
+		const show = this.cursor !== null && !this.walker.active && !this.controls.locked && !this.objectTool && this.tool !== 'environment';
 		this.ring.visible = show;
 		const radius =
 			this.tool === 'paint' ? (this.paint.mode === 'paint' || this.paint.mode === 'erase' ? this.paint.radius : 2)
@@ -1472,7 +1473,11 @@ export class SceneEditor {
 		this.post.render(this.renderer, this.scene, this.camera);
 	}
 
-	/** Starts the active terrain tool at the cursor (Shift or Cmd + left button); lower turns Raise/Lower down. */
+	/**
+	 * Starts the active terrain tool at the cursor (Shift or Cmd + left button). `lower` is the
+	 * Cmd variant: it turns Raise/Lower down, fills holes instead of cutting them, and dries water
+	 * instead of laying it, as the tool panel's hotkeys list them.
+	 */
 	private beginStroke(lower: boolean): void {
 		if (this.walker.active || this.controls.locked || this.objectTool) return;
 		if (!this.cursor) return;
@@ -1491,10 +1496,12 @@ export class SceneEditor {
 			return;
 		}
 		if (this.tool === 'holes') {
+			this.holes.mode = lower ? 'fill' : 'cut';
 			this.stroke = new HoleStroke(this.model, this.holes);
 			return;
 		}
 		if (this.tool === 'water') {
+			if (this.water.mode !== 'flood') this.water.mode = lower ? 'remove' : 'add';
 			const stroke = new WaterStroke(this.model, this.water, this.cursor.height);
 			if (this.water.mode === 'flood') {
 				// Flood fills once per click, like the ramp.
@@ -1656,6 +1663,7 @@ export class SceneEditor {
 				if (e.code === 'KeyC') this.objects.copySelection();
 				else if (e.code === 'KeyV') this.objects.paste();
 				else if (e.code === 'KeyD') this.objects.duplicateSelection();
+				else if (e.code === 'Space') this.objects.dropToGround();
 				else return;
 				e.preventDefault();
 				return;

@@ -1,82 +1,136 @@
 import type { AsyncStorageApi } from '../worker/protocol';
-import type { HoleMode, WaterMode } from './cells';
 import type { PaintMode } from './paint';
 import type { RevertChannel } from './revert';
-import type { SceneEditor } from './sceneEditor';
+import type { SceneEditor, Tool } from './sceneEditor';
 import type { Falloff, SculptMode } from './sculpt';
+import type { Entity } from './objects';
 import { ModelBrowser } from './modelBrowser';
 import { TextureBrowser } from './textureBrowser';
 import { NpcLibrary, presetThumbKey } from './npcLibrary';
 import { NpcEditor } from './npcEditor';
 import type { NpcAsset } from './npcs';
 import { PresetLibrary } from '../scene/presetLibrary';
-import { SCENE_WEATHERS, type NpcPreset, type PlacedNpc } from '../scene/types';
+import { NPC_POSES, SCENE_WEATHERS, type NpcPose, type NpcPreset, type PlacedNpc, type PlacedObject } from '../scene/types';
 import { animationName } from '../formats/animationNames';
-import { NPC_POSES, type NpcPose } from '../scene/types';
 import { POSE_LABELS, poseSequences } from '../scene/npcPoses';
+import { BottomControls, dockModule, dockNote, dockRow, setModuleEmpty, type DockModule } from './bottomControls';
+import {
+	attachTooltip,
+	button,
+	el,
+	fieldShell,
+	hotkeyList,
+	radioGroup,
+	select,
+	setChecked,
+	setDisabled,
+	setHotkeyRows,
+	setRadioValue,
+	setSelectOptions,
+	setSelectValue,
+	setSliderValue,
+	setStepperValue,
+	setTextValue,
+	slider,
+	stepper,
+	textInput,
+	toggleSwitch,
+	type HotkeyRow,
+	type ModeId,
+	type RadioGroupHandle,
+	type SelectHandle,
+	type SelectOption,
+} from '../ui';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-/** Tools on the rail (spec 8), with their number keys. */
-const TOOLS: { id: string; key: string; ready: boolean }[] = [
-	{ id: 'sculpt', key: 'Digit1', ready: true },
-	{ id: 'paint', key: 'Digit2', ready: true },
-	{ id: 'holes', key: 'Digit3', ready: true },
-	{ id: 'water', key: 'Digit4', ready: true },
-	{ id: 'place', key: 'Digit5', ready: true },
-	{ id: 'npcs', key: 'Digit6', ready: true },
-	{ id: 'revert', key: 'Digit7', ready: true },
+/** The mode bar's chips and the editor tools they drive; Revert to base (copied scenes) has no chip. */
+const TOOL_OF: Record<ModeId, Tool> = { environment: 'environment', sculpt: 'sculpt', paint: 'paint', water: 'water', holes: 'holes', objects: 'place', npcs: 'npcs' };
+
+function modeOf(tool: Tool): ModeId | null {
+	if (tool === 'place') return 'objects';
+	if (tool === 'revert') return null;
+	return tool;
+}
+
+/** The platform's command key, as the hotkey lists name it; the editor accepts both. */
+const MOD = /Mac|iPhone|iPad/i.test(navigator.platform) ? 'Cmd' : 'Ctrl';
+
+const SHIFT_CLICK = (label: string): HotkeyRow => ({ label, keys: ['Shift'], tail: 'click' });
+const MOD_CLICK = (label: string): HotkeyRow => ({ label, keys: [MOD], tail: 'click' });
+const SIZE_KEYS: HotkeyRow[] = [
+	{ label: '+ size', keys: [']'] },
+	{ label: '- size', keys: ['['] },
+];
+const STRENGTH_KEYS: HotkeyRow[] = [
+	{ label: '+ strength', keys: ['Shift', ']'] },
+	{ label: '- strength', keys: ['Shift', '['] },
+];
+const OPACITY_KEYS: HotkeyRow[] = [
+	{ label: '+ opacity', keys: [MOD, ']'] },
+	{ label: '- opacity', keys: [MOD, '['] },
+];
+const HEIGHT_KEYS: HotkeyRow[] = [
+	{ label: '+ height', keys: ['Shift', ']'] },
+	{ label: '- height', keys: ['Shift', '['] },
+];
+/** The Objects and NPCs tools' editing keys (spec 8), as sceneEditor.ts binds them. */
+const OBJECT_KEYS: HotkeyRow[] = [
+	{ label: 'Move gizmo', keys: ['W'] },
+	{ label: 'Rotate gizmo', keys: ['E'] },
+	{ label: 'Scale gizmo', keys: ['R'] },
+	{ label: 'Add to selection', keys: ['Shift'], tail: 'click' },
+	{ label: 'Box select', keys: ['Shift'], tail: 'drag' },
+	{ label: 'Drop to ground', keys: [MOD, 'Space'] },
+	{ label: 'Duplicate', keys: [MOD, 'D'] },
+	{ label: 'Delete', keys: ['Del'] },
 ];
 
-const NPC_HINTS: Record<'place' | 'select', string> = {
-	place: 'Pick an NPC in the NPC library, then click the ground to place it facing you. It snaps to the ground.',
-	select: 'Click an NPC or object to select it; Shift+click adds, Shift+drag box-selects. W/E/R move, turn and scale; Del deletes.',
+const SCULPT_KEYS: Record<SculptMode, HotkeyRow[]> = {
+	raise: [SHIFT_CLICK('Raise'), MOD_CLICK('Lower')],
+	lower: [SHIFT_CLICK('Raise'), MOD_CLICK('Lower')],
+	smooth: [SHIFT_CLICK('Smooth')],
+	flatten: [SHIFT_CLICK('Flatten')],
+	noise: [SHIFT_CLICK('Add noise')],
+	ramp: [SHIFT_CLICK('Set each end')],
 };
 
-const HOLE_HINTS: Record<HoleMode, string> = {
-	cut: 'Hold Shift and the left button to cut cells out of the ground, for caves and stairwells.',
-	fill: 'Hold Shift and the left button to close holes back up.',
+const PAINT_KEYS: Record<PaintMode, HotkeyRow[]> = {
+	paint: [SHIFT_CLICK('Paint')],
+	erase: [SHIFT_CLICK('Erase')],
+	fill: [SHIFT_CLICK('Fill')],
+	base: [SHIFT_CLICK('Set base')],
 };
 
-const WATER_HINTS: Record<WaterMode, string> = {
-	add: 'Hold Shift and the left button to lay water cells at the surface height.',
-	remove: 'Hold Shift and the left button to dry cells out.',
-	flood: 'Shift+click a hollow: everything connected below the surface height fills, like a lake.',
-};
+/** The chip's radio option in the water Tool module: the brush (add or remove) or the flood fill. */
+type WaterTool = 'brush' | 'flood';
 
-const PAINT_HINTS: Record<PaintMode, string> = {
-	paint: 'Hold Shift and the left button to paint the texture into the ground.',
-	erase: 'Hold Shift and the left button to wash paint away, back to the base texture.',
-	fill: 'Shift+click a chunk to fill it with the texture at the set opacity.',
-	base: 'Shift+click a chunk to swap its base texture, keeping the paint on top.',
-};
-
-const PLACE_HINTS: Record<'place' | 'select', string> = {
-	place: 'Pick an asset, then click the ground to drop it; click an object to select it.',
-	select: 'Click an object to select it; Shift+click adds, Shift+drag box-selects. Del deletes, Ctrl+D duplicates.',
-};
-
-const SCULPT_HINTS: Record<SculptMode, string> = {
-	raise: 'Shift + left button raises the ground; Cmd + left button lowers it.',
-	lower: 'Cmd + left button lowers the ground; Shift + left button raises it.',
-	smooth: 'Hold Shift and the left button to soften bumps and edges.',
-	flatten: 'Shift + left button drags the ground toward the height you first touch, or a typed height.',
-	noise: 'Hold Shift and the left button to roughen the ground with fractal noise.',
-	ramp: 'Shift+click the ramp’s two ends; the ground slopes straight between them.',
-};
+/** What one tool puts in the panel: its description line, its modules, and how to bring them in line with the model. */
+interface ToolContent {
+	description(): string | null;
+	modules: HTMLElement[];
+	sync(): void;
+}
 
 /**
- * The editing panels around the viewport (spec 8): the tool rail on the left, the properties
- * panel on the right, the status bar along the bottom, and Undo/Redo in the top bar. One is made
+ * The editing panels around the viewport (spec 8): the bottom controls (the mode bar over the
+ * tool panel; design "Bottom Controls", src/ui/specs/bottom-controls.md), the status bar along
+ * the bottom, and Undo/Redo and Play in the top bar. Each tool's modules are built once from
+ * the design system's molecules when the tool is first opened, and brought in line with the
+ * editor's settings whenever they change elsewhere (shortcuts, undo, a selection). One is made
  * per open scene and disposed with it.
  */
 export class EditorPanels {
 	private readonly cleanups: (() => void)[] = [];
+	private readonly dock: BottomControls;
+	/** Whether the editing panels are shown at all (not while the scene is closing). */
+	private shown = false;
+	private readonly contents = new Map<Tool, ToolContent>();
 
 	private readonly textures: TextureBrowser;
 	/** Whether the next plain click on the ground samples a chunk's textures (spec 7.5). */
 	private sampling = false;
-	/** Made when the Place tool first opens, so its listfile parts aren't fetched before then. */
+	/** Made when the Objects tool first opens, so its listfile parts aren't fetched before then. */
 	private models: ModelBrowser | null = null;
 	/** Made when the NPCs tool first opens (spec 7.9). */
 	private npcLibrary: NpcLibrary | null = null;
@@ -94,32 +148,26 @@ export class EditorPanels {
 		// The texture browser window first: setTool() below shows it when the Paint tool is active.
 		this.textures = new TextureBrowser(storage, editor.paint.fdid, (fdid) => {
 			editor.paint.fdid = fdid;
-			this.syncPaint();
+			this.syncActive();
 		}, (text) => editor.onNotice(text), (on) => this.setSampling(on));
+		this.dock = new BottomControls({
+			mode: modeOf(editor.tool),
+			onMode: (mode) => this.setTool(TOOL_OF[mode]),
+			shortcutsEnabled: () => !this.editor.playing,
+		});
+		document.body.append(this.dock.root);
 		this.show(true);
-		this.wireRail();
-		this.wireSculpt();
-		this.wirePaint();
-		this.wireHoles();
-		this.wireWater();
-		this.wirePlace();
-		this.wireNpcs();
-		this.wireRevert();
-		this.wireClutter();
-		this.wireEnvironment();
+		this.wireSelection();
 		this.wireUndo();
 		this.wirePlay();
 		this.wireKeys();
 		this.wireStatus();
-		this.syncSculpt();
-		this.syncPaint();
-		this.syncHoles();
-		this.syncWater();
+		this.setTool(editor.tool);
 	}
 
 	private show(on: boolean): void {
-		$('tool-rail').hidden = !on;
-		$('tool-panel').hidden = !on;
+		this.shown = on;
+		this.dock.show(on);
 		this.syncWindows();
 		$('status-bar').hidden = !on;
 		$('editor-undo').hidden = !on;
@@ -143,7 +191,7 @@ export class EditorPanels {
 		this.syncPlay(this.editor.playing);
 	}
 
-	/** Playing hides the tool rail and properties panel (by a body class, so the button stays put). */
+	/** Playing hides the bottom controls (by a body class, so the button stays put). */
 	private syncPlay(playing: boolean): void {
 		const button = $<HTMLButtonElement>('editor-play');
 		button.textContent = playing ? 'Edit' : 'Play';
@@ -161,127 +209,374 @@ export class EditorPanels {
 		this.cleanups.push(() => target.removeEventListener(type, fn as EventListener));
 	}
 
-	// ---- The tool rail ----
-
-	private wireRail(): void {
-		for (const tool of TOOLS) {
-			const button = $(`tool-${tool.id}`);
-			if (!tool.ready) continue;
-			this.listen(button, 'click', () => this.setTool(tool.id));
-		}
-		this.setTool(this.editor.tool);
-	}
+	// ---- Tools ----
 
 	/** Revert to base only applies to copied scenes (spec 7.11). */
 	private get copied(): boolean {
 		return this.editor.model.baseData !== null;
 	}
 
-	private setTool(id: string): void {
-		if (!TOOLS.find((t) => t.id === id)?.ready) return;
-		if (id === 'revert' && !this.copied) return;
-		this.editor.tool = id as SceneEditor['tool'];
-		for (const tool of TOOLS) $(`tool-${tool.id}`).classList.toggle('active', tool.id === id);
-		$('sculpt-props').hidden = id !== 'sculpt';
-		$('paint-props').hidden = id !== 'paint';
-		if (id !== 'paint' && this.sampling) this.setSampling(false);
-		$('holes-props').hidden = id !== 'holes';
-		$('water-props').hidden = id !== 'water';
-		$('place-props').hidden = id !== 'place';
-		$('npcs-props').hidden = id !== 'npcs';
-		$('revert-props').hidden = id !== 'revert';
-		if (id === 'place' && !this.models) {
+	private setTool(tool: Tool): void {
+		if (tool === 'revert' && !this.copied) return;
+		this.editor.tool = tool;
+		if (tool !== 'paint' && this.sampling) this.setSampling(false);
+		if (tool === 'place' && !this.models) {
 			this.models = new ModelBrowser(this.storage, this.editor.model.meta.client.build, (asset) => {
 				this.editor.objects.place.asset = asset;
-				this.syncPlace();
+				this.syncActive();
 			}, (text) => this.editor.onNotice(text));
 		}
-		if (id === 'npcs' && !this.npcLibrary) this.makeNpcLibrary();
+		if (tool === 'npcs' && !this.npcLibrary) this.makeNpcLibrary();
+		this.dock.setMode(modeOf(tool));
+		const content = this.content(tool);
+		this.dock.setContent({ description: content.description(), modules: content.modules });
+		content.sync();
 		this.syncWindows();
-		this.syncSelection();
 	}
 
-	// ---- Sculpt properties ----
-
-	private wireSculpt(): void {
-		const brush = this.editor.brush;
-		for (const mode of Object.keys(SCULPT_HINTS) as SculptMode[]) {
-			this.listen($(`sculpt-${mode}`), 'click', () => {
-				brush.mode = mode;
-				this.syncSculpt();
-			});
+	/** The active tool's modules, built on first use. */
+	private content(tool: Tool): ToolContent {
+		let content = this.contents.get(tool);
+		if (!content) {
+			content = this.build(tool);
+			this.contents.set(tool, content);
 		}
-		this.listen($('brush-radius'), 'input', () => {
-			brush.radius = Number($<HTMLInputElement>('brush-radius').value);
-			this.syncSculpt();
-		});
-		this.listen($('brush-strength'), 'input', () => {
-			brush.strength = Number($<HTMLInputElement>('brush-strength').value);
-			this.syncSculpt();
-		});
-		this.listen($('brush-falloff'), 'change', () => {
-			brush.falloff = $<HTMLSelectElement>('brush-falloff').value as Falloff;
-		});
-		this.listen($('flatten-to'), 'input', () => {
-			const raw = $<HTMLInputElement>('flatten-to').value.trim();
-			brush.flattenTo = raw === '' ? null : Number(raw);
-		});
+		return content;
 	}
 
-	/** Brings the sculpt controls in line with the brush (also after [ ] and shortcut changes). */
-	private syncSculpt(): void {
-		const brush = this.editor.brush;
-		for (const mode of Object.keys(SCULPT_HINTS) as SculptMode[]) {
-			$(`sculpt-${mode}`).classList.toggle('active', brush.mode === mode);
+	private build(tool: Tool): ToolContent {
+		switch (tool) {
+			case 'environment':
+				return this.buildEnvironment();
+			case 'sculpt':
+				return this.buildSculpt();
+			case 'paint':
+				return this.buildPaint();
+			case 'holes':
+				return this.buildHoles();
+			case 'water':
+				return this.buildWater();
+			case 'place':
+				return this.buildObjects();
+			case 'npcs':
+				return this.buildNpcs();
+			case 'revert':
+				return this.buildRevert();
 		}
-		$<HTMLInputElement>('brush-radius').value = String(brush.radius);
-		$('brush-radius-out').textContent = `${brush.radius} yd`;
-		$<HTMLInputElement>('brush-strength').value = String(brush.strength);
-		$('brush-strength-out').textContent = brush.strength.toFixed(2);
-		$<HTMLSelectElement>('brush-falloff').value = brush.falloff;
-		$('flatten-row').hidden = brush.mode !== 'flatten';
-		$('tool-hint').textContent = SCULPT_HINTS[brush.mode];
 	}
 
-	// ---- Paint properties (spec 7.5) ----
-
-	private wirePaint(): void {
-		const paint = this.editor.paint;
-		for (const mode of Object.keys(PAINT_HINTS) as PaintMode[]) {
-			this.listen($(`paint-${mode}`), 'click', () => {
-				paint.mode = mode;
-				this.syncPaint();
-			});
-		}
-		this.listen($('paint-radius'), 'input', () => {
-			paint.radius = Number($<HTMLInputElement>('paint-radius').value);
-			this.syncPaint();
-		});
-		this.listen($('paint-strength'), 'input', () => {
-			paint.strength = Number($<HTMLInputElement>('paint-strength').value);
-			this.syncPaint();
-		});
-		this.listen($('paint-opacity'), 'input', () => {
-			paint.opacity = Number($<HTMLInputElement>('paint-opacity').value);
-			this.syncPaint();
-		});
-		this.listen($('paint-policy'), 'change', () => {
-			paint.policy = $<HTMLSelectElement>('paint-policy').value as typeof paint.policy;
-		});
-		this.cleanups.push(() => {
-			this.editor.onChunkClick = null;
-		});
+	/** Brings the open tool's modules and description in line with the model. */
+	private syncActive(): void {
+		const content = this.contents.get(this.editor.tool);
+		if (!content) return;
+		content.sync();
+		this.dock.setDescription(content.description());
 	}
 
 	/**
 	 * The browser windows (spec 7.3, 7.9) show only while editing with their tool: the Texture
-	 * browser with Paint, the Object browser with Place, the NPC library with NPCs.
+	 * browser with Paint, the Object browser with Objects, the NPC library with NPCs.
 	 */
 	private syncWindows(): void {
-		const editing = !this.editor.playing && !$('tool-panel').hidden;
+		const editing = !this.editor.playing && this.shown;
 		this.textures.setVisible(this.editor.tool === 'paint' && editing);
 		this.models?.setVisible(this.editor.tool === 'place' && editing);
 		this.npcLibrary?.setVisible(this.editor.tool === 'npcs' && editing);
+	}
+
+	// ---- Shared module builders ----
+
+	/** A brush size module: the radius slider in yards and the [ ] hotkeys. */
+	private sizeModule(max: number, get: () => number, set: (radius: number) => void): { module: DockModule; sync(): void } {
+		const size = slider({ ariaLabel: 'Brush size', value: get(), min: 1, max, step: 1, suffix: 'yd', onInput: set });
+		const module = dockModule({ title: 'Size', children: [size.root, hotkeyList({ heading: 'Hotkeys', rows: SIZE_KEYS }).root] });
+		return { module, sync: () => setSliderValue(size.root, get()) };
+	}
+
+	/** A 0 to 1 setting shown as a percentage, with its hotkeys. */
+	private percentModule(title: string, keys: HotkeyRow[], get: () => number, set: (value: number) => void): { module: DockModule; sync(): void } {
+		const range = slider({ ariaLabel: title, value: Math.round(get() * 100), min: 0, max: 100, step: 5, suffix: '%', onInput: (v) => set(v / 100) });
+		const module = dockModule({ title, children: [range.root, hotkeyList({ heading: 'Hotkeys', rows: keys }).root] });
+		return { module, sync: () => setSliderValue(range.root, Math.round(get() * 100)) };
+	}
+
+	/** Attaches the complex tooltips to the info buttons of a radio group's options. */
+	private infoTips(group: RadioGroupHandle, tips: Record<string, string>): void {
+		for (const row of group.root.querySelectorAll<HTMLElement>('.ds-radio-row')) {
+			const text = tips[row.dataset.value ?? ''];
+			const anchor = row.querySelector<HTMLElement>('.ds-icon-button');
+			if (text && anchor) attachTooltip(anchor, { variant: 'complex', text, placement: 'top' });
+		}
+	}
+
+	/** Moves `nested` under the checked option's row, so its hotkeys and settings sit beneath it. */
+	private nestUnder(group: RadioGroupHandle, value: string, nested: HTMLElement): void {
+		const row = group.root.querySelector<HTMLElement>(`.ds-radio-row[data-value="${value}"]`);
+		if (row && row.nextElementSibling !== nested) row.after(nested);
+	}
+
+	/** The terms a help tooltip explains, as a definition list. */
+	private terms(entries: [string, string][]): HTMLElement {
+		return el('dl', { class: 'dock-tip-terms' }, ...entries.flatMap(([term, text]) => [el('dt', {}, term), el('dd', {}, text)]));
+	}
+
+	// ---- Environment (spec 6.1, 7.7): weather, fog and shadows, ground clutter, time of day ----
+
+	private buildEnvironment(): ToolContent {
+		const editor = this.editor;
+		const weather = radioGroup({
+			name: 'env-weather',
+			legend: 'Weather effects',
+			legendHidden: true,
+			options: [{ value: '', label: 'Clear' }, ...SCENE_WEATHERS.map((kind) => ({ value: kind, label: kind[0].toUpperCase() + kind.slice(1) }))],
+			value: editor.environment.weather ?? '',
+			onChange: (value) => {
+				const kind = SCENE_WEATHERS.find((k) => k === value);
+				editor.setEnvironment({ weather: kind }, kind ? `Set weather: ${kind}` : 'Clear the weather');
+			},
+		});
+		const fog = toggleSwitch({
+			label: 'Fog',
+			checked: editor.environment.fogOn !== false,
+			title: "The preset's distance fog and the fog lying in the valleys; off, the whole scene shows clear",
+			onChange: (on) => editor.setEnvironment({ fogOn: on }, on ? 'Turn fog on' : 'Turn fog off'),
+		});
+		// Shadows are how the scene is viewed, not part of it: no command, and kept across scenes.
+		const shadows = toggleSwitch({
+			label: 'Shadows',
+			checked: editor.shadows,
+			title: "The sun's shadows, cast by the ground, buildings, doodads and NPCs and moving with the time of day; a view setting kept across scenes, not saved with the scene",
+			onChange: (on) => (editor.shadows = on),
+		});
+		const weatherModule = dockModule({ title: 'Weather effects', children: [weather.root, fog.root, shadows.root] });
+
+		const settings = editor.clutterSettings;
+		const clutterOn = toggleSwitch({
+			label: 'Show clutter',
+			checked: settings.enabled,
+			onChange: (on) => {
+				settings.enabled = on;
+				editor.refreshClutter();
+			},
+		});
+		const density = slider({
+			label: 'Clutter density',
+			value: Math.round(settings.density * 100),
+			min: 0,
+			max: 200,
+			step: 10,
+			suffix: '%',
+			onInput: (v) => {
+				settings.density = v / 100;
+				editor.refreshClutter();
+			},
+		});
+		const apply = button({
+			label: 'Apply ground effects to scene',
+			title: 'Give layers painted before the scan finished the clutter their texture usually carries',
+			onClick: () => {
+				const changed = editor.applyGroundEffects();
+				editor.onNotice(changed ? `Ground effects applied to ${changed} chunk${changed === 1 ? '' : 's'}` : 'Every painted layer already has its ground effect');
+			},
+		});
+		const clutterModule = dockModule({
+			title: 'Ground clutter',
+			help: { text: 'Small shrubs or weeds that populate dynamically based on the textures you paint.' },
+			children: [clutterOn.root, density.root, apply],
+		});
+
+		// The slider is in minutes, on quarter hours; the scene keeps half-minutes. Dragging
+		// previews each value; letting go records the whole drag as one command.
+		let timeBefore: typeof editor.environment | null = null;
+		const minutes = () => (Math.round(editor.environment.timeOfDay / 30) * 15) % 1440;
+		const time = slider({
+			ariaLabel: 'Time of day',
+			value: minutes(),
+			min: 0,
+			max: 1425,
+			step: 15,
+			format: clock,
+			title: "The scene's time of day: the sun, sky and fog follow it, as the game's light for the scene's zone has them",
+			onInput: (m) => {
+				timeBefore ??= { ...editor.environment };
+				editor.previewEnvironment({ timeOfDay: m * 2 });
+			},
+			onChange: (m) => {
+				const from = timeBefore ?? { ...editor.environment };
+				timeBefore = null;
+				editor.setEnvironment({ timeOfDay: m * 2 }, 'Set time of day', from);
+			},
+		});
+		const timeModule = dockModule({ title: 'Time of day', children: [time.root] });
+
+		const sync = () => {
+			const env = editor.environment;
+			setRadioValue(weather.root, env.weather ?? '');
+			setChecked(fog.root, env.fogOn !== false);
+			setChecked(shadows.root, editor.shadows);
+			setChecked(clutterOn.root, settings.enabled);
+			setSliderValue(density.root, Math.round(settings.density * 100));
+			setSliderValue(time.root, minutes());
+		};
+		editor.onEnvironmentChange = sync;
+		this.cleanups.push(() => {
+			editor.onEnvironmentChange = () => {};
+		});
+		return { description: () => null, modules: [weatherModule.root, clutterModule.root, timeModule.root], sync };
+	}
+
+	// ---- Sculpt (spec 7.4) ----
+
+	private buildSculpt(): ToolContent {
+		const brush = this.editor.brush;
+		const setting = radioGroup({
+			name: 'sculpt-mode',
+			legend: 'Sculpt setting',
+			legendHidden: true,
+			options: [
+				{ value: 'raise', label: 'Raise/lower' },
+				{ value: 'smooth', label: 'Smooth' },
+				{ value: 'flatten', label: 'Flatten' },
+				{ value: 'noise', label: 'Noise', info: { label: 'About noise', onClick: () => {} } },
+				{ value: 'ramp', label: 'Ramp', info: { label: 'About ramps', onClick: () => {} } },
+			],
+			value: brush.mode === 'lower' ? 'raise' : brush.mode,
+			onChange: (value) => {
+				brush.mode = value as SculptMode;
+				sync();
+			},
+		});
+		this.infoTips(setting, {
+			noise: 'Roughen up terrain surface with randomized fractal noise.',
+			ramp: 'Ideal for sculpting an angled surface into terrain. To use, click a starting point then an ending point to create a smooth ramp between them.',
+		});
+		const keys = hotkeyList({ heading: 'Hotkeys', rows: SCULPT_KEYS[brush.mode] });
+		const flatten = stepper({
+			id: 'sculpt-flatten-to',
+			label: 'Flatten to',
+			value: brush.flattenTo,
+			step: 1,
+			placeholder: 'first touch',
+			title: 'A height in yards; empty flattens toward the height you first touch',
+			onChange: (v) => (brush.flattenTo = v),
+		});
+		const flattenField = fieldShell({ label: 'Flatten to (yd)', controlId: 'sculpt-flatten-to' }, flatten.root).root;
+		const nested = el('div', { class: 'dock-nested' }, keys.root, flattenField);
+		const settingModule = dockModule({ title: 'Sculpt setting', children: [setting.root] });
+
+		const size = this.sizeModule(100, () => brush.radius, (r) => (brush.radius = r));
+		const strength = this.percentModule('Strength', STRENGTH_KEYS, () => brush.strength, (v) => (brush.strength = v));
+
+		const falloff = radioGroup({
+			name: 'sculpt-falloff',
+			legend: 'Falloff',
+			legendHidden: true,
+			options: [
+				{ value: 'linear', label: 'Linear' },
+				{ value: 'smooth', label: 'Smooth' },
+				{ value: 'flat', label: 'Flat' },
+			],
+			value: brush.falloff,
+			onChange: (value) => (brush.falloff = value as Falloff),
+		});
+		const falloffModule = dockModule({
+			title: 'Falloff',
+			help: {
+				text: 'Determines how terrain is moved at the outer edges of your brush.',
+				content: this.terms([
+					['Linear', 'Fades evenly from full strength at the centre to nothing at the edge.'],
+					['Smooth', 'Full strength near the centre, easing off toward the edge; usually what you want.'],
+					['Flat', 'Full strength across the whole brush, with a hard edge.'],
+				]),
+			},
+			children: [falloff.root],
+		});
+
+		const sync = () => {
+			const mode = brush.mode === 'lower' ? 'raise' : brush.mode;
+			setRadioValue(setting.root, mode);
+			this.nestUnder(setting, mode, nested);
+			setHotkeyRows(keys.root, SCULPT_KEYS[brush.mode]);
+			flattenField.hidden = brush.mode !== 'flatten';
+			setStepperValue(flatten.root, brush.flattenTo);
+			size.sync();
+			strength.sync();
+			setRadioValue(falloff.root, brush.falloff);
+		};
+		return { description: () => null, modules: [settingModule.root, size.module.root, strength.module.root, falloffModule.root], sync };
+	}
+
+	// ---- Paint (spec 7.5) ----
+
+	private buildPaint(): ToolContent {
+		const paint = this.editor.paint;
+		const tool = radioGroup({
+			name: 'paint-mode',
+			legend: 'Tool',
+			legendHidden: true,
+			options: [
+				{ value: 'paint', label: 'Brush' },
+				{ value: 'erase', label: 'Eraser' },
+				{ value: 'fill', label: 'Fill chunk' },
+				{ value: 'base', label: 'Set chunk base', info: { label: 'About setting the chunk base', onClick: () => {} } },
+			],
+			value: paint.mode,
+			onChange: (value) => {
+				paint.mode = value as PaintMode;
+				this.syncActive();
+			},
+		});
+		this.infoTips(tool, { base: "Set a chunk's base texture that you paint on top of. The eraser won't affect a chunk's base texture." });
+		const keys = hotkeyList({ heading: 'Hotkeys', rows: PAINT_KEYS[paint.mode] });
+		const nested = el('div', { class: 'dock-nested' }, keys.root);
+		const toolModule = dockModule({ title: 'Tool', children: [tool.root] });
+
+		const size = this.sizeModule(100, () => paint.radius, (r) => (paint.radius = r));
+		const strength = this.percentModule('Strength', STRENGTH_KEYS, () => paint.strength, (v) => (paint.strength = v));
+		const opacity = this.percentModule('Opacity', OPACITY_KEYS, () => paint.opacity, (v) => (paint.opacity = v));
+
+		const policy = radioGroup({
+			name: 'paint-policy',
+			legend: 'Full chunk',
+			legendHidden: true,
+			options: [
+				{ value: 'replace', label: 'Replace weakest' },
+				{ value: 'block', label: 'Block' },
+			],
+			value: paint.policy,
+			onChange: (value) => (paint.policy = value as typeof paint.policy),
+		});
+		const policyModule = dockModule({
+			title: 'Full chunk',
+			help: {
+				text: 'Determines what happens if you try and paint a new texture when a chunk is full.',
+				content: this.terms([
+					['Replace weakest', 'Whichever texture is least prominent will be replaced.'],
+					['Block', "The new texture won't be applied until one of the existing textures is removed."],
+				]),
+			},
+			children: [policy.root],
+		});
+
+		this.cleanups.push(() => {
+			this.editor.onChunkClick = null;
+		});
+		const sync = () => {
+			setRadioValue(tool.root, paint.mode);
+			this.nestUnder(tool, paint.mode, nested);
+			setHotkeyRows(keys.root, PAINT_KEYS[paint.mode]);
+			size.sync();
+			strength.sync();
+			opacity.sync();
+			setRadioValue(policy.root, paint.policy);
+		};
+		const description = () =>
+			this.sampling
+				? 'Click a chunk to list the textures it uses in the Texture browser; click one there to paint with it. Esc cancels.'
+				: paint.fdid === 0 && paint.mode !== 'erase'
+					? 'Pick a texture in the Texture browser to paint with.'
+					: 'Paint up to four textures per chunk.';
+		return { description, modules: [toolModule.root, size.module.root, strength.module.root, opacity.module.root, policyModule.root], sync };
 	}
 
 	/**
@@ -299,193 +594,373 @@ export class EditorPanels {
 					this.textures.showSample(fdids);
 				}
 			: null;
-		this.syncPaint();
-	}
-
-	private syncPaint(): void {
-		const paint = this.editor.paint;
-		for (const mode of Object.keys(PAINT_HINTS) as PaintMode[]) {
-			$(`paint-${mode}`).classList.toggle('active', paint.mode === mode);
-		}
-		$<HTMLInputElement>('paint-radius').value = String(paint.radius);
-		$('paint-radius-out').textContent = `${paint.radius} yd`;
-		$<HTMLInputElement>('paint-strength').value = String(paint.strength);
-		$('paint-strength-out').textContent = paint.strength.toFixed(2);
-		$<HTMLInputElement>('paint-opacity').value = String(paint.opacity);
-		$('paint-opacity-out').textContent = `${Math.round(paint.opacity * 100)}%`;
-		$<HTMLSelectElement>('paint-policy').value = paint.policy;
-		$('paint-hint').textContent = this.sampling
-			? 'Click a chunk to list the textures it uses in the Texture browser; click one there to paint with it. Esc cancels.'
-			: paint.fdid === 0 && paint.mode !== 'erase'
-				? 'Pick a texture in the Texture browser to paint with.'
-				: PAINT_HINTS[paint.mode];
+		this.syncActive();
 	}
 
 	// ---- Holes and water (spec 7.6) ----
 
-	private wireHoles(): void {
+	private buildHoles(): ToolContent {
 		const holes = this.editor.holes;
-		for (const mode of Object.keys(HOLE_HINTS) as HoleMode[]) {
-			this.listen($(`holes-${mode}`), 'click', () => {
-				holes.mode = mode;
-				this.syncHoles();
-			});
-		}
-		this.listen($('holes-radius'), 'input', () => {
-			holes.radius = Number($<HTMLInputElement>('holes-radius').value);
-			this.syncHoles();
-		});
+		const keysModule = dockModule({ title: 'Hotkeys', children: [hotkeyList({ rows: [SHIFT_CLICK('Cut hole'), MOD_CLICK('Fill hole')] }).root] });
+		const size = this.sizeModule(30, () => holes.radius, (r) => (holes.radius = r));
+		return {
+			description: () => 'Cut a hole in terrain to allow passage into structures like cave networks.',
+			modules: [keysModule.root, size.module.root],
+			sync: () => size.sync(),
+		};
 	}
 
-	private syncHoles(): void {
-		const holes = this.editor.holes;
-		for (const mode of Object.keys(HOLE_HINTS) as HoleMode[]) {
-			$(`holes-${mode}`).classList.toggle('active', holes.mode === mode);
-		}
-		$<HTMLInputElement>('holes-radius').value = String(holes.radius);
-		$('holes-radius-out').textContent = `${holes.radius} yd`;
-		$('holes-hint').textContent = HOLE_HINTS[holes.mode];
-	}
-
-	private wireWater(): void {
+	private buildWater(): ToolContent {
 		const water = this.editor.water;
-		for (const mode of Object.keys(WATER_HINTS) as WaterMode[]) {
-			this.listen($(`water-${mode}`), 'click', () => {
-				water.mode = mode;
-				this.syncWater();
-			});
-		}
-		this.listen($('water-kind'), 'change', () => {
-			water.kind = Number($<HTMLSelectElement>('water-kind').value);
+		const toolOf = (): WaterTool => (water.mode === 'flood' ? 'flood' : 'brush');
+		const keysFor = (tool: WaterTool): HotkeyRow[] => (tool === 'flood' ? [SHIFT_CLICK('Flood a hollow')] : [SHIFT_CLICK('Add water'), MOD_CLICK('Remove water')]);
+		const tool = radioGroup({
+			name: 'water-tool',
+			legend: 'Tool',
+			legendHidden: true,
+			options: [
+				{ value: 'brush', label: 'Brush' },
+				{ value: 'flood', label: 'Flood fill', info: { label: 'About flood fill', onClick: () => {} } },
+			],
+			value: toolOf(),
+			onChange: (value) => {
+				water.mode = value === 'flood' ? 'flood' : 'add';
+				sync();
+			},
 		});
-		this.listen($('water-height'), 'input', () => {
-			const raw = $<HTMLInputElement>('water-height').value.trim();
-			water.height = raw === '' ? null : Number(raw);
+		this.infoTips(tool, { flood: 'Click a hollow: everything connected below the surface height fills, like a lake.' });
+		const keys = hotkeyList({ heading: 'Hotkeys', rows: keysFor(toolOf()) });
+		const nested = el('div', { class: 'dock-nested' }, keys.root);
+		const toolModule = dockModule({ title: 'Tool', children: [tool.root] });
+
+		const kind = radioGroup({
+			name: 'water-kind',
+			legend: 'Type',
+			legendHidden: true,
+			options: [
+				{ value: '1', label: 'Water' },
+				{ value: '2', label: 'Ocean' },
+				{ value: '3', label: 'Magma (warning: ugly)' },
+				{ value: '4', label: 'Slime (broken)', disabled: true },
+			],
+			value: String(water.kind),
+			onChange: (value) => (water.kind = Number(value)),
 		});
-		this.listen($('water-radius'), 'input', () => {
-			water.radius = Number($<HTMLInputElement>('water-radius').value);
-			this.syncWater();
+		const kindModule = dockModule({ title: 'Type', children: [kind.root] });
+
+		const size = this.sizeModule(30, () => water.radius, (r) => (water.radius = r));
+
+		const height = stepper({
+			label: 'Surface height',
+			value: water.height,
+			step: 0.5,
+			placeholder: 'auto',
+			title: 'Surface height in yards; empty puts it a little above the ground you click',
+			onChange: (v) => (water.height = v),
 		});
+		const heightModule = dockModule({
+			title: 'Height',
+			children: [dockNote('(empty = just above the clicked ground)'), el('div', { class: 'dock-row' }, height.root), hotkeyList({ heading: 'Hotkeys', rows: HEIGHT_KEYS }).root],
+		});
+
+		const sync = () => {
+			const current = toolOf();
+			setRadioValue(tool.root, current);
+			this.nestUnder(tool, current, nested);
+			setHotkeyRows(keys.root, keysFor(current));
+			setRadioValue(kind.root, String(water.kind));
+			size.sync();
+			setStepperValue(height.root, water.height);
+		};
+		return { description: () => 'Note: Water is a little buggy.', modules: [toolModule.root, kindModule.root, size.module.root, heightModule.root], sync };
 	}
 
-	private syncWater(): void {
-		const water = this.editor.water;
-		for (const mode of Object.keys(WATER_HINTS) as WaterMode[]) {
-			$(`water-${mode}`).classList.toggle('active', water.mode === mode);
-		}
-		$<HTMLSelectElement>('water-kind').value = String(water.kind);
-		$<HTMLInputElement>('water-radius').value = String(water.radius);
-		$('water-radius-out').textContent = `${water.radius} yd`;
-		$('water-hint').textContent = WATER_HINTS[water.mode];
-	}
+	// ---- Objects and NPCs (spec 7.8, 7.9): the selection's transform and attributes ----
 
-	// ---- Object placement (spec 7.8) ----
-
-	private wirePlace(): void {
-		const place = this.editor.objects.place;
-		for (const mode of ['place', 'select'] as const) {
-			this.listen($(`place-${mode}`), 'click', () => {
-				place.mode = mode;
-				this.syncPlace();
-			});
-		}
-		this.listen($('place-align'), 'change', () => {
-			place.alignToSlope = $<HTMLInputElement>('place-align').checked;
-		});
-		this.listen($('place-random-yaw'), 'change', () => {
-			place.randomYaw = $<HTMLInputElement>('place-random-yaw').checked;
-		});
-		this.listen($('place-scale-min'), 'input', () => {
-			place.scaleMin = Number($<HTMLInputElement>('place-scale-min').value) || 1;
-		});
-		this.listen($('place-scale-max'), 'input', () => {
-			place.scaleMax = Number($<HTMLInputElement>('place-scale-max').value) || 1;
-		});
-		this.listen($('place-snap'), 'change', () => {
-			place.gridSnap = Number($<HTMLSelectElement>('place-snap').value);
-		});
-		this.listen($('place-angle-snap'), 'change', () => {
-			place.angleSnap = $<HTMLInputElement>('place-angle-snap').checked;
-		});
+	private wireSelection(): void {
 		const objects = this.editor.objects;
-		for (const mode of ['translate', 'rotate', 'scale'] as const) {
-			this.listen($(`gizmo-${mode}`), 'click', () => objects.setGizmoMode(mode));
-		}
-		this.listen($('sel-drop'), 'click', () => objects.dropToGround());
-		this.listen($('sel-duplicate'), 'click', () => objects.duplicateSelection());
-		this.listen($('sel-delete'), 'click', () => objects.deleteSelection());
-		this.listen($('sel-doodadset'), 'change', () => objects.setDoodadSet(Number($<HTMLSelectElement>('sel-doodadset').value)));
-		this.listen($('sel-nameset'), 'change', () => objects.setNameSet(Math.max(0, Math.round(Number($<HTMLInputElement>('sel-nameset').value) || 0))));
-		this.listen($('sel-lock'), 'change', () => objects.setLocked($<HTMLInputElement>('sel-lock').checked));
-		this.listen($('sel-group'), 'change', () => objects.setGroup($<HTMLInputElement>('sel-group').value));
-		objects.onSelectionChange = () => this.syncSelection();
+		objects.onSelectionChange = () => this.syncActive();
 		this.cleanups.push(() => {
 			objects.onSelectionChange = () => {};
 		});
-		this.syncPlace();
-		this.syncSelection();
 	}
 
-	/** Brings the selection block in line with what's selected and the gizmo mode. */
-	private syncSelection(): void {
+	/** A number field that commits a transform edit to every selected entity (locked ones stay). */
+	private transformField(label: string, suffix: string | undefined, commit: (value: number) => void): { root: HTMLElement; input: HTMLInputElement } {
+		const field = textInput({
+			label,
+			type: 'number',
+			suffix,
+			onChange: (text) => {
+				const value = Number(text);
+				if (text.trim() === '' || Number.isNaN(value)) {
+					this.syncActive();
+					return;
+				}
+				commit(value);
+			},
+		});
+		return field;
+	}
+
+	/**
+	 * The Transform module: position, rotation (an object's yaw, an NPC's facing) and scale of
+	 * everything selected, "Mixed" where they differ, dimmed with a note while nothing is.
+	 */
+	private buildTransform(): { module: DockModule; sync(entities: Entity[]): void } {
 		const objects = this.editor.objects;
-		const entities = objects.selectedEntities();
-		const selected = objects.selectedObjects();
-		const npcs = objects.selectedNpcs();
-		const objectTool = this.editor.tool === 'place' || this.editor.tool === 'npcs';
-		$('selection-props').hidden = entities.length === 0 || !objectTool;
-		const deleted = objects.deletedBaseCount;
-		$('place-restore').hidden = deleted === 0;
-		$('place-restore').textContent = `Restore ${deleted} deleted copied object${deleted === 1 ? '' : 's'}`;
-		for (const mode of ['translate', 'rotate', 'scale'] as const) {
-			$(`gizmo-${mode}`).classList.toggle('active', objects.gizmoMode === mode);
-		}
-		if (!entities.length) return;
-		// NPC properties (spec 7.9.1) show while any NPC is selected; the fields follow the last one.
-		$('sel-npc').hidden = npcs.length === 0;
-		if (npcs.length) {
-			const npc = npcs[npcs.length - 1];
-			const active = document.activeElement;
-			if (active !== $('sel-npc-name')) $<HTMLInputElement>('sel-npc-name').value = npcs.every((n) => n.name === npc.name) ? npc.name ?? '' : '';
-			if (active !== $('sel-npc-subname')) $<HTMLInputElement>('sel-npc-subname').value = npcs.every((n) => n.subName === npc.subName) ? npc.subName ?? '' : '';
-			if (active !== $('sel-npc-facing')) $<HTMLInputElement>('sel-npc-facing').value = String(Math.round(((npc.facing % 360) + 360) % 360));
-			if (active !== $('sel-npc-scale')) $<HTMLInputElement>('sel-npc-scale').value = String(Math.round(npc.scale * 100) / 100);
-			this.syncNpcIdle(npcs);
-			const picked = objects.npcPlace.asset;
-			$<HTMLButtonElement>('sel-npc-appearance').disabled = !picked;
-			$('sel-npc-appearance').title = picked ? `Give the selected NPC${npcs.length === 1 ? '' : 's'} the look picked in the NPC library: ${picked.label}` : 'Pick an NPC in the NPC library first';
-			$('sel-npc-look').textContent = this.npcLibrary?.describe(npc.appearance) ?? (npc.appearance.kind === 'creature' ? `Creature display ${npc.appearance.displayId}` : 'Custom NPC');
-		}
-		// The WMO set choices show for a single selected building (spec 7.8).
-		const wmo = selected.length === 1 && !npcs.length && selected[0].kind === 'wmo' ? selected[0] : null;
-		$('sel-doodadset-row').hidden = !wmo;
-		$('sel-nameset-row').hidden = !wmo;
-		if (wmo) {
-			const sets = objects.doodadSets(wmo);
-			const select = $<HTMLSelectElement>('sel-doodadset');
-			select.replaceChildren(
-				...(sets?.map((name, i) => new Option(`${i} · ${name || 'unnamed'}${i === 0 ? ' (always shown)' : ''}`, String(i))) ?? [new Option('Loading…', String(wmo.doodadSet ?? 0))]),
-			);
-			select.value = String(wmo.doodadSet ?? 0);
-			select.disabled = !sets;
-			$<HTMLInputElement>('sel-nameset').value = String(wmo.nameSet ?? 0);
-		}
-		$('sel-revert').hidden = objects.revertableCount === 0;
-		const items = entities.map((e) => (e.kind === 'npc' ? e.n : e.o));
-		const lock = $<HTMLInputElement>('sel-lock');
-		lock.checked = items.every((o) => o.locked);
-		lock.indeterminate = !lock.checked && items.some((o) => o.locked);
-		const groups = new Set(items.map((o) => o.group ?? ''));
-		const group = $<HTMLInputElement>('sel-group');
-		if (document.activeElement !== group) group.value = groups.size === 1 ? [...groups][0] : '';
-		group.placeholder = groups.size > 1 ? 'mixed' : 'none';
-		const parts: string[] = [];
-		if (selected.length) parts.push(`${selected.length} object${selected.length === 1 ? '' : 's'}`);
-		if (npcs.length) parts.push(`${npcs.length} NPC${npcs.length === 1 ? '' : 's'}`);
-		$('sel-count').textContent = `${parts.join(' and ')} selected · ${objects.count} objects and ${objects.npcCount} NPCs in the scene`;
+		const axis = (name: string, index: number) =>
+			this.transformField(name, undefined, (v) => objects.editSelection(`Move along ${name}`, (after) => (after.position[index] = v)));
+		const x = axis('X', 0);
+		const y = axis('Y', 1);
+		const z = axis('Z', 2);
+		const rotation = this.transformField('Rotation', 'degrees', (v) => objects.editSelection('Rotate', (after) => (after.rotation[1] = v)));
+		const scale = this.transformField('Scale', undefined, (v) =>
+			objects.editSelection('Scale', (after, e) => {
+				if (e.kind === 'object' && e.o.kind === 'wmo') return;
+				after.scale = Math.max(0.05, v);
+			}),
+		);
+		const note = dockNote("Buildings can't be scaled.");
+		const module = dockModule({
+			title: 'Transform',
+			emptyText: 'Make a selection to edit transform properties.',
+			children: [dockRow(x.root, y.root, z.root), rotation.root, scale.root, note],
+		});
+		const fields = [x, y, z, rotation, scale];
+
+		const show = (field: { input: HTMLInputElement }, values: number[]) => {
+			if (document.activeElement === field.input) return;
+			const first = values[0];
+			const same = values.every((v) => Math.abs(v - first) < 1e-6);
+			field.input.value = same && values.length ? String(Math.round(first * 100) / 100) : '';
+			field.input.placeholder = values.length && !same ? 'Mixed' : '';
+		};
+		const sync = (entities: Entity[]) => {
+			setModuleEmpty(module, entities.length === 0);
+			if (!entities.length) {
+				for (const field of fields) {
+					field.input.value = '';
+					field.input.placeholder = '';
+				}
+				note.hidden = true;
+				return;
+			}
+			const positions = entities.map((e) => (e.kind === 'npc' ? e.n.position : e.o.position));
+			show(x, positions.map((p) => p[0]));
+			show(y, positions.map((p) => p[1]));
+			show(z, positions.map((p) => p[2]));
+			show(rotation, entities.map((e) => (e.kind === 'npc' ? ((e.n.facing % 360) + 360) % 360 : e.o.rotation[1])));
+			const scalable = entities.filter((e) => !(e.kind === 'object' && e.o.kind === 'wmo'));
+			show(scale, scalable.map((e) => (e.kind === 'npc' ? e.n.scale : e.o.scale)));
+			scale.input.disabled = scalable.length === 0;
+			note.hidden = scalable.length === entities.length;
+		};
+		return { module, sync };
 	}
 
-	// ---- NPCs (spec 7.9) ----
+	/** The rows every Attributes module ends with: locked, group and the selection count. */
+	private commonAttributes(): { rows: HTMLElement[]; sync(entities: Entity[]): void } {
+		const objects = this.editor.objects;
+		const locked = toggleSwitch({ label: 'Locked', title: 'Locked objects and NPCs are skipped by moves, edits and Delete', onChange: (on) => objects.setLocked(on) });
+		const group = textInput({ label: 'Group', placeholder: 'none', title: 'Objects sharing a group label select together', onChange: (value) => objects.setGroup(value) });
+		const count = dockNote('');
+		const sync = (entities: Entity[]) => {
+			const items = entities.map((e) => (e.kind === 'npc' ? e.n : e.o));
+			setChecked(locked.root, items.length > 0 && items.every((o) => o.locked));
+			const groups = new Set(items.map((o) => o.group ?? ''));
+			if (document.activeElement !== group.input) setTextValue(group.root, groups.size === 1 ? [...groups][0] : '');
+			group.input.placeholder = groups.size > 1 ? 'mixed' : 'none';
+			const selected = objects.selectedObjects().length;
+			const npcs = objects.selectedNpcs().length;
+			const parts: string[] = [];
+			if (selected) parts.push(`${selected} object${selected === 1 ? '' : 's'}`);
+			if (npcs) parts.push(`${npcs} NPC${npcs === 1 ? '' : 's'}`);
+			count.textContent = `${parts.join(' and ') || 'Nothing'} selected · ${objects.count} objects and ${objects.npcCount} NPCs in the scene`;
+		};
+		return { rows: [locked.root, group.root, count], sync };
+	}
+
+	private buildObjects(): ToolContent {
+		const objects = this.editor.objects;
+		const place = objects.place;
+		const keysModule = dockModule({ title: 'Hotkeys', children: [hotkeyList({ rows: OBJECT_KEYS }).root] });
+		const transform = this.buildTransform();
+
+		// Attributes: a building's doodad and name sets (spec 7.8), then the common rows.
+		const doodadSet = select({
+			label: 'Doodad set',
+			options: [],
+			value: null,
+			placeholder: 'Buildings only',
+			title: "Which of the building's doodad sets shows inside, besides set 0",
+			onChange: (value) => objects.setDoodadSet(Number(value)),
+		});
+		const nameSet = stepper({
+			id: 'sel-nameset',
+			label: 'Name set',
+			value: 0,
+			min: 0,
+			step: 1,
+			title: "Which name set the building's rooms use",
+			onChange: (v) => objects.setNameSet(Math.max(0, Math.round(v ?? 0))),
+		});
+		const nameSetField = fieldShell({ label: 'Name set', controlId: 'sel-nameset' }, el('div', { class: 'dock-row' }, nameSet.root)).root;
+		const common = this.commonAttributes();
+		const revert = button({ label: 'Revert to base', title: 'Put the selected copied objects back where the source map has them', onClick: () => objects.revertSelectionToBase() });
+		const restore = button({ title: 'Bring back the copied objects you deleted', label: 'Restore deleted copied objects', onClick: () => objects.restoreDeleted() });
+		const attributes = dockModule({
+			title: 'Attributes',
+			emptyText: 'Make a selection to edit attributes.',
+			children: [doodadSet.root, nameSetField, ...common.rows, revert, restore],
+		});
+
+		// Placement settings (spec 7.8), for the next asset dropped from the Object browser.
+		const align = toggleSwitch({ label: 'Align to slope', checked: place.alignToSlope, onChange: (on) => (place.alignToSlope = on) });
+		const randomYaw = toggleSwitch({ label: 'Random facing', checked: place.randomYaw, onChange: (on) => (place.randomYaw = on) });
+		const angleSnap = toggleSwitch({ label: '15° angle snap', checked: place.angleSnap, title: 'Snaps the rotate gizmo to 15° steps', onChange: (on) => (place.angleSnap = on) });
+		const scaleMin = stepper({ id: 'place-scale-min', label: 'Smallest scale', value: place.scaleMin, min: 0.05, max: 10, step: 0.05, onChange: (v) => (place.scaleMin = v ?? 1) });
+		const scaleMax = stepper({ id: 'place-scale-max', label: 'Largest scale', value: place.scaleMax, min: 0.05, max: 10, step: 0.05, onChange: (v) => (place.scaleMax = v ?? 1) });
+		const scaleField = fieldShell({ label: 'Scale range', controlId: 'place-scale-min' }, dockRow(scaleMin.root, scaleMax.root)).root;
+		scaleField.title = 'Placed doodads pick a random size between these';
+		const snap = select({
+			label: 'Grid snap',
+			options: [
+				{ value: '0', label: 'Off' },
+				{ value: '0.5', label: '0.5 yd' },
+				{ value: '1', label: '1 yd' },
+				{ value: '5', label: '5 yd' },
+			],
+			value: String(place.gridSnap),
+			title: 'Snaps placement and the move gizmo to a grid',
+			onChange: (value) => (place.gridSnap = Number(value)),
+		});
+		const placement = dockModule({ title: 'Placement', children: [align.root, randomYaw.root, angleSnap.root, scaleField, snap.root] });
+
+		const sync = () => {
+			const entities = objects.selectedEntities();
+			transform.sync(entities);
+			setModuleEmpty(attributes, entities.length === 0);
+			// The WMO set choices show for a single selected building (spec 7.8).
+			const selected = objects.selectedObjects();
+			const wmo = entities.length === 1 && selected.length === 1 && selected[0].kind === 'wmo' ? selected[0] : null;
+			this.syncDoodadSet(doodadSet, wmo);
+			nameSetField.hidden = !wmo;
+			if (wmo) setStepperValue(nameSet.root, wmo.nameSet ?? 0);
+			common.sync(entities);
+			revert.hidden = objects.revertableCount === 0;
+			const deleted = objects.deletedBaseCount;
+			restore.hidden = deleted === 0;
+			restore.querySelector('.ds-button-label')!.textContent = `Restore ${deleted} deleted copied object${deleted === 1 ? '' : 's'}`;
+			setChecked(align.root, place.alignToSlope);
+			setChecked(randomYaw.root, place.randomYaw);
+			setChecked(angleSnap.root, place.angleSnap);
+			setStepperValue(scaleMin.root, place.scaleMin);
+			setStepperValue(scaleMax.root, place.scaleMax);
+			setSelectValue(snap.root, String(place.gridSnap));
+		};
+		return { description: () => null, modules: [keysModule.root, transform.module.root, attributes.root, placement.root], sync };
+	}
+
+	/** Fills the doodad set select for one building, or disables it. */
+	private syncDoodadSet(field: SelectHandle, wmo: PlacedObject | null): void {
+		const sets = wmo ? this.editor.objects.doodadSets(wmo) : null;
+		const options: SelectOption[] = sets
+			? sets.map((name, i) => ({ value: String(i), label: `${i} · ${name || 'unnamed'}${i === 0 ? ' (always shown)' : ''}` }))
+			: wmo
+				? [{ value: '', label: 'Loading…' }]
+				: [];
+		setSelectOptions(field.root, options);
+		setSelectValue(field.root, wmo ? (sets ? String(wmo.doodadSet ?? 0) : '') : null);
+		const enabled = wmo !== null && sets !== null;
+		field.trigger.disabled = !enabled;
+		field.root.toggleAttribute('aria-disabled', !enabled);
+	}
+
+	private buildNpcs(): ToolContent {
+		const editor = this.editor;
+		const objects = editor.objects;
+		const settings = objects.npcPlace;
+		const keysModule = dockModule({ title: 'Hotkeys', children: [hotkeyList({ rows: OBJECT_KEYS }).root] });
+		const transform = this.buildTransform();
+
+		// Attributes (spec 7.9.1): name, title, pose, idle, the look, then the common rows.
+		const names = () => objects.setNpcName(name.input.value, title.input.value);
+		const name = textInput({ label: 'Name', placeholder: 'unnamed', title: 'Shown on the nameplate in play mode', onChange: names });
+		const title = textInput({ label: 'Title', placeholder: 'e.g. <Innkeeper>', onChange: names });
+		const pose = select({
+			label: 'Pose',
+			options: [],
+			value: null,
+			title: 'How the NPC holds itself; idle animations apply while standing',
+			onChange: (value) => {
+				if (value === '-1') return;
+				objects.setNpcPose((value || null) as NpcPose | null, value ? POSE_LABELS[value as NpcPose] : 'Standing');
+			},
+		});
+		const idle = select({
+			label: 'Idle animation',
+			options: [],
+			value: null,
+			title: 'The animation the NPC loops while standing about, from those its model has',
+			onChange: (value) => {
+				const id = Number(value) || 0;
+				objects.setNpcIdle(id, id ? animationName(id) : 'Stand');
+			},
+		});
+		const appearance = button({
+			label: 'Change appearance to the picked one',
+			title: 'Give the selected NPCs the creature or custom NPC picked in the NPC library',
+			onClick: () => {
+				const picked = settings.asset;
+				if (picked) objects.setNpcAppearance(picked.appearance, picked.label);
+			},
+		});
+		const look = dockNote('');
+		const common = this.commonAttributes();
+		const attributes = dockModule({
+			title: 'Attributes',
+			emptyText: 'Make a selection to edit attributes.',
+			children: [name.root, title.root, pose.root, idle.root, appearance, look, ...common.rows],
+		});
+
+		// The play-mode avatar (spec 7.10): the picked appearance, or the default.
+		const picked = dockNote('');
+		const playing = dockNote('');
+		const playAs = button({ label: 'Play as the picked one', title: 'Play the scene as the picked creature or custom NPC (spec 7.10)', onClick: () => settings.asset && editor.setPlayer(settings.asset.appearance) });
+		const playDefault = button({ label: 'Default avatar', title: 'Back to the default avatar, a human', onClick: () => editor.setPlayer(null) });
+		const avatar = dockModule({ title: 'Player avatar', children: [picked, playing, playAs, playDefault] });
+		editor.onPlayerChange = () => this.syncActive();
+		this.cleanups.push(() => {
+			editor.onPlayerChange = () => {};
+		});
+
+		const sync = () => {
+			const entities = objects.selectedEntities();
+			transform.sync(entities);
+			// NPC attributes show while any NPC is selected; the fields follow the last one.
+			const npcs = objects.selectedNpcs();
+			setModuleEmpty(attributes, npcs.length === 0);
+			const npc = npcs[npcs.length - 1];
+			if (npc) {
+				const active = document.activeElement;
+				if (active !== name.input) setTextValue(name.root, npcs.every((n) => n.name === npc.name) ? (npc.name ?? '') : '');
+				if (active !== title.input) setTextValue(title.root, npcs.every((n) => n.subName === npc.subName) ? (npc.subName ?? '') : '');
+				this.syncNpcIdle(pose, idle, npcs);
+				const asset = settings.asset;
+				setDisabled(appearance, !asset);
+				appearance.title = asset ? `Give the selected NPC${npcs.length === 1 ? '' : 's'} the look picked in the NPC library: ${asset.label}` : 'Pick an NPC in the NPC library first';
+				look.textContent = this.npcLibrary?.describe(npc.appearance) ?? (npc.appearance.kind === 'creature' ? `Creature display ${npc.appearance.displayId}` : 'Custom NPC');
+			}
+			common.sync(npcs.map((n): Entity => ({ kind: 'npc', n })));
+			picked.textContent = settings.asset ? `Placing ${settings.asset.label}: click the ground to place it facing you.` : 'Nothing picked yet: pick an NPC in the NPC library.';
+			const player = editor.model.meta.player;
+			playing.textContent = `Playing as ${player ? (this.npcLibrary?.describe(player) ?? (player.kind === 'creature' ? `creature display ${player.displayId}` : 'a custom NPC')) : 'the default avatar (a human)'}`;
+			setDisabled(playAs, !settings.asset);
+			setDisabled(playDefault, !player);
+		};
+		return { description: () => null, modules: [keysModule.root, transform.module.root, attributes.root, avatar.root], sync };
+	}
 
 	/**
 	 * The pose and idle selects (spec 7.9.1). Pose: standing, or a held pose, with those the
@@ -494,28 +969,24 @@ export class EditorPanels {
 	 * the idle applies only standing. Both are offered only while every selected NPC shares one
 	 * model, since each model has sequences of its own.
 	 */
-	private syncNpcIdle(npcs: PlacedNpc[]): void {
-		const select = $<HTMLSelectElement>('sel-npc-idle');
-		const poseSelect = $<HTMLSelectElement>('sel-npc-pose');
+	private syncNpcIdle(poseField: SelectHandle, idleField: SelectHandle, npcs: PlacedNpc[]): void {
 		const layer = this.editor.objects.npcs;
 		const npc = npcs[npcs.length - 1];
 		// '' standing, '-1' varies.
-		const pose = npcs.every((n) => (n.pose ?? '') === (npc.pose ?? '')) ? npc.pose ?? '' : '-1';
-		const poseOptions = (has: (ids: number[]) => boolean) => [
-			new Option('Standing', ''),
+		const pose = npcs.every((n) => (n.pose ?? '') === (npc.pose ?? '')) ? (npc.pose ?? '') : '-1';
+		const poseOptions = (has: (ids: number[]) => boolean): SelectOption[] => [
+			{ value: '', label: 'Standing' },
 			...NPC_POSES.map((p) => {
-				const sequences = poseSequences(p);
-				const missing = !has(sequences);
-				const option = new Option(missing ? `${POSE_LABELS[p]} (not in this model, stands instead)` : POSE_LABELS[p], p);
-				option.disabled = missing && pose !== p;
-				return option;
+				const missing = !has(poseSequences(p));
+				return { value: p, label: missing ? `${POSE_LABELS[p]} (not in this model, stands instead)` : POSE_LABELS[p], disabled: missing && pose !== p };
 			}),
-			...(pose === '-1' ? [new Option('Varies', '-1')] : []),
+			...(pose === '-1' ? [{ value: '-1', label: 'Varies' }] : []),
 		];
-		const showPose = (options: HTMLOptionElement[], enabled: boolean) => {
-			poseSelect.replaceChildren(...options);
-			poseSelect.disabled = !enabled;
-			poseSelect.value = pose;
+		const fill = (field: SelectHandle, options: SelectOption[], value: string, enabled: boolean) => {
+			setSelectOptions(field.root, options);
+			setSelectValue(field.root, value);
+			field.trigger.disabled = !enabled;
+			field.root.toggleAttribute('aria-disabled', !enabled);
 		};
 		const model = layer.modelOf(npc.appearance);
 		const key = model ? `${model.kind}:${model.fdid}` : null;
@@ -524,15 +995,11 @@ export class EditorPanels {
 			return m !== null && m.kind === model.kind && m.fdid === model.fdid;
 		});
 		// -1: the selection idles in more than one way.
-		const idle = npcs.every((n) => (n.idle ?? 0) === (npc.idle ?? 0)) ? npc.idle ?? 0 : -1;
+		const idle = npcs.every((n) => (n.idle ?? 0) === (npc.idle ?? 0)) ? (npc.idle ?? 0) : -1;
 		const serial = ++this.idleSerial;
-		const show = (options: HTMLOptionElement[], enabled: boolean) => {
-			select.replaceChildren(...options);
-			select.disabled = !enabled;
-		};
 		if (!shared || !model) {
-			show([new Option(key ? 'Varies by model' : 'Model not in this scene', '')], false);
-			showPose(poseOptions(() => true), false);
+			fill(idleField, [{ value: '', label: key ? 'Varies by model' : 'Model not in this scene' }], '', false);
+			fill(poseField, poseOptions(() => true), pose, false);
 			return;
 		}
 		let list = this.idleLists.get(key!);
@@ -544,75 +1011,19 @@ export class EditorPanels {
 			});
 			this.idleLists.set(key!, list);
 		}
-		show([new Option('Loading…', String(idle))], false);
-		showPose(poseOptions(() => true), false);
+		fill(idleField, [{ value: String(idle), label: 'Loading…' }], String(idle), false);
+		fill(poseField, poseOptions(() => true), pose, false);
 		void list.then((ids) => {
 			if (serial !== this.idleSerial) return;
-			showPose(poseOptions((sequences) => sequences.some((s) => ids.includes(Math.abs(s)))), true);
+			fill(poseField, poseOptions((sequences) => sequences.some((s) => ids.includes(Math.abs(s)))), pose, true);
 			const named = ids.filter((id) => id !== 0).map((id) => ({ id, name: animationName(id) })).sort((a, b) => a.name.localeCompare(b.name));
-			const options = [new Option('Stand (default)', '0'), ...named.map((n) => new Option(n.name, String(n.id)))];
+			const options: SelectOption[] = [{ value: '0', label: 'Stand (default)' }, ...named.map((n) => ({ value: String(n.id), label: n.name }))];
 			// A chosen sequence this model turns out to lack (the look was changed since) still shows, so it can be seen and reset.
-			if (idle > 0 && !ids.includes(idle)) options.push(new Option(`${animationName(idle)} (not in this model, stands instead)`, String(idle)));
-			if (idle < 0) options.unshift(new Option('Varies', '-1'));
+			if (idle > 0 && !ids.includes(idle)) options.push({ value: String(idle), label: `${animationName(idle)} (not in this model, stands instead)` });
+			if (idle < 0) options.unshift({ value: '-1', label: 'Varies' });
 			// Posed NPCs keep their idle for when they stand again, but can't change it meanwhile.
-			show(options, pose === '');
-			select.value = String(idle);
+			fill(idleField, options, String(idle), pose === '');
 		});
-	}
-
-	private wireNpcs(): void {
-		const settings = this.editor.objects.npcPlace;
-		for (const mode of ['place', 'select'] as const) {
-			this.listen($(`npcs-${mode}`), 'click', () => {
-				settings.mode = mode;
-				this.syncNpcs();
-			});
-		}
-		const objects = this.editor.objects;
-		const names = () => objects.setNpcName($<HTMLInputElement>('sel-npc-name').value, $<HTMLInputElement>('sel-npc-subname').value);
-		this.listen($('sel-npc-name'), 'change', names);
-		this.listen($('sel-npc-subname'), 'change', names);
-		this.listen($('sel-npc-facing'), 'change', () => objects.setNpcFacing(Number($<HTMLInputElement>('sel-npc-facing').value) || 0));
-		this.listen($('sel-npc-scale'), 'change', () => objects.setNpcScale(Number($<HTMLInputElement>('sel-npc-scale').value) || 1));
-		this.listen($('sel-npc-pose'), 'change', () => {
-			const select = $<HTMLSelectElement>('sel-npc-pose');
-			const value = select.value as NpcPose | '' | '-1';
-			if (value === '-1') return;
-			objects.setNpcPose(value || null, value ? POSE_LABELS[value] : 'Standing');
-		});
-		this.listen($('sel-npc-idle'), 'change', () => {
-			const select = $<HTMLSelectElement>('sel-npc-idle');
-			const id = Number(select.value) || 0;
-			objects.setNpcIdle(id, id ? animationName(id) : 'Stand');
-		});
-		this.listen($('sel-npc-appearance'), 'click', () => {
-			const picked = objects.npcPlace.asset;
-			if (picked) objects.setNpcAppearance(picked.appearance, picked.label);
-		});
-		// The play-mode avatar (spec 7.10): the picked appearance, or the default.
-		this.listen($('npc-player-set'), 'click', () => {
-			const picked = settings.asset;
-			if (picked) this.editor.setPlayer(picked.appearance);
-		});
-		this.listen($('npc-player-reset'), 'click', () => this.editor.setPlayer(null));
-		this.editor.onPlayerChange = () => this.syncNpcs();
-		this.cleanups.push(() => {
-			this.editor.onPlayerChange = () => {};
-		});
-		this.syncNpcs();
-	}
-
-	private syncNpcs(): void {
-		const settings = this.editor.objects.npcPlace;
-		$('npcs-place').classList.toggle('active', settings.mode === 'place');
-		$('npcs-select').classList.toggle('active', settings.mode === 'select');
-		$('npc-picked').textContent = settings.asset ? `Placing ${settings.asset.label}` : 'Nothing picked yet';
-		$('npcs-hint').textContent = NPC_HINTS[settings.mode];
-		const player = this.editor.model.meta.player;
-		$('npc-player').textContent = `Playing as ${player ? this.npcLibrary?.describe(player) ?? (player.kind === 'creature' ? `creature display ${player.displayId}` : 'a custom NPC') : 'the default avatar (a human)'}`;
-		$<HTMLButtonElement>('npc-player-set').disabled = !settings.asset;
-		$<HTMLButtonElement>('npc-player-reset').disabled = !player;
-		this.syncSelection();
 	}
 
 	/** Arms an appearance for placing; a custom one is embedded in the scene first (spec 6.6). */
@@ -622,7 +1033,7 @@ export class EditorPanels {
 			if (preset) this.editor.model.setPreset(preset);
 		}
 		this.editor.objects.npcPlace.asset = asset;
-		this.syncNpcs();
+		this.syncActive();
 	}
 
 	private makeNpcLibrary(): void {
@@ -687,112 +1098,25 @@ export class EditorPanels {
 		await this.npcEditor?.open(preset, prefill, name);
 	}
 
-	private syncPlace(): void {
-		const place = this.editor.objects.place;
-		$('place-place').classList.toggle('active', place.mode === 'place');
-		$('place-select').classList.toggle('active', place.mode === 'select');
-		$<HTMLInputElement>('place-align').checked = place.alignToSlope;
-		$<HTMLInputElement>('place-random-yaw').checked = place.randomYaw;
-		$<HTMLInputElement>('place-scale-min').value = String(place.scaleMin);
-		$<HTMLInputElement>('place-scale-max').value = String(place.scaleMax);
-		$<HTMLSelectElement>('place-snap').value = String(place.gridSnap);
-		$('place-hint').textContent = PLACE_HINTS[place.mode];
-	}
+	// ---- Revert to base (spec 7.11), copied scenes only: key 8, no chip ----
 
-	// ---- Revert to base (spec 7.11) ----
-
-	private wireRevert(): void {
-		$('tool-revert').hidden = !this.copied;
-		this.cleanups.push(() => ($('tool-revert').hidden = true));
+	private buildRevert(): ToolContent {
 		const revert = this.editor.revert;
-		for (const channel of Object.keys(revert.channels) as RevertChannel[]) {
-			const box = $<HTMLInputElement>(`revert-${channel}`);
-			box.checked = revert.channels[channel];
-			this.listen(box, 'change', () => {
-				revert.channels[channel] = box.checked;
-			});
-		}
-		this.listen($('revert-radius'), 'input', () => {
-			revert.radius = Number($<HTMLInputElement>('revert-radius').value);
-			this.syncRevert();
-		});
-		this.listen($('sel-revert'), 'click', () => this.editor.objects.revertSelectionToBase());
-		this.listen($('place-restore'), 'click', () => this.editor.objects.restoreDeleted());
-		this.syncRevert();
-	}
-
-	private syncRevert(): void {
-		const revert = this.editor.revert;
-		$<HTMLInputElement>('revert-radius').value = String(revert.radius);
-		$('revert-radius-out').textContent = `${revert.radius} yd`;
-	}
-
-	// ---- Ground clutter (spec 7.7) ----
-
-	private wireClutter(): void {
-		const settings = this.editor.clutterSettings;
-		const sync = () => {
-			$<HTMLInputElement>('clutter-on').checked = settings.enabled;
-			$<HTMLInputElement>('clutter-density').value = String(settings.density);
-			$('clutter-density-out').textContent = `${Math.round(settings.density * 100)}%`;
+		const labels: Record<RevertChannel, string> = { heights: 'Heights', vertexShade: 'Vertex shading', paint: 'Textures', holes: 'Holes', water: 'Water' };
+		const switches = (Object.keys(revert.channels) as RevertChannel[]).map((channel) =>
+			toggleSwitch({ label: labels[channel], checked: revert.channels[channel], onChange: (on) => (revert.channels[channel] = on) }),
+		);
+		const channels = dockModule({ title: 'What goes back', children: switches.map((s) => s.root) });
+		const keysModule = dockModule({ title: 'Hotkeys', children: [hotkeyList({ rows: [SHIFT_CLICK('Revert')] }).root] });
+		const size = this.sizeModule(100, () => revert.radius, (r) => (revert.radius = r));
+		return {
+			description: () => 'Revert to base puts the chunks the brush passes over back the way the source map has them. Keys 1 to 7 go back to the other tools.',
+			modules: [channels.root, keysModule.root, size.module.root],
+			sync: () => {
+				(Object.keys(revert.channels) as RevertChannel[]).forEach((channel, i) => setChecked(switches[i].root, revert.channels[channel]));
+				size.sync();
+			},
 		};
-		this.listen($('clutter-on'), 'change', () => {
-			settings.enabled = $<HTMLInputElement>('clutter-on').checked;
-			this.editor.refreshClutter();
-			sync();
-		});
-		this.listen($('clutter-density'), 'input', () => {
-			settings.density = Number($<HTMLInputElement>('clutter-density').value);
-			this.editor.refreshClutter();
-			sync();
-		});
-		this.listen($('clutter-apply'), 'click', () => {
-			const changed = this.editor.applyGroundEffects();
-			this.editor.onNotice(changed ? `Ground effects applied to ${changed} chunk${changed === 1 ? '' : 's'}` : 'Every painted layer already has its ground effect');
-		});
-		sync();
-	}
-
-	// ---- The environment (spec 6.1): time of day, weather, fog and shadows ----
-
-	private wireEnvironment(): void {
-		const time = $<HTMLInputElement>('env-time');
-		const fog = $<HTMLInputElement>('env-fog');
-		const weather = $<HTMLSelectElement>('env-weather');
-		// Shadows are how the scene is viewed, not part of it: no command, and kept across scenes.
-		const shadows = $<HTMLInputElement>('env-shadows');
-		shadows.checked = this.editor.shadows;
-		this.listen(shadows, 'change', () => (this.editor.shadows = shadows.checked));
-		const sync = () => {
-			const env = this.editor.environment;
-			// The slider is in minutes, on quarter hours; the scene keeps half-minutes.
-			const minutes = Math.round(env.timeOfDay / 30) * 15;
-			time.value = String(minutes % 1440);
-			$('env-time-out').textContent = clock(env.timeOfDay / 2);
-			fog.checked = env.fogOn !== false;
-			weather.value = env.weather ?? '';
-		};
-		this.listen(fog, 'change', () => this.editor.setEnvironment({ fogOn: fog.checked }, fog.checked ? 'Turn fog on' : 'Turn fog off'));
-		this.listen(weather, 'change', () => {
-			const kind = SCENE_WEATHERS.find((k) => k === weather.value);
-			this.editor.setEnvironment({ weather: kind }, kind ? `Set weather: ${kind}` : 'Clear the weather');
-		});
-		// Dragging previews each value; letting go records the whole drag as one command.
-		let timeBefore: typeof this.editor.environment | null = null;
-		this.listen(time, 'input', () => {
-			timeBefore ??= { ...this.editor.environment };
-			this.editor.previewEnvironment({ timeOfDay: Number(time.value) * 2 });
-		});
-		this.listen(time, 'change', () => {
-			const from = timeBefore ?? { ...this.editor.environment };
-			timeBefore = null;
-			this.editor.setEnvironment({ timeOfDay: Number(time.value) * 2 }, 'Set time of day', from);
-		});
-		this.editor.onEnvironmentChange = sync;
-		this.cleanups.push(() => {
-			this.editor.onEnvironmentChange = () => {};
-		});
-		sync();
 	}
 
 	// ---- Undo and redo ----
@@ -818,38 +1142,48 @@ export class EditorPanels {
 
 	// ---- Keyboard shortcuts (spec 8) ----
 
+	/**
+	 * The mode bar binds 1 to 7 itself. Here: 8 for Revert to base (copied scenes), Escape to
+	 * stop sampling, and the brackets: [ ] size the active brush; with Shift its strength (or
+	 * the water's surface height); with Cmd the paint opacity, as the hotkey lists say.
+	 */
 	private wireKeys(): void {
 		this.listen(window, 'keydown', (e: KeyboardEvent) => {
-			if (e.ctrlKey || e.metaKey || e.altKey) return;
+			if (e.altKey) return;
 			if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
 			if (this.editor.playing) return;
+			const bracket = e.code === 'BracketLeft' || e.code === 'BracketRight';
+			const up = e.code === 'BracketRight';
+			if (e.ctrlKey || e.metaKey) {
+				if (bracket && this.editor.tool === 'paint') {
+					e.preventDefault();
+					const paint = this.editor.paint;
+					paint.opacity = Math.min(1, Math.max(0, Math.round((paint.opacity + (up ? 0.05 : -0.05)) * 100) / 100));
+					this.syncActive();
+				}
+				return;
+			}
 			if (e.code === 'Escape' && this.sampling) {
 				this.setSampling(false);
 				return;
 			}
-			const tool = TOOLS.find((t) => t.key === e.code);
-			if (tool?.ready) {
-				this.setTool(tool.id);
+			if (e.code === 'Digit8' && this.copied) {
+				this.setTool('revert');
 				return;
 			}
-			if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
-				// [ and ] size the active tool's brush; with Shift, its strength (spec 8).
-				const up = e.code === 'BracketRight';
-				const tool = this.editor.tool;
-				const brush = tool === 'paint' ? this.editor.paint : tool === 'holes' ? this.editor.holes : tool === 'water' ? this.editor.water : tool === 'revert' ? this.editor.revert : this.editor.brush;
-				if (e.shiftKey) {
-					if ('strength' in brush) brush.strength = Math.min(1, Math.max(0, Math.round((brush.strength + (up ? 0.05 : -0.05)) * 100) / 100));
-				} else {
-					const max = tool === 'holes' || tool === 'water' ? 30 : 100;
-					const step = Math.max(1, Math.round(brush.radius * 0.15));
-					brush.radius = Math.min(max, Math.max(1, brush.radius + (up ? step : -step)));
-				}
-				this.syncSculpt();
-				this.syncPaint();
-				this.syncHoles();
-				this.syncWater();
-				this.syncRevert();
+			if (!bracket) return;
+			const tool = this.editor.tool;
+			if (tool === 'environment' || tool === 'place' || tool === 'npcs') return;
+			const brush = tool === 'paint' ? this.editor.paint : tool === 'holes' ? this.editor.holes : tool === 'water' ? this.editor.water : tool === 'revert' ? this.editor.revert : this.editor.brush;
+			if (e.shiftKey) {
+				if ('strength' in brush) brush.strength = Math.min(1, Math.max(0, Math.round((brush.strength + (up ? 0.05 : -0.05)) * 100) / 100));
+				else if (tool === 'water') this.editor.water.height = Math.round(((this.editor.water.height ?? 0) + (up ? 0.5 : -0.5)) * 2) / 2;
+			} else {
+				const max = tool === 'holes' || tool === 'water' ? 30 : 100;
+				const step = Math.max(1, Math.round(brush.radius * 0.15));
+				brush.radius = Math.min(max, Math.max(1, brush.radius + (up ? step : -step)));
 			}
+			this.syncActive();
 		});
 	}
 
@@ -882,6 +1216,7 @@ export class EditorPanels {
 		for (const cleanup of this.cleanups) cleanup();
 		this.cleanups.length = 0;
 		this.show(false);
+		this.dock.dispose();
 	}
 }
 

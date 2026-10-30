@@ -230,7 +230,11 @@ like the segmented control.
 
 ### 5.1 Relation to the existing tool rail
 
-`index.html` has `#tool-rail`: a **vertical** `role="toolbar"` of text buttons (Sculpt, Paint,
+**Done (2026-10-30):** the controller sits at the top of the bottom controls
+([bottom-controls.md](bottom-controls.md)) and the rail is gone. Revert to base is reached
+with key 8 in copied scenes and shows with no chip selected. What follows is the plan as it was.
+
+`index.html` had `#tool-rail`: a **vertical** `role="toolbar"` of text buttons (Sculpt, Paint,
 Holes, Water, Place, NPCs, and a hidden Revert), with shortcuts 1–6. The Mode Controller
 replaces it, with these differences the editor code must absorb:
 

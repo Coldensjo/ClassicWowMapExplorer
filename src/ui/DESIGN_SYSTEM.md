@@ -9,10 +9,11 @@ the app is built (DOM made by hand in `src/editor` and `src/viewer`, one stylesh
 **Status:** the colour tokens are defined (from the Figma file "Dungeon Builder", mode
 "Mode 1"), so are the type tokens (from its text styles), the layout tokens (§3.3) and the icon
 set (§6). Every molecule the specs in `specs/` describe is built (§5), and `gallery.html` shows
-them all (§8). The game theme's overrides are not written yet. Three pieces of screens have
-migrated: the Paint tool's texture browser, the Place tool's object browser and the NPCs
-tool's NPC library are floating windows built from molecules (§7.1); the rest of the existing
-screens still use their own markup.
+them all (§8). The game theme's overrides are not written yet. The editor's tools have
+migrated: the Paint tool's texture browser, the Objects tool's object browser and the NPCs
+tool's NPC library are floating windows built from molecules, and every tool's settings live in
+the bottom controls, the mode bar over a resizable tool panel of modules (§7.1); the scene
+library, the top bar and the status bar still use their own markup.
 
 ## 1. Layout
 
@@ -249,6 +250,7 @@ was drawn, what was decided and what is proposed. File names follow the specs (s
 | `tile` | `tile()` | an outlined card that navigates |
 | `mode-controller` | `modeController()`, `setMode()`, `bindModeShortcuts()` | the editor's tool bar of seven chips |
 | `key-command` | `kbd()`, `kbdChord()` | keycaps |
+| `hotkey-list` | `hotkeyList()`, `setHotkeyRows()` | rows of what a key does, headed under a radio option or plain as a module |
 | `tooltip` | `tooltip()`, `attachTooltip()` | simple and complex tooltips on any anchor |
 | `toast` | `showToast()`, `dismissToasts()` | transient status messages in one live region |
 | `scrollbar` | (CSS only: `.ds-scroll`) | the thin thumb on native scrolling |
@@ -363,9 +365,9 @@ module and keeping only its layout rules in page CSS, written with tokens. The p
 | The Paint tool's texture browser (2026-10-30): a floating window with the sampled-chunk section and the texture grid, shown only in Paint mode | `src/editor/textureBrowser.ts` | `viewer.css`, "The browser windows" (`.asset-browser-*`) | `specs/texture-browser.md` |
 | The Place tool's object browser (2026-10-30): the same window with a Doodads / Buildings segmented control, the model grid and a selection toast, shown only in Place mode | `src/editor/modelBrowser.ts` | the same `.asset-browser-*` rules | `specs/object-browser.md` |
 | The NPCs tool's NPC library (2026-10-30): the same window with a main view of three interactive tiles (Local, Favorites, Existing) and a Create new NPC button, each opening a browser of NPC tiles with a "…" menu, a variants pill and the selection toast, shown only in NPCs mode | `src/editor/npcLibrary.ts` | the same rules plus `.npc-library-*` | `specs/npc-library.md` |
+| The bottom controls (2026-10-30): the mode controller over a grab bar over the tool panel, docked across the bottom of the viewport; the panel's height is dragged and remembered, and each tool fills it with modules (a titled, scrolling column) built from radios, sliders, switches, steppers, selects, text inputs and hotkey lists. It replaced the tool rail and the properties panel. | `src/editor/bottomControls.ts` (the frame and the module shell) and `src/editor/editorPanels.ts` (each tool's modules) | `viewer.css`, "The bottom controls" (`#bottom-controls`, `.dock-*`) | `specs/bottom-controls.md` |
 
-Their markup left `index.html` and their old rules left `viewer.css`; the Paint, Place and
-NPCs panels keep their settings until the whole panel migrates.
+Their markup left `index.html` and their old rules left `viewer.css`.
 
 ## 8. Adding things: checklists
 

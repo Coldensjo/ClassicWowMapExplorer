@@ -1,0 +1,10 @@
+/*
+ * Text input. Spec: specs/text-input.md.
+ *
+ * .ds-text-input is a .ds-field whose body is a .ds-field-box holding, in order, an optional
+ * leading icon, prefix, the input and suffix. The field rules in field.css do the drawing;
+ * this file only names the molecule.
+ */
+.ds-text-input .ds-field-box > .ds-icon {
+	color: var(--field-fg);
+}

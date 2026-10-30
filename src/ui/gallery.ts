@@ -1,0 +1,274 @@
+/**
+ * The dev-only gallery (gallery.html): every molecule in the default look, so a change can be
+ * eyeballed without loading the game. See DESIGN_SYSTEM.md §8. Not part of the build.
+ */
+import {
+	attachTooltip,
+	bindModeShortcuts,
+	button,
+	grabBar,
+	icon,
+	iconButton,
+	iconNames,
+	kbd,
+	kbdChord,
+	loading,
+	menu,
+	modeController,
+	radioGroup,
+	segmentedControl,
+	select,
+	setInvalid,
+	showToast,
+	slider,
+	stepper,
+	swatchPicker,
+	textInput,
+	tile,
+	toggleSwitch,
+	type ButtonSize,
+	type ButtonVariant,
+	type IconButtonSize,
+	type IconButtonVariant,
+} from './index';
+import { el } from './dom';
+
+const gallery = document.getElementById('gallery')!;
+
+function section(title: string, spec: string, note: string, ...children: HTMLElement[]): void {
+	const s = el('section', { id: title.toLowerCase().replace(/\W+/g, '-') });
+	s.append(el('h2', {}, title, el('small', {}, `specs/${spec}`)), el('p', {}, note), ...children);
+	gallery.append(s);
+}
+
+const row = (...children: (HTMLElement | string)[]) => el('div', { class: 'row' }, ...children);
+const col = (...children: HTMLElement[]) => el('div', { class: 'col' }, ...children);
+const caption = (text: string) => el('span', { class: 'caption' }, text);
+const status = () => el('div', { class: 'status' }, '—');
+
+// Buttons
+{
+	const variants: ButtonVariant[] = ['primary', 'secondary', 'outline'];
+	const sizes: ButtonSize[] = ['sm', 'md', 'lg'];
+	const rows = variants.map((variant) =>
+		row(caption(variant), ...sizes.map((size) => button({ label: 'Save', variant, size })), button({ label: 'Save', variant, icon: 'save' }), button({ label: 'Save', variant, disabled: true })),
+	);
+	const pressed = button({ label: 'Toggle me', pressed: false, onClick: (e) => {
+		const b = e.currentTarget as HTMLButtonElement;
+		b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+	} });
+	const iconVariants: IconButtonVariant[] = ['primary', 'secondary', 'ghost'];
+	const iconSizes: IconButtonSize[] = ['xs', 'sm', 'md', 'lg'];
+	const iconRows = iconVariants.map((variant) =>
+		row(
+			caption(variant),
+			...iconSizes.filter((s) => variant === 'ghost' || s !== 'xs').map((size) => iconButton({ icon: 'close', label: 'Close', variant, size })),
+			iconButton({ icon: 'close', label: 'Close', variant, disabled: true }),
+		),
+	);
+	section('Buttons', 'buttons.md', 'Text buttons in three variants and sizes, then icon buttons. Hover washes, pressing doubles the wash, Tab shows the focus ring.', ...rows, row(caption('pressed'), pressed), ...iconRows);
+}
+
+// Switch
+{
+	const s = status();
+	const on = toggleSwitch({ label: 'Fog', checked: true, onChange: (v) => (s.textContent = `Fog: ${v ? 'on' : 'off'}`) });
+	const off = toggleSwitch({ label: 'Show ground clutter with a label long enough to truncate inside the column', checked: false });
+	const disabled = toggleSwitch({ label: 'Weather', checked: true, disabled: true });
+	const bare = toggleSwitch({ label: 'Bare switch', layout: 'bare' });
+	section('Switch', 'switch.md', 'A row toggles anywhere it is clicked; the knob slides and the track cross-fades.', col(on.root, off.root, disabled.root), row(caption('bare'), bare.root), s);
+}
+
+// Radio
+{
+	const s = status();
+	const group = radioGroup({
+		name: 'sculpt-mode',
+		legend: 'Sculpt mode',
+		value: 'raise',
+		options: [
+			{ value: 'raise', label: 'Raise/lower', info: { label: 'About Raise/lower', onClick: () => showToast('Raise or lower the ground under the brush.') } },
+			{ value: 'smooth', label: 'Smooth' },
+			{ value: 'flatten', label: 'Flatten to a height, with a label long enough that it truncates', info: { label: 'About Flatten', onClick: () => showToast('Flattens toward the height you first touch.') } },
+			{ value: 'noise', label: 'Noise (unavailable)', disabled: true, info: { label: 'About Noise', onClick: () => showToast('Noise needs a larger brush.') } },
+		],
+		onChange: (v) => (s.textContent = `Selected: ${v}`),
+	});
+	section('Radio', 'radio.md', 'Arrow keys move and select; the info button beside an option is its own control and stays usable when the option is disabled.', col(group.root), s);
+}
+
+// Segmented control
+{
+	const s = status();
+	const two = segmentedControl({ name: 'paint-mode', label: 'Paint mode', value: 'paint', options: [{ value: 'paint', label: 'Paint' }, { value: 'sample', label: 'Sample' }], onChange: (v) => (s.textContent = `Paint mode: ${v}`) });
+	const six = segmentedControl({
+		name: 'sculpt-seg',
+		label: 'Sculpt mode',
+		value: 'raise',
+		options: ['Raise', 'Lower', 'Smooth', 'Flatten', 'Noise', 'Ramp'].map((l) => ({ value: l.toLowerCase(), label: l, disabled: l === 'Ramp' })),
+		onChange: (v) => (s.textContent = `Sculpt mode: ${v}`),
+	});
+	section('Segmented control', 'segmented-control.md', 'Two segments as drawn, and six as the editor needs; segments share the width and labels truncate.', col(two.root, six.root), s);
+}
+
+// Text input
+{
+	const s = status();
+	const name = textInput({ label: 'Scene name', optional: true, placeholder: 'My dungeon', hint: 'Shown in the scene list', onChange: (v) => (s.textContent = `Name: ${v}`) });
+	const search = textInput({ ariaLabel: 'Search textures', type: 'search', icon: 'search', placeholder: 'Search textures' });
+	const money = textInput({ label: 'Amount', prefix: '$', suffix: '%', value: '100' });
+	const invalid = textInput({ label: 'Tiles across', value: '99', hint: '1 to 64' });
+	setInvalid(invalid.root, 'Must be 64 or fewer');
+	const disabled = textInput({ label: 'Disabled', value: 'Cannot edit', disabled: true, hint: 'Also dimmed' });
+	const readOnly = textInput({ label: 'Read only', value: 'Fixed value', readOnly: true });
+	section('Text input', 'text-input.md', 'Label, optional suffix, leading icon, prefix, suffix and supporting text. Focus recolours the border; there is no ring on fields.', row(col(name.root, search.root, money.root), col(invalid.root, disabled.root, readOnly.root)), s);
+}
+
+// Slider
+{
+	const s = status();
+	const radius = slider({ label: 'Radius', value: 40, min: 1, max: 100, suffix: 'yd', title: '[ and ] change it too', onInput: (v) => (s.textContent = `Radius: ${v}`) });
+	const strength = slider({ label: 'Strength', value: 0.5, min: 0, max: 1, step: 0.05, suffix: '%' });
+	const bare = slider({ ariaLabel: 'Opacity', value: 70, showInput: false });
+	const disabled = slider({ label: 'Disabled', value: 25, disabled: true });
+	section('Slider', 'slider.md', 'Native range with the tall thumb; the value field commits on Enter or blur, clamped and stepped.', row(col(radius.root, strength.root), col(bare.root, disabled.root)), s);
+}
+
+// Stepper
+{
+	const s = status();
+	const facing = stepper({ label: 'Facing', value: 90, min: 0, max: 360, step: 15, onChange: (v) => (s.textContent = `Facing: ${v}`) });
+	const scale = stepper({ label: 'Scale', value: 1, min: 0.1, max: 10, step: 0.1, fieldWidth: '96px' });
+	const flatten = stepper({ label: 'Flatten to', value: null, placeholder: 'first touch', step: 1, onChange: (v) => (s.textContent = `Flatten to: ${v}`) });
+	const disabled = stepper({ label: 'Disabled', value: 3, disabled: true });
+	section('Stepper', 'stepper.md', 'Minus and plus step, repeat while held and disable at the limits; ↑/↓ step in the field, Shift for ten steps.', row(facing.root, scale.root, flatten.root, disabled.root), s);
+}
+
+// Select and menu
+{
+	const s = status();
+	const weather = select({
+		label: 'Weather effects',
+		value: 'none',
+		options: [{ value: 'none', label: 'No weather' }, { value: 'rain', label: 'Rain' }, { value: 'snow', label: 'Snow' }, { value: 'fog', label: 'Fog (needs a sky)', disabled: true }, { value: 'storm', label: 'Storm' }],
+		onChange: (v) => (s.textContent = `Weather: ${v}`),
+	});
+	const falloff = select({ ariaLabel: 'Falloff', value: null, placeholder: 'Choose a falloff', hint: 'How the brush fades at its edge', options: [{ value: 'linear', label: 'Linear' }, { value: 'smooth', label: 'Smooth' }, { value: 'flat', label: 'Flat' }] });
+	const many = select({ label: 'Many options', value: '3', options: Array.from({ length: 20 }, (_, i) => ({ value: String(i), label: `Option ${i + 1}` })) });
+	const disabled = select({ label: 'Disabled', value: 'a', options: [{ value: 'a', label: 'Fixed' }], disabled: true });
+	const more = iconButton({ icon: 'more', label: 'More actions', variant: 'ghost', size: 'sm' });
+	menu(more, [
+		{ label: 'Drop to ground', onSelect: () => (s.textContent = 'Dropped to ground') },
+		{ label: 'Duplicate', icon: 'plus', onSelect: () => (s.textContent = 'Duplicated') },
+		{ label: 'Rename (soon)', disabled: true, onSelect: () => {} },
+		{ label: 'Delete', destructive: true, onSelect: () => (s.textContent = 'Deleted') },
+	]);
+	section('Select and menu', 'dropdown.md', 'A select-only combobox: Enter, Space or arrows open; typing jumps; the selected option is semibold with a checkmark. The ⋯ button opens an action menu with a destructive item.', row(col(weather.root, falloff.root), col(many.root, disabled.root)), row(caption('action menu'), more), s);
+}
+
+// Swatch picker
+{
+	const s = status();
+	const colours = ['#e6c09e', '#c99a6b', '#a9734a', '#7c4f2e', '#4a2e1b', '#f2d6c0', '#006fb4', '#181818'];
+	const picker = swatchPicker({ label: 'Skin colour', name: 'skin', value: '2', options: colours.map((color, i) => ({ value: String(i), color, disabled: i === 5 })), onChange: (v) => (s.textContent = `Skin colour ${Number(v) + 1}`) });
+	section('Swatch picker', 'color-swatch.md', 'The selected swatch has the accent ring and dot; hover outlines; each swatch has a name in a tooltip. The blue and near-black swatches show the issue flagged in the spec.', col(picker.root), s);
+}
+
+// Tile
+{
+	const s = status();
+	section(
+		'Interactive tile',
+		'interactive-tile.md',
+		'A card that navigates, as a button or a link; the title and description stay on one line.',
+		col(
+			tile({ title: 'Local NPCs', description: 'Created in this scene.', onActivate: () => (s.textContent = 'Opened Local NPCs') }),
+			tile({ title: 'All creatures', onActivate: () => (s.textContent = 'Opened All creatures') }),
+			tile({ title: 'A very long title that will not fit in the tile at this width', description: 'And a description that is also far too long to fit in one line here', onActivate: () => {} }),
+			tile({ title: 'Documentation', description: 'Opens in a new place.', href: '#interactive-tile' }),
+			tile({ title: 'Disabled', description: 'Nothing to open yet.', disabled: true }),
+		),
+		s,
+	);
+}
+
+// Mode controller
+{
+	const s = status();
+	const bar = modeController({ value: 'sculpt', onChange: (m) => (s.textContent = `Mode: ${m}`) });
+	bindModeShortcuts(bar.root);
+	const scene = el('div', { class: 'scene' }, bar.root);
+	section('Mode controller', 'mode-controller.md', 'Over a fake scene so the blur shows. ←/→ switch; keys 1 to 7 switch from anywhere on this page; hover a chip for its tooltip.', scene, s);
+}
+
+// Key command
+{
+	section('Key command', 'key-command.md', 'Medium and small keycaps, and a chord.', row(kbd('Shift'), kbd('W'), kbd('Esc'), caption('small'), kbd('Shift', { size: 'sm' }), kbd('1', { size: 'sm' }), caption('chord'), kbdChord(['Shift', '1']), kbdChord(['Cmd', 'S'], { size: 'sm' })));
+}
+
+// Tooltip
+{
+	const save = iconButton({ icon: 'save', label: 'Save scene', variant: 'secondary', size: 'md' });
+	attachTooltip(save, { text: 'Save scene', shortcut: 'S', placement: 'top' });
+	const play = iconButton({ icon: 'play', label: 'Play', variant: 'primary', size: 'md' });
+	attachTooltip(play, { text: 'Play the scene', placement: 'bottom' });
+	const left = iconButton({ icon: 'left', label: 'Previous', variant: 'ghost', size: 'md' });
+	attachTooltip(left, { text: 'Previous', placement: 'left' });
+	const right = iconButton({ icon: 'right', label: 'Next', variant: 'ghost', size: 'md' });
+	attachTooltip(right, { text: 'Next', placement: 'right' });
+	const info = iconButton({ icon: 'help', label: 'About falloff', variant: 'ghost', size: 'sm' });
+	attachTooltip(info, { variant: 'complex', text: 'Falloff is how the brush fades from full strength at its centre to nothing at its edge. Smooth is usually what you want for terrain.', placement: 'bottom' });
+	const rich = iconButton({ icon: 'info', label: 'About textures', variant: 'ghost', size: 'sm' });
+	attachTooltip(rich, { variant: 'complex', text: 'Textures come from the game files.', placement: 'right', content: button({ label: 'Open the browser', size: 'sm', onClick: () => showToast('Would open the texture browser.') }) });
+	section('Tooltip', 'tooltip.md', 'Simple tooltips show after a short hover, at once when moving between neighbours, and on focus. Complex ones open on click and stay until Escape or a click outside.', row(caption('simple'), save, play, left, right, caption('complex'), info, rich));
+}
+
+// Toast
+{
+	section(
+		'Toast',
+		'toast.md',
+		'Shown at the bottom centre of the viewport, at most three at once; hover pauses the timer, click dismisses.',
+		row(
+			button({ label: 'Scene saved', onClick: () => showToast('Scene saved.') }),
+			button({ label: 'Long message', onClick: () => showToast('Copied 14 tiles, 212 doodads and 3 buildings from Elwynn Forest into the scene; the base textures are still loading.') }),
+			button({ label: 'With action', onClick: () => showToast({ message: 'Deleted 3 objects.', action: { label: 'Undo', onClick: () => showToast('Restored.') } }) }),
+		),
+	);
+}
+
+// Scrollbar
+{
+	const box = el('div', { class: 'scrollbox ds-scroll' }, ...Array.from({ length: 12 }, (_, i) => el('p', {}, `Row ${i + 1}: the thumb is 4px, rounded, with no track, and brightens a little on hover.`)));
+	section('Scrollbar', 'scrollbar.md', 'Native scrolling with the ds-scroll class.', el('div', { style: 'width: 320px' }, box));
+}
+
+// Grab bar
+{
+	const body = el('div', { class: 'body' }, 'Drag the bar above to resize this panel; it is focusable, ↑/↓ resize it, Home/End jump, Enter or a double click collapse and restore it.');
+	const demo = el('div', { class: 'resize-demo' });
+	let height = 160;
+	let collapsed = false;
+	const apply = () => (demo.style.height = `${collapsed ? 16 : height}px`);
+	const bar = grabBar({ label: 'Resize demo panel', value: height, min: 60, max: 320, grows: 'end', onChange: (v) => { height = v; collapsed = false; apply(); }, onToggle: () => { collapsed = !collapsed; apply(); } });
+	demo.append(bar.root, body);
+	apply();
+	const side = el('div', { class: 'resize-demo', style: 'display: flex; height: 120px; width: 240px' });
+	let width = 160;
+	const sideBody = el('div', { class: 'body', style: 'flex: 1' }, 'Vertical');
+	const sideBar = grabBar({ label: 'Resize side panel', value: width, min: 80, max: 220, orientation: 'vertical', grows: 'start', onChange: (v) => { width = v; side.style.width = `${v + 16}px`; } });
+	side.style.width = `${width + 16}px`;
+	side.append(sideBody, sideBar.root);
+	section('Grab bar', 'grab-bar.md', 'A separator with a 16px hit area around the 2px handle, horizontal above a panel or vertical beside one.', row(demo, side));
+}
+
+// Loading
+{
+	section('Loading', 'loading-indicator.md', 'A CSS ring in the text colour, shown after a 300ms delay. Reduced motion stops it turning.', row(loading({ label: 'Loading models…' }), loading({ label: 'Loading', size: 48 }), loading({ label: 'Loading', size: 24 })));
+}
+
+// Icons
+{
+	const grid = el('div', { class: 'icons' }, ...iconNames.map((name) => el('div', {}, icon(name, { size: 'lg' }), name)));
+	section('Icons', '(icons/)', 'Every icon in the set at 24px.', grid);
+}

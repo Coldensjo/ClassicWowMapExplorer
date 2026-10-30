@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Design system gallery</title>
+	<link rel="icon" href="/icon.svg" type="image/svg+xml">
+	<link rel="stylesheet" href="/src/ui/index.css">
+	<style>
+		/* Page layout only; every colour and size is a token. Dev only: not part of the build. */
+		:root { color-scheme: dark; }
+		html, body { margin: 0; background: var(--color-bg-page); color: var(--color-text); font: var(--type-body); }
+		.gallery { max-width: 1040px; margin: 0 auto; padding: var(--space-8) var(--space-4); }
+		.gallery h1 { font: var(--type-heading-1); margin: 0 0 var(--space-2); }
+		.gallery > p { color: var(--color-text-muted); font: var(--type-body-secondary); margin: 0 0 var(--space-8); }
+		.gallery section { padding: var(--space-6) 0; border-top: var(--border-width) solid var(--color-border); }
+		.gallery h2 { font: var(--type-heading-2); margin: 0 0 var(--space-1); }
+		.gallery h2 small { color: var(--color-text-muted); font: var(--type-label); margin-left: var(--space-2); }
+		.gallery section > p { color: var(--color-text-muted); font: var(--type-body-secondary); margin: 0 0 var(--space-4); }
+		.row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
+		.col { display: flex; flex-direction: column; gap: var(--space-3); width: 320px; }
+		.panel { box-sizing: border-box; width: 320px; padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-bg-panel); }
+		.caption { color: var(--color-text-muted); font: var(--type-label); }
+		.scene { position: relative; height: 180px; border-radius: var(--radius-lg); overflow: hidden;
+			background: linear-gradient(135deg, #2a4a2f, #6b4a2a 45%, #1d3a5a); display: flex; align-items: center; justify-content: center; }
+		.status { font: var(--type-label); color: var(--color-text-muted); margin-top: var(--space-2); }
+		.scrollbox { height: 160px; overflow: auto; padding: var(--space-3); background: var(--color-bg-surface); border-radius: var(--radius-md); }
+		.scrollbox p { margin: 0 0 var(--space-3); font: var(--type-body-secondary); }
+		.resize-demo { width: 320px; background: var(--color-bg-panel); border-radius: var(--radius-md); overflow: hidden; }
+		.resize-demo .body { padding: var(--space-3); font: var(--type-body-secondary); color: var(--color-text-muted); }
+		.icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: var(--space-3); }
+		.icons div { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); font: var(--type-label-small); color: var(--color-text-muted); }
+	</style>
+</head>
+<body>
+	<main class="gallery" id="gallery">
+		<h1>Design system gallery</h1>
+		<p>Every molecule in <code>src/ui/molecules</code>, built from the specs in <code>src/ui/specs</code>, in the default look. Open it at <code>/gallery.html</code> on the dev server.</p>
+	</main>
+	<script type="module" src="/src/ui/gallery.ts"></script>
+</body>
+</html>

@@ -8,3 +8,4 @@ export * from './radio';
 export * from './segmented-control';
 export * from './field';
 export * from './text-input';
+export * from './slider';

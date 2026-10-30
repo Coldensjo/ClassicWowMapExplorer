@@ -1,0 +1,103 @@
+/*
+ * Slider. Spec: specs/slider.md.
+ *
+ * .ds-slider is a .ds-field whose body is a 40px row: a native range input (rail and thumb
+ * drawn with the pseudo-elements, the input itself transparent and row-high so the whole row
+ * grabs the thumb) and an 80px value field box with a suffix.
+ */
+.ds-slider {
+	--slider-rail: var(--color-border);
+	--slider-thumb: var(--color-text); /* Figma draws an unbound #D9D9D9; slider.md §3.3 */
+	--slider-rail-height: 4px;
+	--slider-thumb-width: 16px;
+	--slider-thumb-height: 32px;
+	--slider-input-width: 80px;
+}
+
+.ds-slider-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	block-size: var(--field-height);
+	min-inline-size: 0;
+}
+
+.ds-slider-range {
+	flex: 1 1 auto;
+	min-inline-size: 0;
+	inline-size: 100%;
+	block-size: var(--field-height);
+	margin: 0;
+	padding: 0;
+	background: transparent;
+	cursor: grab;
+	appearance: none;
+	-webkit-appearance: none;
+}
+
+.ds-slider-range:active {
+	cursor: grabbing;
+}
+
+.ds-slider-range::-webkit-slider-runnable-track {
+	block-size: var(--slider-rail-height);
+	border-radius: var(--radius-full);
+	background: var(--slider-rail);
+}
+
+.ds-slider-range::-moz-range-track {
+	block-size: var(--slider-rail-height);
+	border-radius: var(--radius-full);
+	background: var(--slider-rail);
+}
+
+.ds-slider-range::-webkit-slider-thumb {
+	appearance: none;
+	-webkit-appearance: none;
+	inline-size: var(--slider-thumb-width);
+	block-size: var(--slider-thumb-height);
+	margin-top: calc((var(--slider-rail-height) - var(--slider-thumb-height)) / 2);
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: var(--slider-thumb);
+}
+
+.ds-slider-range::-moz-range-thumb {
+	inline-size: var(--slider-thumb-width);
+	block-size: var(--slider-thumb-height);
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: var(--slider-thumb);
+}
+
+.ds-slider-range:focus {
+	outline: none;
+}
+
+.ds-slider-range:focus-visible::-webkit-slider-thumb {
+	outline: var(--focus-ring-width) solid var(--color-focus);
+	outline-offset: var(--focus-ring-offset);
+}
+
+.ds-slider-range:focus-visible::-moz-range-thumb {
+	outline: var(--focus-ring-width) solid var(--color-focus);
+	outline-offset: var(--focus-ring-offset);
+}
+
+.ds-slider-input {
+	flex: none;
+	inline-size: var(--slider-input-width);
+}
+
+.ds-slider-input .ds-field-control {
+	font-variant-numeric: tabular-nums;
+}
+
+.ds-slider:has(.ds-slider-range:disabled) {
+	opacity: var(--opacity-disabled);
+}
+
+.ds-slider:has(.ds-slider-range:disabled) .ds-slider-range,
+.ds-slider:has(.ds-slider-range:disabled) .ds-field-box {
+	cursor: not-allowed;
+}

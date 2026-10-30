@@ -130,7 +130,8 @@ export class TextureBrowser {
 		this.count = el('span', { class: 'texture-browser-count' });
 		this.picked = el('span', { class: 'texture-browser-picked' });
 		this.refresh = iconButton({ icon: 'reset', label: 'Fetch the listfile afresh', variant: 'ghost', size: 'xs', onClick: () => void this.loadEntries(true) });
-		const footer = el('div', { class: 'texture-browser-footer' }, this.count, this.picked, this.refresh);
+		// Count and refresh share the first line; the picked texture wraps onto its own.
+		const footer = el('div', { class: 'texture-browser-footer' }, this.count, this.refresh, this.picked);
 		this.window.body.append(sampleSection, el('div', { class: 'texture-browser-main' }, tools, this.grid, footer));
 
 		this.observer = new IntersectionObserver((entries) => {

@@ -1,0 +1,78 @@
+/*
+ * Grab bar. Spec: specs/grab-bar.md.
+ *
+ * .ds-grab-bar is a focusable separator the full width of the panel it resizes, 16px tall,
+ * with the 48 by 2px handle centred in it. aria-orientation="vertical" turns it for a side
+ * panel. The handle widens on hover and while dragging.
+ */
+.ds-grab-bar {
+	--grab-bar-width: 48px;
+	--grab-bar-width-hover: 64px;
+	--grab-bar-height: 2px;
+	--grab-bar-color: var(--color-text);
+	--grab-bar-hit: 16px;
+
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	inline-size: 100%;
+	block-size: var(--grab-bar-hit);
+	cursor: ns-resize;
+	touch-action: none;
+	user-select: none;
+	-webkit-user-select: none;
+	outline: none;
+}
+
+.ds-grab-bar-handle {
+	inline-size: var(--grab-bar-width);
+	block-size: var(--grab-bar-height);
+	border-radius: var(--radius-sm);
+	background-color: var(--grab-bar-color);
+	transition: inline-size var(--duration-fast) var(--easing-out), block-size var(--duration-fast) var(--easing-out);
+}
+
+@media (hover: hover) {
+	.ds-grab-bar:hover .ds-grab-bar-handle {
+		inline-size: var(--grab-bar-width-hover);
+	}
+}
+
+.ds-grab-bar[data-dragging] .ds-grab-bar-handle {
+	inline-size: var(--grab-bar-width-hover);
+}
+
+.ds-grab-bar:focus-visible .ds-grab-bar-handle {
+	outline: var(--focus-ring-width) solid var(--color-focus);
+	outline-offset: var(--focus-ring-offset);
+}
+
+.ds-grab-bar[aria-orientation='vertical'] {
+	inline-size: var(--grab-bar-hit);
+	block-size: 100%;
+	cursor: ew-resize;
+}
+
+.ds-grab-bar[aria-orientation='vertical'] .ds-grab-bar-handle {
+	inline-size: var(--grab-bar-height);
+	block-size: var(--grab-bar-width);
+}
+
+@media (hover: hover) {
+	.ds-grab-bar[aria-orientation='vertical']:hover .ds-grab-bar-handle {
+		inline-size: var(--grab-bar-height);
+		block-size: var(--grab-bar-width-hover);
+	}
+}
+
+.ds-grab-bar[aria-orientation='vertical'][data-dragging] .ds-grab-bar-handle {
+	inline-size: var(--grab-bar-height);
+	block-size: var(--grab-bar-width-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ds-grab-bar-handle {
+		transition: none;
+	}
+}

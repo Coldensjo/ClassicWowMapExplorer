@@ -15,3 +15,4 @@ export * from './select';
 export * from './key-command';
 export * from './tooltip';
 export * from './toast';
+export * from './grab-bar';

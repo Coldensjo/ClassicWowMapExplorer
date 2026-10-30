@@ -5,7 +5,7 @@
  */
 import { icon, type IconName } from '../icons';
 import { el, uid } from '../dom';
-import { positionPanel, whileOpen, type Placement } from '../popover';
+import { showPanel, whileOpen, type Placement } from '../popover';
 
 export interface MenuItem {
 	label: string;
@@ -71,15 +71,6 @@ export function setOptionSelected(option: HTMLElement, selected: boolean): void 
 	} else if (!selected && mark) {
 		mark.remove();
 	}
-}
-
-/** Shows a panel beside its anchor and returns the placement used. */
-export function showPanel(panel: HTMLElement, anchor: Element, options: { placement?: Placement; matchWidth?: boolean; offset?: number; align?: 'start' | 'center' }): Placement {
-	if (!panel.isConnected) document.body.append(panel);
-	panel.hidden = false;
-	const placed = positionPanel(panel, anchor, options);
-	panel.dataset.placement = placed.placement;
-	return placed.placement;
 }
 
 /**

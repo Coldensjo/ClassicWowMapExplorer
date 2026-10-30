@@ -25,6 +25,15 @@ export interface Placed {
 	anchorCenter: number;
 }
 
+/** Shows a hidden panel beside its anchor (appending it to <body> first) and returns the placement used. */
+export function showPanel(panel: HTMLElement, anchor: Element, options: PositionOptions = {}): Placed {
+	if (!panel.isConnected) document.body.append(panel);
+	panel.hidden = false;
+	const placed = positionPanel(panel, anchor, options);
+	panel.dataset.placement = placed.placement;
+	return placed;
+}
+
 const OPPOSITE: Record<Placement, Placement> = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' };
 
 /** Positions `panel` (already in the DOM and visible) next to `anchor`. */

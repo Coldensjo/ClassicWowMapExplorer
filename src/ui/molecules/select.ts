@@ -9,9 +9,9 @@
  */
 import { icon } from '../icons';
 import { el, uid } from '../dom';
-import { whileOpen } from '../popover';
+import { showPanel, whileOpen } from '../popover';
 import { fieldShell } from './field';
-import { menuOption, menuPanel, setOptionSelected, showPanel } from './menu';
+import { menuOption, menuPanel, setOptionSelected } from './menu';
 
 export interface SelectOption {
 	value: string;

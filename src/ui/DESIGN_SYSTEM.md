@@ -9,9 +9,10 @@ the app is built (DOM made by hand in `src/editor` and `src/viewer`, one stylesh
 **Status:** the colour tokens are defined (from the Figma file "Dungeon Builder", mode
 "Mode 1"), so are the type tokens (from its text styles), the layout tokens (§3.3) and the icon
 set (§6). Every molecule the specs in `specs/` describe is built (§5), and `gallery.html` shows
-them all (§8). The game theme's overrides are not written yet. The first piece of a screen has
-migrated: the Paint tool's texture browser is a floating window built from molecules (§7.1);
-the rest of the existing screens still use their own markup.
+them all (§8). The game theme's overrides are not written yet. Three pieces of screens have
+migrated: the Paint tool's texture browser, the Place tool's object browser and the NPCs
+tool's NPC library are floating windows built from molecules (§7.1); the rest of the existing
+screens still use their own markup.
 
 ## 1. Layout
 
@@ -253,7 +254,7 @@ was drawn, what was decided and what is proposed. File names follow the specs (s
 | `scrollbar` | (CSS only: `.ds-scroll`) | the thin thumb on native scrolling |
 | `grab-bar` | `grabBar()`, `setGrabBarValue()` | a separator that resizes a panel |
 | `loading` | `loading()` | the turning ring, in place of the Figma GIF |
-| `asset-tile` | `assetTile()`, `setAssetTileSelected()`, `assetGrid()`, `setAssetGridColumns()` | a square picture with a caption, and the grid of them the browsers scroll |
+| `asset-tile` | `assetTile()`, `setAssetTileSelected()`, `assetGrid()`, `setAssetGridColumns()` | a square picture with a caption, an optional badge and corner action, and the grid of them the browsers scroll |
 | `floating-window` | `floatingWindow()` | the movable, resizable, collapsible panel the texture, object and NPC browsers share |
 
 The Level Indicator spec is not a molecule: it belongs inside the outline tree when that is
@@ -361,9 +362,10 @@ module and keeping only its layout rules in page CSS, written with tokens. The p
 |---|---|---|---|
 | The Paint tool's texture browser (2026-10-30): a floating window with the sampled-chunk section and the texture grid, shown only in Paint mode | `src/editor/textureBrowser.ts` | `viewer.css`, "The browser windows" (`.asset-browser-*`) | `specs/texture-browser.md` |
 | The Place tool's object browser (2026-10-30): the same window with a Doodads / Buildings segmented control, the model grid and a selection toast, shown only in Place mode | `src/editor/modelBrowser.ts` | the same `.asset-browser-*` rules | `specs/object-browser.md` |
+| The NPCs tool's NPC library (2026-10-30): the same window with a main view of three interactive tiles (Local, Favorites, Existing) and a Create new NPC button, each opening a browser of NPC tiles with a "…" menu, a variants pill and the selection toast, shown only in NPCs mode | `src/editor/npcLibrary.ts` | the same rules plus `.npc-library-*` | `specs/npc-library.md` |
 
-Their markup left `index.html` and their old rules left `viewer.css`; the Paint and Place
-panels keep their settings until the whole panel migrates.
+Their markup left `index.html` and their old rules left `viewer.css`; the Paint, Place and
+NPCs panels keep their settings until the whole panel migrates.
 
 ## 8. Adding things: checklists
 

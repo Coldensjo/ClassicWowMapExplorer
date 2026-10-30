@@ -304,11 +304,23 @@ const status = () => el('div', { class: 'status' }, '—');
 	const grid = assetGrid(3);
 	grid.style.width = '416px';
 	let selected: HTMLElement | null = null;
-	const tiles = names.map((name, i) =>
-		assetTile({
+	const tiles = names.map((name, i) => {
+		// The NPC library's extras: a "…" menu on the picture's corner, a variants pill on its edge.
+		let action: HTMLButtonElement | undefined;
+		if (i === 2) {
+			action = iconButton({ icon: 'more', label: `More for ${name}`, variant: 'secondary', size: 'sm' });
+			menu(action, [
+				{ label: 'Edit', onSelect: () => (s.textContent = `Edit ${name}`) },
+				{ label: 'Remix', onSelect: () => (s.textContent = `Remix ${name}`) },
+				{ label: 'Add to favorites', onSelect: () => (s.textContent = `Favorited ${name}`) },
+			]);
+		}
+		return assetTile({
 			label: name,
 			picture: swatch(i * 50),
 			disabled: i === 5,
+			badge: i === 3 ? '12 variants' : undefined,
+			action,
 			onActivate: (e) => {
 				const root = e.currentTarget as HTMLElement;
 				if (selected) setAssetTileSelected(selected, false);
@@ -316,14 +328,14 @@ const status = () => el('div', { class: 'status' }, '—');
 				if (selected) setAssetTileSelected(selected, true);
 				s.textContent = selected ? `Selected: ${name}` : 'Nothing selected';
 			},
-		}),
-	);
+		});
+	});
 	setAssetTileSelected(tiles[1].root, true);
 	selected = tiles[1].root;
-	grid.append(...tiles.map((t) => t.root));
+	grid.append(...tiles.map((t) => t.frame));
 	const columns = slider({ label: 'Columns', value: 3, min: 3, max: 5, stops: 3, showInput: false, onInput: (v) => setAssetGridColumns(grid, v) });
 	columns.root.style.width = '200px';
-	section('Asset tile', 'asset-tile.md', 'A square picture with a one-line caption; hover washes the picture, the selected tile has the accent border, wash and bold caption; the last tile is unavailable. The slider changes the grid\'s columns.', columns.root, grid, s);
+	section('Asset tile', 'asset-tile.md', 'A square picture with a one-line caption; hover washes the picture, the selected tile has the accent border, wash and bold caption; the third tile has a corner menu and the fourth a badge (npc-library.md); the last tile is unavailable. The slider changes the grid\'s columns.', columns.root, grid, s);
 }
 
 // Floating window

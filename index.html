@@ -185,38 +185,15 @@
 			<button id="place-restore" title="Bring back the copied objects you deleted" hidden></button>
 			<p id="place-hint" class="muted small"></p>
 		</div>
-		<!-- The NPCs tool (spec 7.9): existing creature displays and the user's custom NPC presets. -->
+		<!-- The NPCs tool (spec 7.9): its mode, the picked NPC and the play-mode avatar; the picker is the NPC library window. -->
 		<div id="npcs-props" class="tool-props" hidden>
 			<h3>NPCs</h3>
 			<div class="mode-row" role="group" aria-label="NPC mode">
 				<button id="npcs-place" title="Click the ground to place the picked NPC, facing you">Place</button>
 				<button id="npcs-select" title="Click NPCs or objects to select and edit them">Select</button>
 			</div>
-			<div id="npc-browser">
-				<div class="mode-row" role="group" aria-label="NPC kind">
-					<button id="npc-tab-creatures" title="The client's creature displays, grouped by model">Creatures</button>
-					<button id="npc-tab-custom" title="Your custom NPC presets">Custom</button>
-				</div>
-				<div id="npc-creatures">
-					<div class="browser-top">
-						<input id="npc-search" type="search" placeholder="Search creatures… e.g. murloc" autocomplete="off" spellcheck="false" aria-label="Search creatures">
-						<button id="npc-refresh" title="Fetch the listfile afresh" aria-label="Refresh the listfile">⟳</button>
-					</div>
-					<div id="npc-grid" class="npc-grid" aria-label="Creatures"></div>
-					<div id="npc-count" class="muted small"></div>
-				</div>
-				<div id="npc-custom" hidden>
-					<div class="mode-row two" role="group" aria-label="Custom NPC actions">
-						<button id="npc-new" title="Build a new NPC from a race, its customization and gear">New custom NPC…</button>
-						<button id="npc-import" title="Import a preset from a .wnpc file">Import .wnpc…</button>
-					</div>
-					<input id="npc-import-input" type="file" accept=".wnpc,application/json" hidden>
-					<div id="npc-presets" class="npc-presets" aria-label="Custom NPCs"></div>
-					<div id="npc-presets-empty" class="muted small">No custom NPCs yet. Make one with New custom NPC.</div>
-				</div>
-			</div>
+			<!-- The creature and custom NPC picker is the NPC library window (src/editor/npcLibrary.ts). -->
 			<div id="npc-picked" class="muted small"></div>
-			<button id="npc-customize" title="Open the custom NPC editor with this creature's race, sex, look and gear" hidden>Customize as new…</button>
 			<!-- The play-mode avatar (spec 7.10): picked here, kept in scene.player. -->
 			<div id="npc-player" class="muted small"></div>
 			<div class="mode-row two" role="group" aria-label="Player avatar">

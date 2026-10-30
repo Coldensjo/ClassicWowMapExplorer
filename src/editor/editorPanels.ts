@@ -6,7 +6,7 @@ import type { SceneEditor } from './sceneEditor';
 import type { Falloff, SculptMode } from './sculpt';
 import { ModelBrowser } from './modelBrowser';
 import { TextureBrowser } from './textureBrowser';
-import { NpcBrowser, presetThumbKey } from './npcBrowser';
+import { NpcLibrary, presetThumbKey } from './npcLibrary';
 import { NpcEditor } from './npcEditor';
 import type { NpcAsset } from './npcs';
 import { PresetLibrary } from '../scene/presetLibrary';
@@ -29,7 +29,7 @@ const TOOLS: { id: string; key: string; ready: boolean }[] = [
 ];
 
 const NPC_HINTS: Record<'place' | 'select', string> = {
-	place: 'Pick a creature or custom NPC, then click the ground to place it facing you. It snaps to the ground.',
+	place: 'Pick an NPC in the NPC library, then click the ground to place it facing you. It snaps to the ground.',
 	select: 'Click an NPC or object to select it; Shift+click adds, Shift+drag box-selects. W/E/R move, turn and scale; Del deletes.',
 };
 
@@ -79,7 +79,7 @@ export class EditorPanels {
 	/** Made when the Place tool first opens, so its listfile parts aren't fetched before then. */
 	private models: ModelBrowser | null = null;
 	/** Made when the NPCs tool first opens (spec 7.9). */
-	private npcBrowser: NpcBrowser | null = null;
+	private npcLibrary: NpcLibrary | null = null;
 	private npcEditor: NpcEditor | null = null;
 	/** The sequences each NPC model can idle in (spec 7.9.1), by model, asked for once. */
 	private readonly idleLists = new Map<string, Promise<number[]>>();
@@ -120,7 +120,7 @@ export class EditorPanels {
 	private show(on: boolean): void {
 		$('tool-rail').hidden = !on;
 		$('tool-panel').hidden = !on;
-		this.syncTextureWindow();
+		this.syncWindows();
 		$('status-bar').hidden = !on;
 		$('editor-undo').hidden = !on;
 		$('editor-redo').hidden = !on;
@@ -149,7 +149,7 @@ export class EditorPanels {
 		button.textContent = playing ? 'Edit' : 'Play';
 		button.title = playing ? 'Back to editing, with the camera where the player stands' : 'Walk the scene as your character (spec 7.10); the same button comes back to editing';
 		document.body.classList.toggle('playing', playing);
-		this.syncTextureWindow();
+		this.syncWindows();
 		$('editor-hint-edit').hidden = playing;
 		$('editor-hint-play').hidden = !playing;
 	}
@@ -184,7 +184,6 @@ export class EditorPanels {
 		for (const tool of TOOLS) $(`tool-${tool.id}`).classList.toggle('active', tool.id === id);
 		$('sculpt-props').hidden = id !== 'sculpt';
 		$('paint-props').hidden = id !== 'paint';
-		this.syncTextureWindow();
 		if (id !== 'paint' && this.sampling) this.setSampling(false);
 		$('holes-props').hidden = id !== 'holes';
 		$('water-props').hidden = id !== 'water';
@@ -196,9 +195,9 @@ export class EditorPanels {
 				this.editor.objects.place.asset = asset;
 				this.syncPlace();
 			}, (text) => this.editor.onNotice(text));
-			this.syncTextureWindow();
 		}
-		if (id === 'npcs' && !this.npcBrowser) this.makeNpcBrowser();
+		if (id === 'npcs' && !this.npcLibrary) this.makeNpcLibrary();
+		this.syncWindows();
 		this.syncSelection();
 	}
 
@@ -275,13 +274,14 @@ export class EditorPanels {
 	}
 
 	/**
-	 * The browser windows (spec 7.3) show only while editing with their tool: the Texture browser
-	 * with Paint, the Object browser with Place.
+	 * The browser windows (spec 7.3, 7.9) show only while editing with their tool: the Texture
+	 * browser with Paint, the Object browser with Place, the NPC library with NPCs.
 	 */
-	private syncTextureWindow(): void {
+	private syncWindows(): void {
 		const editing = !this.editor.playing && !$('tool-panel').hidden;
 		this.textures.setVisible(this.editor.tool === 'paint' && editing);
 		this.models?.setVisible(this.editor.tool === 'place' && editing);
+		this.npcLibrary?.setVisible(this.editor.tool === 'npcs' && editing);
 	}
 
 	/**
@@ -453,8 +453,8 @@ export class EditorPanels {
 			this.syncNpcIdle(npcs);
 			const picked = objects.npcPlace.asset;
 			$<HTMLButtonElement>('sel-npc-appearance').disabled = !picked;
-			$('sel-npc-appearance').title = picked ? `Give the selected NPC${npcs.length === 1 ? '' : 's'} the look picked in the NPCs tab: ${picked.label}` : 'Pick a creature or custom NPC in the NPCs tab first';
-			$('sel-npc-look').textContent = this.npcBrowser?.describe(npc.appearance) ?? (npc.appearance.kind === 'creature' ? `Creature display ${npc.appearance.displayId}` : 'Custom NPC');
+			$('sel-npc-appearance').title = picked ? `Give the selected NPC${npcs.length === 1 ? '' : 's'} the look picked in the NPC library: ${picked.label}` : 'Pick an NPC in the NPC library first';
+			$('sel-npc-look').textContent = this.npcLibrary?.describe(npc.appearance) ?? (npc.appearance.kind === 'creature' ? `Creature display ${npc.appearance.displayId}` : 'Custom NPC');
 		}
 		// The WMO set choices show for a single selected building (spec 7.8).
 		const wmo = selected.length === 1 && !npcs.length && selected[0].kind === 'wmo' ? selected[0] : null;
@@ -609,7 +609,7 @@ export class EditorPanels {
 		$('npc-picked').textContent = settings.asset ? `Placing ${settings.asset.label}` : 'Nothing picked yet';
 		$('npcs-hint').textContent = NPC_HINTS[settings.mode];
 		const player = this.editor.model.meta.player;
-		$('npc-player').textContent = `Playing as ${player ? this.npcBrowser?.describe(player) ?? (player.kind === 'creature' ? `creature display ${player.displayId}` : 'a custom NPC') : 'the default avatar (a human)'}`;
+		$('npc-player').textContent = `Playing as ${player ? this.npcLibrary?.describe(player) ?? (player.kind === 'creature' ? `creature display ${player.displayId}` : 'a custom NPC') : 'the default avatar (a human)'}`;
 		$<HTMLButtonElement>('npc-player-set').disabled = !settings.asset;
 		$<HTMLButtonElement>('npc-player-reset').disabled = !player;
 		this.syncSelection();
@@ -625,7 +625,7 @@ export class EditorPanels {
 		this.syncNpcs();
 	}
 
-	private makeNpcBrowser(): void {
+	private makeNpcLibrary(): void {
 		const editor = this.editor;
 		let library: NpcPreset[] = [];
 		const refreshPresets = async () => {
@@ -636,12 +636,14 @@ export class EditorPanels {
 			}
 			// Presets embedded in this scene but gone from the library stay offered, so the scene's NPCs can still be re-dressed.
 			const embedded = editor.model.npcPresets.filter((p) => !library.some((l) => l.id === p.id));
-			this.npcBrowser?.setPresets([...library, ...embedded]);
+			this.npcLibrary?.setPresets([...library, ...embedded]);
 		};
-		const browser = new NpcBrowser(this.storage, editor.model.meta.client.build, (asset) => this.pickNpc(asset, [...library, ...editor.model.npcPresets]), (text) => editor.onNotice(text), {
+		const browser = new NpcLibrary(this.storage, editor.model.meta.client.build, (asset) => this.pickNpc(asset, [...library, ...editor.model.npcPresets]), (text) => editor.onNotice(text), {
 			handleOf: (preset) => editor.objects.npcs.handle(preset),
 			onNew: () => void this.openNpcEditor(null),
 			onEdit: (preset) => void this.openNpcEditor(preset),
+			// Remix: a new NPC that starts as this one (the studio gives it a fresh id).
+			onRemixPreset: (preset) => void this.openNpcEditor(null, { race: preset.race, sex: preset.sex, customization: { ...preset.customization }, equipment: { ...preset.equipment } }, `${preset.name || 'Custom NPC'} (remix)`),
 			onDelete: (preset) => {
 				if (!confirm(`Delete "${preset.name}" from your NPC library? Scenes that use it keep their own copy.`)) return;
 				void this.presets.delete(preset.id).then(refreshPresets, (e) => editor.onNotice(`Deleting failed: ${e instanceof Error ? e.message : e}`));
@@ -650,17 +652,17 @@ export class EditorPanels {
 			onImport: (file) => {
 				void file.arrayBuffer().then((bytes) => this.presets.import(new Uint8Array(bytes))).then(refreshPresets, (e) => editor.onNotice(e instanceof Error ? e.message : String(e)));
 			},
-			onCustomize: (displayId) => {
+			onRemixDisplay: (displayId) => {
 				void this.storage.humanoidPreset(displayId).then((prefill) => {
 					if (!prefill) {
-						editor.onNotice('That display has no character race and sex to customize');
+						editor.onNotice('That display has no character race and sex to remix');
 						return;
 					}
 					return this.openNpcEditor(null, prefill, `${browser.describe({ kind: 'creature', displayId }).split(' (')[0]} (custom)`);
-				}, (e) => editor.onNotice(`Customize as new failed: ${e instanceof Error ? e.message : e}`));
+				}, (e) => editor.onNotice(`Remix failed: ${e instanceof Error ? e.message : e}`));
 			},
 		});
-		this.npcBrowser = browser;
+		this.npcLibrary = browser;
 		void refreshPresets();
 		this.npcEditor = new NpcEditor(this.storage, editor.model.meta.client.build, {
 			handleOf: (preset) => editor.objects.npcs.handle(preset),
@@ -674,7 +676,7 @@ export class EditorPanels {
 					editor.objects.refreshPreset(preset.id);
 				}
 				void refreshPresets().then(() => {
-					browser.showCustom();
+					browser.showLocal();
 					this.pickNpc({ appearance: { kind: 'custom', presetId: preset.id }, label: preset.name }, [preset, ...library]);
 				});
 			},
@@ -875,8 +877,8 @@ export class EditorPanels {
 		this.models = null;
 		this.npcEditor?.dispose();
 		this.npcEditor = null;
-		this.npcBrowser?.dispose();
-		this.npcBrowser = null;
+		this.npcLibrary?.dispose();
+		this.npcLibrary = null;
 		for (const cleanup of this.cleanups) cleanup();
 		this.cleanups.length = 0;
 		this.show(false);

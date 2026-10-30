@@ -5,6 +5,9 @@
  * model, a piece of gear. The picture is whatever the caller draws into (a canvas or an img);
  * empty, it shows the inset fill. Hover lays a wash over the picture; the selected tile
  * (aria-pressed="true") gets an accent border, the selection wash and a bold accent label.
+ * A badge (.ds-asset-tile-badge) is a pill on the picture's bottom edge; an action
+ * (.ds-asset-tile-action) is a control on its top-right corner, held beside the tile in a
+ * .ds-asset-tile-frame (specs/npc-library.md §2.1–2.2).
  * .ds-asset-grid lays tiles out in --asset-grid-columns equal columns.
  */
 .ds-asset-tile {
@@ -17,6 +20,9 @@
 	--asset-tile-selected-wash: var(--color-bg-selected);
 	--asset-tile-radius: var(--radius-lg);
 	--asset-tile-gap: var(--space-2);
+	--asset-tile-badge-bg: var(--color-bg-panel);
+	--asset-tile-badge-border: var(--color-bg-inverse);
+	--asset-tile-badge-fg: var(--color-text);
 
 	display: flex;
 	flex-direction: column;
@@ -97,6 +103,39 @@
 .ds-asset-tile:disabled {
 	opacity: var(--opacity-disabled);
 	cursor: not-allowed;
+}
+
+/* The badge: a pill centred on the picture's bottom edge, over the washes. */
+.ds-asset-tile-badge {
+	position: absolute;
+	inset-block-end: 0;
+	inset-inline-start: 50%;
+	z-index: 1;
+	max-inline-size: calc(100% - var(--space-2));
+	box-sizing: border-box;
+	padding: var(--space-1) var(--space-2);
+	border: var(--border-width) solid var(--asset-tile-badge-border);
+	border-radius: var(--radius-full);
+	background-color: var(--asset-tile-badge-bg);
+	color: var(--asset-tile-badge-fg);
+	font: var(--type-label-small);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	transform: translateX(-50%);
+}
+
+/* A tile with an action: the frame holds both, the action on the picture's top-right corner. */
+.ds-asset-tile-frame {
+	position: relative;
+	min-inline-size: 0;
+}
+
+.ds-asset-tile-action {
+	position: absolute;
+	inset-block-start: 0;
+	inset-inline-end: 0;
+	z-index: 1;
 }
 
 /* The grid: equal columns, tiles filling them, the same gap both ways. */

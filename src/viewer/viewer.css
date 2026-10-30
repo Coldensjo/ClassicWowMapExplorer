@@ -2654,13 +2654,15 @@ body.playing :is(#tool-rail, #tool-panel) {
 	grid-template-columns: 1fr 1fr;
 }
 
-/* ---- The browser windows (spec 7.3; src/ui/specs/texture-browser.md and object-browser.md) ----
-   The Texture browser (src/editor/textureBrowser.ts) and Object browser (src/editor/
-   modelBrowser.ts) share the floating-window frame and the .asset-browser-* layout below; the
-   sampled-chunk section is the texture browser's own. Controls are molecules; tokens only. */
+/* ---- The browser windows (spec 7.3, 7.9; src/ui/specs/texture-browser.md, object-browser.md
+   and npc-library.md) ----
+   The Texture browser (src/editor/textureBrowser.ts), Object browser (src/editor/
+   modelBrowser.ts) and NPC library (src/editor/npcLibrary.ts) share the floating-window frame
+   and the .asset-browser-* layout below; the sampled-chunk section is the texture browser's
+   own and the .npc-library-* rules the library's. Controls are molecules; tokens only. */
 
 /* Playing (spec 7.10): the windows go with the other panels (the editor hides them too). */
-body.playing :is(#texture-browser, #object-browser) {
+body.playing :is(#texture-browser, #object-browser, #npc-library) {
 	display: none;
 }
 
@@ -2806,7 +2808,13 @@ body.playing :is(#texture-browser, #object-browser) {
 	flex: 1 1 100%;
 }
 
-/* The selection toast the design draws inside the Object browser, over the grid's bottom. */
+/* A view that is put away (the NPC library shows one of its pages at a time). */
+.asset-browser-main[hidden] {
+	display: none;
+}
+
+/* The selection toast the design draws inside the Object browser and NPC library, over the
+   grid's bottom. */
 .asset-browser-toast {
 	position: absolute;
 	left: 50%;
@@ -2820,6 +2828,82 @@ body.playing :is(#texture-browser, #object-browser) {
 
 .asset-browser-toast[hidden] {
 	display: none;
+}
+
+/* The NPC library's main view: three doors, then Create new NPC 12px lower. */
+.npc-library-main {
+	flex: 1 1 auto;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-block-size: 0;
+	padding: var(--space-4) var(--space-4) var(--space-2);
+	overflow-y: auto;
+}
+
+.npc-library-main[hidden] {
+	display: none;
+}
+
+.npc-library-create {
+	flex: none;
+	padding-block-start: var(--space-3);
+}
+
+.npc-library-create .ds-button {
+	inline-size: 100%;
+}
+
+/* A sub-view's heading row: back, the heading, and in Local the create button. */
+.npc-library-head {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	min-block-size: 32px;
+}
+
+.npc-library-heading {
+	flex: 1 1 auto;
+	min-width: 0;
+	margin: 0;
+	font: var(--type-heading-2);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* NPC thumbnails are cut out, so the tile's picture has no fill. */
+.npc-library-grid .ds-asset-tile {
+	--asset-tile-bg: transparent;
+}
+
+.npc-library-grid[hidden] {
+	display: none;
+}
+
+/* The empty states: the alert icon, a line, and in Local a Create NPC button. */
+.npc-library-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-2);
+	padding-block-start: var(--space-4);
+	color: var(--color-text-muted);
+}
+
+.npc-library-empty[hidden] {
+	display: none;
+}
+
+.npc-library-empty-text {
+	margin: 0;
+	font: var(--type-body-secondary);
+	text-align: center;
+	text-wrap: balance;
+}
+
+.npc-library-empty .ds-button {
+	margin-block-start: var(--space-1);
 }
 
 /* ---- Asset grids of the other browsers (NPCs) ---- */
@@ -2888,108 +2972,10 @@ body.playing :is(#texture-browser, #object-browser) {
 	opacity: 0.35;
 }
 
-/* ---- The NPCs tab (spec 7.9) ---- */
-
-#npc-browser .browser-top {
-	display: flex;
-	gap: 4px;
-	margin-top: 6px;
-}
-
-#npc-browser .browser-top input {
-	flex: 1;
-	min-width: 0;
-}
+/* ---- The NPCs panel (spec 7.9): the picker is the NPC library window ---- */
 
 .tool-props .mode-row.two {
 	grid-template-columns: 1fr 1fr;
-}
-
-/* Creature displays grouped by model: a name, then its skin variants as pictures. */
-.npc-grid {
-	display: flex;
-	flex-direction: column;
-	gap: 6px;
-	max-height: 260px;
-	overflow: auto;
-	margin-top: 6px;
-	border: 1px solid var(--line);
-	border-radius: 6px;
-	padding: 4px;
-}
-
-.npc-model-name {
-	font-size: 11px;
-	color: var(--muted);
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.npc-variants {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 3px;
-}
-
-.npc-variants .texture-item {
-	width: 62px;
-	padding: 2px;
-}
-
-.npc-variants .texture-item img {
-	width: 48px;
-	height: 48px;
-}
-
-.npc-presets {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	max-height: 260px;
-	overflow: auto;
-	margin-top: 6px;
-}
-
-.npc-preset-row {
-	display: grid;
-	grid-template-columns: 40px 1fr auto;
-	align-items: center;
-	gap: 6px;
-	padding: 3px 4px;
-	border: 1px solid var(--line);
-	border-radius: 6px;
-	font-size: 12px;
-	cursor: pointer;
-}
-
-.npc-preset-row.active {
-	border-color: var(--accent);
-	background: rgba(217, 164, 65, 0.15);
-}
-
-.npc-preset-row img {
-	width: 40px;
-	height: 40px;
-	border-radius: 4px;
-	background: #20242b;
-	object-fit: contain;
-}
-
-.npc-preset-row .npc-preset-name {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.npc-preset-row .npc-preset-actions {
-	display: flex;
-	gap: 2px;
-}
-
-.npc-preset-row .npc-preset-actions button {
-	padding: 2px 5px;
-	font-size: 11px;
 }
 
 #sel-npc {

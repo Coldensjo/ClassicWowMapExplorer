@@ -1,0 +1,167 @@
+/*
+ * Field: the labelled field shell and the field box that the text input, slider value,
+ * stepper and select trigger share. Specs: specs/text-input.md §1.3 and §7 (the --field-*
+ * tokens), reused by specs/slider.md §5, specs/stepper.md and specs/dropdown.md §3.
+ *
+ * .ds-field is a vertical stack: label row (label, optional "Optional"), the body the
+ * molecule puts there (a .ds-field-box for inputs), supporting text. .ds-field-box draws the
+ * 40px box: fill, border, hover wash, focus border; the .ds-field-control inside it has no
+ * chrome of its own. Focus is the border recolour; fields get no outline ring.
+ */
+.ds-field {
+	--field-bg: var(--color-bg-surface);
+	--field-border: var(--color-border);
+	--field-border-focus: var(--color-focus);
+	--field-border-invalid: var(--color-danger);
+	--field-fg: var(--color-text);
+	--field-placeholder: var(--color-border); /* as drawn; text-input.md §4.3 flags its contrast */
+	--field-adornment-fg: var(--color-text-muted);
+	--field-label-fg: var(--color-text-muted);
+	--field-optional-fg: var(--color-bg-inverse);
+	--field-hint-fg: var(--color-text-muted);
+	--field-hover-wash: var(--color-bg-hover);
+	--field-height: 40px;
+	--field-padding-inline: var(--space-3);
+	--field-gap: var(--space-2);
+	--field-radius: var(--radius-md);
+
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	inline-size: 100%;
+	min-inline-size: 0;
+}
+
+.ds-field-label-row {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-1);
+	min-inline-size: 0;
+}
+
+.ds-field-label {
+	flex: 1 1 auto;
+	min-inline-size: 0;
+	color: var(--field-label-fg);
+	font: var(--type-label);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ds-field-optional {
+	flex: none;
+	color: var(--field-optional-fg);
+	font: var(--type-label);
+}
+
+.ds-field-box {
+	display: flex;
+	align-items: center;
+	gap: var(--field-gap);
+	box-sizing: border-box;
+	inline-size: 100%;
+	block-size: var(--field-height);
+	padding: 0 var(--field-padding-inline);
+	border: var(--border-width) solid var(--field-border);
+	border-radius: var(--field-radius);
+	background-color: var(--field-bg);
+	color: var(--field-fg);
+	font: var(--type-body-secondary);
+	overflow: hidden;
+	cursor: text;
+	transition: border-color var(--duration-fast) var(--easing-out);
+}
+
+.ds-field-box > .ds-icon {
+	flex: none;
+}
+
+.ds-field-prefix,
+.ds-field-suffix {
+	flex: none;
+	color: var(--field-adornment-fg);
+	white-space: nowrap;
+}
+
+.ds-field-control {
+	flex: 1 1 auto;
+	min-inline-size: 0;
+	inline-size: 100%;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	outline: none;
+	text-overflow: ellipsis;
+	appearance: none;
+	-webkit-appearance: none;
+}
+
+.ds-field-control:focus {
+	text-overflow: clip;
+}
+
+.ds-field-control::placeholder {
+	color: var(--field-placeholder);
+	opacity: 1;
+}
+
+/* Native number spinners and search decorations are hidden: the box supplies the chrome. */
+.ds-field-control[type='number'] {
+	-moz-appearance: textfield;
+}
+
+.ds-field-control::-webkit-inner-spin-button,
+.ds-field-control::-webkit-outer-spin-button {
+	appearance: none;
+	-webkit-appearance: none;
+	margin: 0;
+}
+
+.ds-field-control::-webkit-search-cancel-button,
+.ds-field-control::-webkit-search-decoration {
+	appearance: none;
+	-webkit-appearance: none;
+}
+
+.ds-field-hint {
+	margin: 0;
+	color: var(--field-hint-fg);
+	font: var(--type-label);
+}
+
+/* States */
+@media (hover: hover) {
+	.ds-field-box:not(:has(:disabled, [readonly])):hover {
+		background-image: linear-gradient(var(--field-hover-wash), var(--field-hover-wash));
+	}
+}
+
+.ds-field-box:focus-within {
+	border-color: var(--field-border-focus);
+}
+
+.ds-field-box:has([readonly]) {
+	cursor: default;
+}
+
+.ds-field[data-invalid] .ds-field-box {
+	border-color: var(--field-border-invalid);
+}
+
+.ds-field[data-invalid] .ds-field-hint {
+	color: var(--field-border-invalid);
+}
+
+.ds-field:has(.ds-field-control:disabled),
+.ds-field[aria-disabled='true'] {
+	opacity: var(--opacity-disabled);
+}
+
+.ds-field:has(.ds-field-control:disabled) .ds-field-box,
+.ds-field[aria-disabled='true'] .ds-field-box {
+	cursor: not-allowed;
+}

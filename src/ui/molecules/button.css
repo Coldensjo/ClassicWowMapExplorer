@@ -1,0 +1,139 @@
+/*
+ * Button and icon button. Spec: specs/buttons.md.
+ *
+ * .ds-button is a text button with an optional leading icon: data-variant primary | secondary |
+ * outline, data-size sm | md | lg. .ds-icon-button is icon only: data-variant primary |
+ * secondary | ghost, data-size xs | sm | md | lg (xs only for ghost). Both are native <button>s.
+ *
+ * Every state is a layer over the fill: hover adds a translucent wash, pressing doubles it, a
+ * toggled-on button (aria-pressed) shows the selection wash, so nothing moves by a pixel. The
+ * variant and size rules only set the component tokens; the base rule consumes them.
+ */
+.ds-button,
+.ds-icon-button {
+	--button-bg: var(--color-bg-control);
+	--button-fg: var(--color-text);
+	--button-border: transparent;
+	--button-radius: var(--radius-sm);
+	--button-hover-wash: var(--color-bg-hover);
+	--button-pressed-wash: var(--color-bg-pressed);
+	--button-selected-wash: var(--color-bg-selected);
+	--button-height: 30px;
+	--button-padding-inline: var(--space-3);
+
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--space-1-5);
+	box-sizing: border-box;
+	block-size: var(--button-height);
+	margin: 0;
+	padding: 0 var(--button-padding-inline);
+	border: 0;
+	border-radius: var(--button-radius);
+	/* The outline button's border paints outside the box (as Figma draws it) so every variant
+	   keeps the same layout size. */
+	box-shadow: 0 0 0 var(--border-width) var(--button-border);
+	background-color: var(--button-bg);
+	background-image: none;
+	color: var(--button-fg);
+	font: var(--type-body-secondary);
+	white-space: nowrap;
+	overflow: hidden;
+	cursor: pointer;
+	appearance: none;
+	-webkit-appearance: none;
+	user-select: none;
+	-webkit-user-select: none;
+	transition: background-image var(--duration-fast) var(--easing-out);
+}
+
+/* Variants: text buttons */
+.ds-button[data-variant='primary'] {
+	--button-bg: var(--color-accent);
+}
+
+.ds-button[data-variant='outline'] {
+	--button-border: var(--color-bg-inverse);
+}
+
+/* Sizes: text buttons (height is fixed so it never drifts with font metrics) */
+.ds-button[data-size='md'] {
+	--button-height: 38px;
+}
+
+.ds-button[data-size='lg'] {
+	--button-height: 48px;
+	--button-padding-inline: var(--space-4);
+}
+
+/* Icon buttons: a square or circle whose size the variant and size set */
+.ds-icon-button {
+	--button-size: 48px;
+	--button-radius: var(--radius-full);
+
+	inline-size: var(--button-size);
+	block-size: var(--button-size);
+	padding: 0;
+}
+
+.ds-icon-button[data-variant='primary'] {
+	--button-bg: var(--color-accent);
+}
+
+.ds-icon-button[data-variant='secondary'] {
+	--button-bg: var(--color-bg-panel);
+}
+
+.ds-icon-button[data-variant='ghost'] {
+	--button-bg: transparent;
+	--button-radius: var(--radius-sm);
+	--button-size: 24px;
+}
+
+.ds-icon-button[data-size='sm'] {
+	--button-size: 32px;
+}
+
+.ds-icon-button[data-size='md'] {
+	--button-size: 40px;
+}
+
+.ds-icon-button[data-size='lg'] {
+	--button-size: 48px;
+}
+
+/* States */
+@media (hover: hover) {
+	.ds-button:not(:disabled):hover,
+	.ds-icon-button:not(:disabled):hover {
+		background-image: linear-gradient(var(--button-hover-wash), var(--button-hover-wash));
+	}
+}
+
+.ds-button:not(:disabled):active,
+.ds-icon-button:not(:disabled):active {
+	background-image: linear-gradient(var(--button-pressed-wash), var(--button-pressed-wash));
+}
+
+.ds-button[aria-pressed='true'],
+.ds-icon-button[aria-pressed='true'] {
+	background-image: linear-gradient(var(--button-selected-wash), var(--button-selected-wash));
+}
+
+.ds-button:focus-visible,
+.ds-icon-button:focus-visible {
+	outline: var(--focus-ring-width) solid var(--color-focus);
+	outline-offset: var(--focus-ring-offset);
+}
+
+.ds-button:disabled,
+.ds-icon-button:disabled {
+	opacity: var(--opacity-disabled);
+	cursor: not-allowed;
+}
+
+/* The label never wraps and the icon never shrinks. */
+.ds-button-label {
+	white-space: nowrap;
+}

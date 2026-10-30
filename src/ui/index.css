@@ -13,4 +13,6 @@
 @import './tokens/layout.css';
 @import './themes/wow.css';
 @import './icons/icon.css';
-/* Molecule stylesheets are imported here, one line each, as they are added. */
+/* Molecules, one line each, in dependency order. */
+@import './molecules/base.css';
+@import './molecules/button.css';

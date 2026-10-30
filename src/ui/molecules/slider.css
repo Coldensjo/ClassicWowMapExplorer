@@ -1,7 +1,7 @@
 /*
  * Slider. Spec: specs/slider.md.
  *
- * .ds-slider is a .ds-field whose body is a 40px row: a native range input (rail and thumb
+ * .ds-slider is a .ds-field whose body is a 40px row (30px with data-size="sm"): a native range input (rail and thumb
  * drawn with the pseudo-elements, the input itself transparent and row-high so the whole row
  * grabs the thumb) and an 80px value field box with a suffix.
  *
@@ -21,6 +21,12 @@
 	--slider-stop-width: 2px;
 	--slider-stop-height: 8px;
 	--slider-stop-label-fg: var(--color-text-muted);
+}
+
+/* The small size (slider.md §12): a 30px row (the field tokens set it) with a 16px square thumb
+   and the small value field. */
+.ds-slider[data-size='sm'] {
+	--slider-thumb-height: 16px;
 }
 
 .ds-slider-row {

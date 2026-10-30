@@ -5,6 +5,9 @@
  */
 import { el, uid, type Child } from '../dom';
 
+/** A field box's size: `md` is the 40px box, `sm` the 30px one (text-input.md §10). */
+export type FieldSize = 'md' | 'sm';
+
 export interface FieldShellOptions {
 	/** Caption above the control. */
 	label?: string;

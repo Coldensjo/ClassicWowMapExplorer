@@ -73,3 +73,37 @@ border; it scrolls inside the browser that holds it.
 - Hover washes the picture 10% white; selected shows the 2px blue border, 20% blue wash and a
   bold blue caption; both together stack.
 - A grid of 3, 4 or 5 columns at 416px gives 128, 92 and 70.4px tiles with 16px gaps.
+
+## 9. Row layout (update read file version `2416211887664560962`, 2026-10-30)
+
+The file draws a list form of the tile on the NPC tile set: **NPC Tile - Single Variant**
+(`34:13149`) gained a **Style** axis, `Grid` as before and `Row` (`264:53992` rest, `264:54039`
+hover, `264:54085` selected, with Dropdown open? siblings). A row is 335 wide (fills its
+column) and hugs its height, horizontal, items centred, **8px** padding (drawn 7 inside a 1px
+layout stroke) and an **8px** gap:
+
+```
+┌──────────────────────────────────────────────┐  hover: 10% wash, radius 12, over the whole row
+│ ┌──────┐                                     │  selected: 20% accent wash + 2px accent border inside, radius 12
+│ │  80  │  [npc-name]                   (…)   │  picture: NPC Image `264:53997`, Size=Mid 80px, radius 8
+│ └──────┘                                     │  caption: label/label-light, left, up to 2 lines, ellipsis, fills
+└──────────────────────────────────────────────┘  action: the 32px "…" secondary icon button, centred
+```
+
+The picture is the new **NPC Image** set: `Min` 48px with 4px corners, `Mid` 80px with 8px,
+`Max` 120px with 12px, so the browsers' tile-size slider has three stops in the list too. The
+selected row's caption **stays light and muted** in the drawing (the grid tile's turns bold and
+accent): the wash and border carry the selection. No row is drawn for the plain Asset Tile
+(textures, models), and no flow frame shows a list, so the list's spacing is not drawn.
+
+**Decisions (2026-10-30, flagged to the designer):** the row layout applies to every asset tile,
+not only NPC tiles, since the grid/list toggle sits in all three windows; the slider's stops map
+to the picture sizes in the list; the selected caption follows the drawing; rows sit **4px**
+apart.
+
+**Built:** `assetTile({ layout: 'row', pictureSize: 'sm' | 'md' | 'lg' })` sets
+`data-layout="row"` (on the frame too) and `data-picture`; `setAssetTileLayout()` switches a
+built tile, `setAssetGridLayout(grid, 'row')` makes the grid a one-column list with `--space-1`
+gaps. In a row the washes, the selection border and the focus ring move from the picture to the
+tile's own `::before`/`::after`; the action is absolutely positioned at the row's end and the
+caption stops 48px short of it.

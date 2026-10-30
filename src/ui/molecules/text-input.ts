@@ -7,7 +7,7 @@
  */
 import { icon, type IconName } from '../icons';
 import { el } from '../dom';
-import { fieldBox, fieldShell, setFieldInvalid } from './field';
+import { fieldBox, fieldShell, setFieldInvalid, type FieldSize } from './field';
 
 export interface TextInputOptions {
 	label?: string;
@@ -23,6 +23,8 @@ export interface TextInputOptions {
 	suffix?: string;
 	/** Supporting text below the field. */
 	hint?: string;
+	/** `md` (default) is the 40px box; `sm` the 30px one the browser toolbars use. */
+	size?: FieldSize;
 	disabled?: boolean;
 	readOnly?: boolean;
 	maxLength?: number;
@@ -69,6 +71,7 @@ export function textInput(options: TextInputOptions): TextInputHandle {
 	input.id = shell.controlId;
 	if (shell.hintId) input.setAttribute('aria-describedby', shell.hintId);
 	shell.root.classList.add('ds-text-input');
+	if (options.size === 'sm') shell.root.dataset.size = 'sm';
 	if (options.onInput) {
 		const onInput = options.onInput;
 		input.addEventListener('input', () => onInput(input.value));

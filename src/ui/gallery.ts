@@ -23,6 +23,8 @@ import {
 	segmentedControl,
 	select,
 	setAssetGridColumns,
+	setAssetGridLayout,
+	setAssetTileLayout,
 	setAssetTileSelected,
 	setInvalid,
 	showToast,
@@ -34,6 +36,7 @@ import {
 	toggleSwitch,
 	type ButtonSize,
 	type ButtonVariant,
+	type AssetTilePictureSize,
 	type IconButtonSize,
 	type IconButtonVariant,
 } from './index';
@@ -114,7 +117,15 @@ const status = () => el('div', { class: 'status' }, '—');
 		options: ['Raise', 'Lower', 'Smooth', 'Flatten', 'Noise', 'Ramp'].map((l) => ({ value: l.toLowerCase(), label: l, disabled: l === 'Ramp' })),
 		onChange: (v) => (s.textContent = `Sculpt mode: ${v}`),
 	});
-	section('Segmented control', 'segmented-control.md', 'Two segments as drawn, and six as the editor needs; segments share the width and labels truncate.', col(two.root, six.root), s);
+	const view = segmentedControl({
+		name: 'view-seg',
+		label: 'View',
+		variant: 'icon',
+		value: 'grid',
+		options: [{ value: 'grid', label: 'Grid', icon: 'grid' }, { value: 'list', label: 'List', icon: 'list' }],
+		onChange: (v) => (s.textContent = `View: ${v}`),
+	});
+	section('Segmented control', 'segmented-control.md', 'Two segments as drawn, and six as the editor needs; segments share the width and labels truncate. The icon variant hugs 24px icon-only segments, each named in a tooltip.', col(two.root, six.root), row(caption('icon'), view.root), s);
 }
 
 // Text input
@@ -127,7 +138,9 @@ const status = () => el('div', { class: 'status' }, '—');
 	setInvalid(invalid.root, 'Must be 64 or fewer');
 	const disabled = textInput({ label: 'Disabled', value: 'Cannot edit', disabled: true, hint: 'Also dimmed' });
 	const readOnly = textInput({ label: 'Read only', value: 'Fixed value', readOnly: true });
-	section('Text input', 'text-input.md', 'Label, optional suffix, leading icon, prefix, suffix and supporting text. Focus recolours the border; there is no ring on fields.', row(col(name.root, search.root, money.root), col(invalid.root, disabled.root, readOnly.root)), s);
+	const smallSearch = textInput({ ariaLabel: 'Search (small)', type: 'search', icon: 'search', placeholder: 'Search…', size: 'sm' });
+	const smallMoney = textInput({ label: 'Small with suffix', value: '100', suffix: '%', size: 'sm' });
+	section('Text input', 'text-input.md', 'Label, optional suffix, leading icon, prefix, suffix and supporting text. Focus recolours the border; there is no ring on fields. The third column is the small size: a 30px box with 12px text.', row(col(name.root, search.root, money.root), col(invalid.root, disabled.root, readOnly.root), col(smallSearch.root, smallMoney.root)), s);
 }
 
 // Slider
@@ -145,11 +158,14 @@ const status = () => el('div', { class: 'status' }, '—');
 		stops: [{ value: 0, label: 'Low' }, { value: 1, label: 'Medium' }, { value: 2, label: 'High' }, { value: 3, label: 'Ultra' }, { value: 4, label: 'Max' }],
 		onChange: (v) => (s.textContent = `Quality: ${v}`),
 	});
+	const small = slider({ label: 'Small', value: 60, suffix: '%', size: 'sm', onInput: (v) => (s.textContent = `Small: ${v}`) });
+	const smallStops = slider({ ariaLabel: 'Tile size', value: 3, min: 1, max: 3, stops: 3, showInput: false, size: 'sm' });
+	smallStops.root.style.width = '140px';
 	section(
 		'Slider',
 		'slider.md',
-		'Native range with the tall thumb; the value field commits on Enter or blur, clamped and stepped. The second column has discrete stops: evenly spaced, explicit values, and labelled.',
-		row(col(radius.root, strength.root, bare.root, disabled.root), col(five.root, powers.root, quality.root)),
+		'Native range with the tall thumb; the value field commits on Enter or blur, clamped and stepped. The second column has discrete stops: evenly spaced, explicit values, and labelled. The third is the small size: a 30px row with a square thumb, as the browser toolbars use it.',
+		row(col(radius.root, strength.root, bare.root, disabled.root), col(five.root, powers.root, quality.root), col(small.root, smallStops.root)),
 		s,
 	);
 }
@@ -350,7 +366,23 @@ const status = () => el('div', { class: 'status' }, '—');
 	grid.append(...tiles.map((t) => t.frame));
 	const columns = slider({ label: 'Columns', value: 3, min: 3, max: 5, stops: 3, showInput: false, onInput: (v) => setAssetGridColumns(grid, v) });
 	columns.root.style.width = '200px';
-	section('Asset tile', 'asset-tile.md', 'A square picture with a one-line caption; hover washes the picture, the selected tile has the accent border, wash and bold caption; the third tile has a corner menu and the fourth a badge (npc-library.md); the last tile is unavailable. The slider changes the grid\'s columns.', columns.root, grid, s);
+	// The same tiles as rows, with the picture at each of its three sizes.
+	const rows = assetGrid(1);
+	rows.style.width = '416px';
+	setAssetGridLayout(rows, 'row');
+	const sizes: AssetTilePictureSize[] = ['sm', 'md', 'lg'];
+	const rowTiles = names.slice(0, 4).map((name, i) => {
+		let action: HTMLButtonElement | undefined;
+		if (i === 2) {
+			action = iconButton({ icon: 'more', label: `More for ${name}`, variant: 'secondary', size: 'sm' });
+			menu(action, [{ label: 'Edit', onSelect: () => (s.textContent = `Edit ${name}`) }]);
+		}
+		return assetTile({ label: i === 0 ? `${name} with a caption long enough to wrap onto a second line and then be cut` : name, picture: swatch(i * 50), layout: 'row', badge: i === 3 ? '12 variants' : undefined, action, selected: i === 1 });
+	});
+	rows.append(...rowTiles.map((t) => t.frame));
+	const pictureSize = slider({ label: 'Row picture', value: 2, min: 1, max: 3, stops: 3, showInput: false, onInput: (v) => rowTiles.forEach((t) => setAssetTileLayout(t.root, 'row', sizes[v - 1])) });
+	pictureSize.root.style.width = '200px';
+	section('Asset tile', 'asset-tile.md', 'A square picture with a one-line caption; hover washes the picture, the selected tile has the accent border, wash and bold caption; the third tile has a corner menu and the fourth a badge (npc-library.md); the last tile is unavailable. The slider changes the grid\'s columns. Below, the row layout: picture, a caption on up to two lines and the action at the end, with the washes over the whole row; its slider changes the picture size.', columns.root, grid, pictureSize.root, rows, s);
 }
 
 // Floating window

@@ -29,6 +29,20 @@
 	--field-radius: var(--radius-md);
 }
 
+/* The small size (text-input.md §10): a 30px box, 8px side padding, 12px text. Declared on the
+   box too, since the box re-declares the tokens for use on its own. */
+.ds-field[data-size='sm'],
+.ds-field[data-size='sm'] .ds-field-box,
+.ds-field-box[data-size='sm'] {
+	--field-height: 30px;
+	--field-padding-inline: var(--space-2);
+}
+
+.ds-field[data-size='sm'] .ds-field-box,
+.ds-field-box[data-size='sm'] {
+	font: var(--type-label);
+}
+
 .ds-field {
 	display: flex;
 	flex-direction: column;

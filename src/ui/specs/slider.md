@@ -350,3 +350,15 @@ export function setValue(root: HTMLElement, value: number): void;
 - All 16 existing sliders render with the label above and an editable value, and the panels
   still update their models from them.
 - No hex values in `slider.css`.
+
+## 12. Small size (update read file version `2416211887664560962`, 2026-10-30)
+
+The set gained a **Size** axis next to Type: `Small` (`264:51927` continuous, `264:51935` fixed
+step) is a **30px** row: the 4px rail as before, a **16 × 16** knob with 4px corners instead of
+the 16 × 32 one, and the value field the small text input ([text-input.md](text-input.md) §10)
+at the same 80px width, 8px from the rail. The label above is unchanged, so the component is
+50px tall with it. The browser windows' tile-size sliders use it, labelless and without the
+value field, between the minus and plus buttons.
+
+**Built:** `slider({ size: 'sm' })` sets `data-size="sm"` on the `.ds-slider`; the field rule
+makes the row and the value box 30px, and `slider.css` sets `--slider-thumb-height` to 16px.

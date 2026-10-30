@@ -293,3 +293,18 @@ export function setInvalid(root: HTMLElement, message: string | null): void;
 - Empty field shows the placeholder; a long value ends in an ellipsis when not focused and scrolls while editing.
 - Search fields show the search icon and no browser clear/decoration.
 - No hex values in `text-input.css`.
+
+## 10. Small size (update read file version `2416211887664560962`, 2026-10-30)
+
+The set gained a **Size** axis: `Regular` is everything above; `Small` (variants `264:51273`,
+`264:51304` and their Hover, Focused and Disabled siblings) is the same field at **30px**: padding
+6px top and bottom and **8px** at the sides, 8px between adornments, value and placeholder in
+`label/label` (**12px**, `--type-label`), prefix and suffix 12px too. The label row, the
+"Optional" suffix, the supporting text, the radius (8) and every state are unchanged; the whole
+component is 50px tall with a label (16 + 4 + 30). The browser windows' search boxes use it
+([texture-browser.md](texture-browser.md) §5).
+
+**Built:** `textInput({ size: 'sm' })` sets `data-size="sm"` on the `.ds-field`; `field.css`
+lowers `--field-height` to 30px and `--field-padding-inline` to `--space-2` and gives the box
+`--type-label`, declared for the box used on its own too (`.ds-field-box[data-size='sm']`), so
+the slider's and stepper's value fields can take it.

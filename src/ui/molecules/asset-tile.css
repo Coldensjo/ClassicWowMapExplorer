@@ -8,7 +8,11 @@
  * A badge (.ds-asset-tile-badge) is a pill on the picture's bottom edge; an action
  * (.ds-asset-tile-action) is a control on its top-right corner, held beside the tile in a
  * .ds-asset-tile-frame (specs/npc-library.md §2.1–2.2).
- * .ds-asset-grid lays tiles out in --asset-grid-columns equal columns.
+ * A row (data-layout="row", asset-tile.md §9) puts the picture at the left at 48, 80 or 120px
+ * (data-picture sm | md | lg), the caption beside it on up to two lines and the action at the
+ * end; the washes and the selection border then cover the whole row.
+ * .ds-asset-grid lays tiles out in --asset-grid-columns equal columns, or as a list of rows
+ * (data-layout="row").
  */
 .ds-asset-tile {
 	--asset-tile-fg: var(--color-text-muted);
@@ -138,6 +142,99 @@
 	z-index: 1;
 }
 
+/* The row layout: the picture at the left, the caption filling the middle, 8px around. */
+.ds-asset-tile[data-layout='row'] {
+	--asset-tile-picture-size: 80px;
+	--asset-tile-picture-radius: var(--radius-md);
+
+	position: relative;
+	flex-direction: row;
+	align-items: center;
+	padding: var(--space-2);
+	border-radius: var(--radius-lg);
+	text-align: start;
+}
+
+.ds-asset-tile[data-layout='row'][data-picture='sm'] {
+	--asset-tile-picture-size: 48px;
+	--asset-tile-picture-radius: var(--radius-sm);
+}
+
+.ds-asset-tile[data-layout='row'][data-picture='lg'] {
+	--asset-tile-picture-size: 120px;
+	--asset-tile-picture-radius: var(--radius-lg);
+}
+
+.ds-asset-tile[data-layout='row'] .ds-asset-tile-picture {
+	flex: none;
+	inline-size: var(--asset-tile-picture-size);
+	border-radius: var(--asset-tile-picture-radius);
+}
+
+.ds-asset-tile[data-layout='row'] .ds-asset-tile-label {
+	flex: 1 1 auto;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+/* As drawn, a selected row keeps its light caption: the wash and border mark it. */
+.ds-asset-tile[data-layout='row'][aria-pressed='true'] .ds-asset-tile-label {
+	color: var(--asset-tile-fg);
+	font: var(--type-label-light);
+}
+
+/* The washes, the selection border and the focus ring move from the picture to the row. */
+.ds-asset-tile[data-layout='row'] .ds-asset-tile-picture::before,
+.ds-asset-tile[data-layout='row'] .ds-asset-tile-picture::after {
+	content: none;
+}
+
+.ds-asset-tile[data-layout='row']::before,
+.ds-asset-tile[data-layout='row']::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	pointer-events: none;
+	transition: background-color var(--duration-fast) var(--easing-out);
+}
+
+@media (hover: hover) {
+	.ds-asset-tile[data-layout='row']:not(:disabled):hover::before {
+		background-color: var(--asset-tile-hover-wash);
+	}
+}
+
+.ds-asset-tile[data-layout='row'][aria-pressed='true']::after {
+	background-color: var(--asset-tile-selected-wash);
+	box-shadow: inset 0 0 0 var(--asset-tile-border-selected-width) var(--asset-tile-border-selected);
+}
+
+.ds-asset-tile[data-layout='row']:focus-visible {
+	outline: var(--focus-ring-width) solid var(--color-focus);
+	outline-offset: calc(-1 * var(--focus-ring-width));
+}
+
+.ds-asset-tile[data-layout='row']:focus-visible .ds-asset-tile-picture {
+	outline: none;
+}
+
+/* A row with an action: the action sits at the row's end, centred, and the caption stops short
+   of it (its 32px plus the row's padding on both sides). */
+.ds-asset-tile-frame[data-layout='row'] .ds-asset-tile {
+	padding-inline-end: calc(32px + 2 * var(--space-2));
+}
+
+.ds-asset-tile-frame[data-layout='row'] .ds-asset-tile-action {
+	inset-block: 0;
+	inset-inline-end: var(--space-2);
+	margin-block: auto;
+}
+
 /* The grid: equal columns, tiles filling them, the same gap both ways. */
 .ds-asset-grid {
 	--asset-grid-columns: 3;
@@ -149,9 +246,17 @@
 	align-content: start;
 }
 
+/* As a list: one column of rows, 4px apart. */
+.ds-asset-grid[data-layout='row'] {
+	grid-template-columns: minmax(0, 1fr);
+	gap: var(--space-1);
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.ds-asset-tile-picture::before,
-	.ds-asset-tile-picture::after {
+	.ds-asset-tile-picture::after,
+	.ds-asset-tile[data-layout='row']::before,
+	.ds-asset-tile[data-layout='row']::after {
 		transition: none;
 	}
 }

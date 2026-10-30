@@ -309,3 +309,20 @@ export function setOptionDisabled(root: HTMLElement, value: string, disabled: bo
 - The legacy `.mode-row` markup renders the same as the molecule once `aria-pressed` replaces
   `.active`.
 - No hex values in the molecule's CSS.
+
+## 11. Icon variant (update read file version `2416211887664560962`, 2026-10-30)
+
+Both sets gained a **Type** axis: `Text` is everything above; `Icon` (control `264:54225`,
+`264:54222`; chips `264:54178`, `264:54180`, `264:54183`, `264:54185`) is a compact control for
+two-way toggles such as grid/list. The trough keeps its fill, 1px border and 8px radius but
+**hugs** its segments with **2px** padding and a 4px gap (58 × 30 for two segments); each
+segment is **24 × 24** with 4px padding and 4px corners, holding a **16px** icon (an instance
+swap, `list` `264:54166` and `grid` `264:54167` in the windows) and no label. Selected fill,
+hover wash and the rest are as in §4. Used in the three browser windows' toolbars
+([texture-browser.md](texture-browser.md) §5).
+
+**Built:** `segmentedControl({ variant: 'icon', options: [{ value, label, icon }] })` sets
+`data-variant="icon"`: the trough is `inline-size: auto` with `--space-0-5` padding, segments
+are `--segmented-icon-segment-size` (24px) squares with `--space-1` padding showing
+`icon(option.icon, { size: 'sm' })`; the label stays in the DOM visually hidden for the radio's
+accessible name and is the segment's tooltip. Two new icons, `list` and `grid`, joined the set.

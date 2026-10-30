@@ -3,7 +3,12 @@
  *
  * One of a few mutually exclusive modes, as native radios in a trough: ←/→ move and select,
  * Tab enters on the selected segment. The molecule keeps no state beyond the inputs.
+ *
+ * The text variant (default) fills its container and shares the width between labelled
+ * segments; the icon variant (segmented-control.md §11) hugs 24px icon-only segments in a
+ * tighter trough, each label kept for assistive technology and shown as a tooltip.
  */
+import { icon, type IconName } from '../icons';
 import { el } from '../dom';
 
 export interface SegmentedOption {
@@ -11,6 +16,8 @@ export interface SegmentedOption {
 	label: string;
 	/** Tooltip, such as a shortcut hint. */
 	title?: string;
+	/** The 16px icon an icon segment shows in place of its label. */
+	icon?: IconName;
 	disabled?: boolean;
 }
 
@@ -23,6 +30,8 @@ export interface SegmentedControlOptions {
 	options: SegmentedOption[];
 	/** The selected option; a segmented control always has one. */
 	value: string;
+	/** `text` (default) shows labels; `icon` shows each option's icon only. */
+	variant?: 'text' | 'icon';
 	onChange?: (value: string) => void;
 }
 
@@ -32,7 +41,9 @@ export interface SegmentedControlHandle {
 
 /** Makes a segmented control: `<div class="ds-segmented-control" role="radiogroup">`. */
 export function segmentedControl(options: SegmentedControlOptions): SegmentedControlHandle {
+	const variant = options.variant ?? 'text';
 	const root = el('div', { class: 'ds-segmented-control', role: 'radiogroup', 'aria-label': options.label });
+	if (variant === 'icon') root.dataset.variant = 'icon';
 	for (const option of options.options) {
 		const input = el('input', {
 			class: 'ds-segmented-control-input ds-visually-hidden',
@@ -47,7 +58,8 @@ export function segmentedControl(options: SegmentedControlOptions): SegmentedCon
 				'label',
 				{ class: 'ds-segmented-control-segment', title: option.title ?? option.label },
 				input,
-				el('span', { class: 'ds-segmented-control-label' }, option.label),
+				variant === 'icon' && option.icon ? icon(option.icon, { size: 'sm' }) : null,
+				el('span', { class: variant === 'icon' ? 'ds-segmented-control-label ds-visually-hidden' : 'ds-segmented-control-label' }, option.label),
 			),
 		);
 	}

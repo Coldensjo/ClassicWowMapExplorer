@@ -15,10 +15,12 @@ import down from './down.svg?raw';
 import download from './download.svg?raw';
 import dragToExpand from './drag-to-expand.svg?raw';
 import eyedropped from './eyedropped.svg?raw';
+import grid from './grid.svg?raw';
 import help from './help.svg?raw';
 import hole from './hole.svg?raw';
 import info from './info.svg?raw';
 import left from './left.svg?raw';
+import list from './list.svg?raw';
 import logOut from './log-out.svg?raw';
 import menu from './menu.svg?raw';
 import minus from './minus.svg?raw';
@@ -46,10 +48,12 @@ const sources = {
 	download,
 	'drag-to-expand': dragToExpand,
 	eyedropped,
+	grid,
 	help,
 	hole,
 	info,
 	left,
+	list,
 	'log-out': logOut,
 	menu,
 	minus,

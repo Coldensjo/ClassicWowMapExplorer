@@ -239,10 +239,10 @@ was drawn, what was decided and what is proposed. File names follow the specs (s
 | `button` | `button()`, `iconButton()`, `setPressed()` | text buttons (primary, secondary, outline) and icon buttons (primary, secondary, ghost) |
 | `switch` | `toggleSwitch()`, `setChecked()` | an on/off row or bare switch, on a native checkbox with `role="switch"` |
 | `radio` | `radioGroup()`, `setRadioValue()` | a fieldset of options, each with an optional info button |
-| `segmented-control` | `segmentedControl()`, `setSegmentedValue()` | one of a few modes in a trough |
+| `segmented-control` | `segmentedControl()`, `setSegmentedValue()` | one of a few modes in a trough; `variant: 'icon'` for a compact icon-only toggle |
 | `field` | `fieldShell()`, `fieldBox()`, `setFieldInvalid()` | the labelled stack and 40px box the inputs share; not used on its own |
-| `text-input` | `textInput()`, `setTextValue()`, `setInvalid()` | a text or search field with icon, prefix, suffix and hint; the search box is this with `icon: 'search'` |
-| `slider` | `slider()`, `setSliderValue()` | a range with a caption and an editable value field |
+| `text-input` | `textInput()`, `setTextValue()`, `setInvalid()` | a text or search field with icon, prefix, suffix and hint; the search box is this with `icon: 'search'`; `size: 'sm'` is the 30px box |
+| `slider` | `slider()`, `setSliderValue()` | a range with a caption and an editable value field; `size: 'sm'` is the 30px row |
 | `stepper` | `stepper()`, `setStepperValue()` | a number field between minus and plus buttons |
 | `menu` | `menu()`, `menuPanel()`, `menuOption()` | the floating panel, and an action menu on any button |
 | `select` | `select()`, `setSelectValue()`, `setSelectOptions()` | a select-only combobox on the field box and the menu panel |
@@ -256,7 +256,7 @@ was drawn, what was decided and what is proposed. File names follow the specs (s
 | `scrollbar` | (CSS only: `.ds-scroll`) | the thin thumb on native scrolling |
 | `grab-bar` | `grabBar()`, `setGrabBarValue()` | a separator that resizes a panel |
 | `loading` | `loading()` | the turning ring, in place of the Figma GIF |
-| `asset-tile` | `assetTile()`, `setAssetTileSelected()`, `assetGrid()`, `setAssetGridColumns()` | a square picture with a caption, an optional badge and corner action, and the grid of them the browsers scroll |
+| `asset-tile` | `assetTile()`, `setAssetTileSelected()`, `setAssetTileLayout()`, `assetGrid()`, `setAssetGridColumns()`, `setAssetGridLayout()` | a square picture with a caption, an optional badge and corner action, or the same as a row (`layout: 'row'`, picture at three sizes), and the grid or list of them the browsers scroll |
 | `floating-window` | `floatingWindow()` | the movable, resizable, collapsible panel the texture, object and NPC browsers share |
 
 The Level Indicator spec is not a molecule: it belongs inside the outline tree when that is
@@ -290,7 +290,7 @@ dots). Names are the Figma layer names:
 |---|---|
 | Tools | `sculpt`, `paint`, `hole`, `water`, `npc`, `container` (objects), `eyedropped` (eyedropper / pick) |
 | Scene and file | `scene`, `save`, `download`, `play`, `reset`, `log-out`, `sun` (time of day / lighting) |
-| Actions | `plus`, `minus`, `close`, `checkmark`, `search`, `menu`, `more`, `drag-to-expand` (resize grip) |
+| Actions | `plus`, `minus`, `close`, `checkmark`, `search`, `menu`, `more`, `drag-to-expand` (resize grip), `grid` and `list` (view toggles) |
 | Direction | `up`, `down`, `left`, `right` |
 | Status | `info`, `help`, `alert` |
 
@@ -362,7 +362,7 @@ module and keeping only its layout rules in page CSS, written with tokens. The p
 
 | Piece | Built by | Layout CSS | Spec |
 |---|---|---|---|
-| The Paint tool's texture browser (2026-10-30): a floating window with the sampled-chunk section and the texture grid, shown only in Paint mode | `src/editor/textureBrowser.ts` | `viewer.css`, "The browser windows" (`.asset-browser-*`) | `specs/texture-browser.md` |
+| The Paint tool's texture browser (2026-10-30): a floating window with the sampled-chunk section and the texture grid, shown only in Paint mode; the grid/list toggle, tile-size stops and their storage the three browsers share are in `src/editor/browserView.ts` | `src/editor/textureBrowser.ts` | `viewer.css`, "The browser windows" (`.asset-browser-*`) | `specs/texture-browser.md` |
 | The Place tool's object browser (2026-10-30): the same window with a Doodads / Buildings segmented control, the model grid and a selection toast, shown only in Place mode | `src/editor/modelBrowser.ts` | the same `.asset-browser-*` rules | `specs/object-browser.md` |
 | The NPCs tool's NPC library (2026-10-30): the same window with a main view of three interactive tiles (Local, Favorites, Existing) and a Create new NPC button, each opening a browser of NPC tiles with a "…" menu, a variants pill and the selection toast, shown only in NPCs mode | `src/editor/npcLibrary.ts` | the same rules plus `.npc-library-*` | `specs/npc-library.md` |
 | The bottom controls (2026-10-30): the mode controller over a grab bar over the tool panel, docked across the bottom of the viewport; the panel's height is dragged and remembered, and each tool fills it with modules (a titled, scrolling column) built from radios, sliders, switches, steppers, selects, text inputs and hotkey lists. It replaced the tool rail and the properties panel. | `src/editor/bottomControls.ts` (the frame and the module shell) and `src/editor/editorPanels.ts` (each tool's modules) | `viewer.css`, "The bottom controls" (`#bottom-controls`, `.dock-*`) | `specs/bottom-controls.md` |

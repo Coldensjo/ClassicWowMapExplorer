@@ -4,6 +4,7 @@
  * .ds-segmented-control is a radiogroup trough; each .ds-segmented-control-segment is a <label>
  * holding a visually hidden native radio and the text. Segments share the width equally; the
  * checked one gets the darker fill. Hover is a wash on the hovered segment only.
+ * The icon variant (data-variant="icon") hugs its 24px icon-only segments in a 2px trough.
  */
 .ds-segmented-control {
 	--segmented-bg: var(--color-bg-surface);
@@ -13,6 +14,7 @@
 	--segmented-fg: var(--color-text);
 	--segmented-hover-wash: var(--color-bg-hover);
 	--segmented-segment-height: 28px;
+	--segmented-icon-segment-size: 24px;
 
 	display: flex;
 	align-items: center;
@@ -56,6 +58,21 @@
 .ds-segmented-control-segment:has(:checked) {
 	background-color: var(--segmented-segment-bg-selected);
 	cursor: default;
+}
+
+/* Icon variant: the trough hugs, 2px around 24px square segments holding a 16px icon; in a
+   crowded row it never gives way (its neighbours do). */
+.ds-segmented-control[data-variant='icon'] {
+	flex: none;
+	inline-size: auto;
+	padding: var(--space-0-5);
+}
+
+.ds-segmented-control[data-variant='icon'] .ds-segmented-control-segment {
+	flex: none;
+	inline-size: var(--segmented-icon-segment-size);
+	block-size: var(--segmented-icon-segment-size);
+	padding: var(--space-1);
 }
 
 @media (hover: hover) {

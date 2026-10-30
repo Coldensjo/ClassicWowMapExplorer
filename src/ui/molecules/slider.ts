@@ -12,7 +12,7 @@
  * the ticks; the value field then shows the current stop's label and is read-only.
  */
 import { el, snap } from '../dom';
-import { fieldBox, fieldShell } from './field';
+import { fieldBox, fieldShell, type FieldSize } from './field';
 
 /** A discrete stop: its value, with an optional label shown under its tick and in the field. */
 export type SliderStop = number | { value: number; label?: string };
@@ -40,6 +40,8 @@ export interface SliderOptions {
 	format?: (value: number) => string;
 	/** Show the editable value field; default true. */
 	showInput?: boolean;
+	/** `md` (default) is the 40px row with the tall thumb; `sm` the 30px row with a square one. */
+	size?: FieldSize;
 	disabled?: boolean;
 	/** Tooltip on the range, e.g. a shortcut hint. */
 	title?: string;
@@ -185,6 +187,7 @@ export function slider(options: SliderOptions): SliderHandle {
 	const shell = fieldShell({ label: options.label, controlId: options.id }, row);
 	range.id = shell.controlId;
 	shell.root.classList.add('ds-slider');
+	if (options.size === 'sm') shell.root.dataset.size = 'sm';
 	if (discrete) shell.root.dataset.stops = '';
 
 	const describe = () => {

@@ -1,0 +1,120 @@
+/*
+ * Radio group. Spec: specs/radio.md.
+ *
+ * .ds-radio-group is a <fieldset> of .ds-radio-row rows. Each row holds a .ds-radio <label>
+ * (visually hidden native radio, drawn circle and dot, text) and an optional ghost info button
+ * beside it, which is a sibling of the label so pressing it never selects the option and it
+ * stays usable when the option is disabled.
+ */
+.ds-radio-group {
+	--radio-group-gap: var(--space-2);
+
+	display: flex;
+	flex-direction: column;
+	gap: var(--radio-group-gap);
+	min-inline-size: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+.ds-radio-group-label {
+	padding: 0;
+	margin-block-end: var(--space-1);
+	color: var(--color-text-muted);
+	font: var(--type-label);
+}
+
+.ds-radio-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	inline-size: 100%;
+	min-inline-size: 0;
+}
+
+.ds-radio {
+	--radio-bg: var(--color-bg-surface);
+	--radio-bg-selected: var(--color-accent);
+	--radio-border: var(--color-border);
+	--radio-dot: var(--color-text);
+	--radio-hover-wash: var(--color-bg-hover);
+	--radio-size: 24px;
+	--radio-dot-size: 12px;
+
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	position: relative;
+	min-inline-size: 0;
+	color: var(--color-text);
+	font: var(--type-body-secondary);
+	cursor: pointer;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.ds-radio-circle {
+	position: relative;
+	flex: none;
+	box-sizing: border-box;
+	inline-size: var(--radio-size);
+	block-size: var(--radio-size);
+	border: var(--border-width) solid var(--radio-border);
+	border-radius: 50%;
+	background-color: var(--radio-bg);
+	overflow: hidden;
+	transition: background-color var(--duration-fast) var(--easing-out);
+}
+
+.ds-radio-dot {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	inline-size: var(--radio-dot-size);
+	block-size: var(--radio-dot-size);
+	border-radius: 50%;
+	background-color: var(--radio-dot);
+	transform: translate(-50%, -50%) scale(0);
+	transition: transform var(--duration-fast) var(--easing-out);
+}
+
+.ds-radio-input:checked + .ds-radio-circle {
+	background-color: var(--radio-bg-selected);
+}
+
+.ds-radio-input:checked + .ds-radio-circle .ds-radio-dot {
+	transform: translate(-50%, -50%) scale(1);
+}
+
+.ds-radio-label {
+	flex: 0 1 auto;
+	min-inline-size: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+@media (hover: hover) {
+	.ds-radio:not(:has(:disabled)):hover .ds-radio-circle {
+		background-image: linear-gradient(var(--radio-hover-wash), var(--radio-hover-wash));
+	}
+}
+
+.ds-radio-input:focus-visible + .ds-radio-circle {
+	outline: var(--focus-ring-width) solid var(--color-focus);
+	outline-offset: var(--focus-ring-offset);
+}
+
+/* Only the label dims when disabled; the info button beside it stays usable. */
+.ds-radio:has(:disabled) {
+	opacity: var(--opacity-disabled);
+	cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ds-radio-circle,
+	.ds-radio-dot {
+		transition: none;
+	}
+}

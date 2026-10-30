@@ -1,0 +1,76 @@
+/*
+ * Segmented control. Spec: specs/segmented-control.md.
+ *
+ * .ds-segmented-control is a radiogroup trough; each .ds-segmented-control-segment is a <label>
+ * holding a visually hidden native radio and the text. Segments share the width equally; the
+ * checked one gets the darker fill. Hover is a wash on the hovered segment only.
+ */
+.ds-segmented-control {
+	--segmented-bg: var(--color-bg-surface);
+	--segmented-border: var(--color-border);
+	--segmented-segment-bg: transparent;
+	--segmented-segment-bg-selected: var(--color-bg-control);
+	--segmented-fg: var(--color-text);
+	--segmented-hover-wash: var(--color-bg-hover);
+	--segmented-segment-height: 28px;
+
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	box-sizing: border-box;
+	inline-size: 100%;
+	padding: var(--space-1);
+	border: var(--border-width) solid var(--segmented-border);
+	border-radius: var(--radius-md);
+	background-color: var(--segmented-bg);
+	overflow: hidden;
+}
+
+.ds-segmented-control-segment {
+	position: relative;
+	flex: 1 1 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	min-inline-size: 0;
+	block-size: var(--segmented-segment-height);
+	padding: 0 var(--space-1);
+	border-radius: var(--radius-sm);
+	background-color: var(--segmented-segment-bg);
+	color: var(--segmented-fg);
+	font: var(--type-label);
+	cursor: pointer;
+	overflow: hidden;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.ds-segmented-control-label {
+	min-inline-size: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ds-segmented-control-segment:has(:checked) {
+	background-color: var(--segmented-segment-bg-selected);
+	cursor: default;
+}
+
+@media (hover: hover) {
+	.ds-segmented-control-segment:not(:has(:disabled)):hover {
+		background-image: linear-gradient(var(--segmented-hover-wash), var(--segmented-hover-wash));
+	}
+}
+
+.ds-segmented-control-segment:has(:focus-visible) {
+	outline: var(--focus-ring-width) solid var(--color-focus);
+	outline-offset: calc(-1 * var(--focus-ring-width));
+}
+
+.ds-segmented-control-segment:has(:disabled),
+.ds-segmented-control[aria-disabled='true'] .ds-segmented-control-segment {
+	opacity: var(--opacity-disabled);
+	cursor: not-allowed;
+}

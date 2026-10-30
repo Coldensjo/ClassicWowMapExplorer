@@ -1,0 +1,41 @@
+/*
+ * Key command: a keycap for a keyboard shortcut. Spec: specs/key-command.md.
+ *
+ * .ds-kbd on a <kbd>: an inverted cap (light fill, dark bold label). data-size="sm" is the
+ * small cap, set in capitals. .ds-kbd-chord lays several caps in a row with a "+" between.
+ */
+.ds-kbd {
+	--kbd-bg: var(--color-text);
+	--kbd-fg: var(--color-bg-surface);
+	--kbd-height: 24px;
+
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	block-size: var(--kbd-height);
+	padding: 0 var(--space-2);
+	border-radius: var(--radius-xs);
+	background-color: var(--kbd-bg);
+	color: var(--kbd-fg);
+	font: var(--type-label-bold);
+	white-space: nowrap;
+	vertical-align: middle;
+}
+
+.ds-kbd[data-size='sm'] {
+	--kbd-height: 17px;
+
+	padding: 0 var(--space-1);
+	font: var(--type-label-small-bold);
+	text-transform: uppercase;
+}
+
+.ds-kbd-chord {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	color: var(--color-text-muted);
+	font: var(--type-label);
+	vertical-align: middle;
+}

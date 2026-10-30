@@ -7,8 +7,11 @@
  * molecule puts there (a .ds-field-box for inputs), supporting text. .ds-field-box draws the
  * 40px box: fill, border, hover wash, focus border; the .ds-field-control inside it has no
  * chrome of its own. Focus is the border recolour; fields get no outline ring.
+ * The tokens are declared on both, so a box used without the shell (the stepper's field, the
+ * slider's value) still has them.
  */
-.ds-field {
+.ds-field,
+.ds-field-box {
 	--field-bg: var(--color-bg-surface);
 	--field-border: var(--color-border);
 	--field-border-focus: var(--color-focus);
@@ -24,7 +27,9 @@
 	--field-padding-inline: var(--space-3);
 	--field-gap: var(--space-2);
 	--field-radius: var(--radius-md);
+}
 
+.ds-field {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-1);

@@ -5,7 +5,7 @@
  */
 import { icon, type IconName } from '../icons';
 import { el, uid } from '../dom';
-import { showPanel, whileOpen, type Placement } from '../popover';
+import { revealInPanel, showPanel, whileOpen, type Placement } from '../popover';
 
 export interface MenuItem {
 	label: string;
@@ -96,7 +96,11 @@ export function menu(anchor: HTMLElement, items: MenuItem[], options: MenuOption
 
 	let release: (() => void) | null = null;
 	const enabled = () => rows.filter((row) => row.getAttribute('aria-disabled') !== 'true');
-	const focusRow = (row: HTMLElement | undefined) => row?.focus();
+	const focusRow = (row: HTMLElement | undefined) => {
+		if (!row) return;
+		row.focus({ preventScroll: true });
+		revealInPanel(root, row);
+	};
 
 	function open(): void {
 		if (release) return;

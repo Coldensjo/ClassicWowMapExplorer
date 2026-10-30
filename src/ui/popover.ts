@@ -34,6 +34,14 @@ export function showPanel(panel: HTMLElement, anchor: Element, options: Position
 	return placed;
 }
 
+/** Scrolls `panel` so `row` is in view, without scrolling anything else (scrollIntoView could move the page). */
+export function revealInPanel(panel: HTMLElement, row: HTMLElement): void {
+	const top = row.offsetTop;
+	const bottom = top + row.offsetHeight;
+	if (top < panel.scrollTop) panel.scrollTop = top;
+	else if (bottom > panel.scrollTop + panel.clientHeight) panel.scrollTop = bottom - panel.clientHeight;
+}
+
 const OPPOSITE: Record<Placement, Placement> = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' };
 
 /** Positions `panel` (already in the DOM and visible) next to `anchor`. */

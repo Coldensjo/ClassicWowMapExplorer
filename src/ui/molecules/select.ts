@@ -9,7 +9,7 @@
  */
 import { icon } from '../icons';
 import { el, uid } from '../dom';
-import { showPanel, whileOpen } from '../popover';
+import { revealInPanel, showPanel, whileOpen } from '../popover';
 import { fieldShell } from './field';
 import { menuOption, menuPanel, setOptionSelected } from './menu';
 
@@ -113,7 +113,7 @@ export function select(options: SelectOptions): SelectHandle {
 		const row = state.rows[index];
 		if (row) {
 			trigger.setAttribute('aria-activedescendant', row.id);
-			row.scrollIntoView({ block: 'nearest' });
+			revealInPanel(list, row);
 		} else {
 			trigger.removeAttribute('aria-activedescendant');
 		}

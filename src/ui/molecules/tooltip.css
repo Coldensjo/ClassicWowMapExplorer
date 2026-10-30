@@ -22,6 +22,10 @@
 	animation: ds-tooltip-in var(--duration-fast) var(--easing-out);
 }
 
+.ds-tooltip[hidden] {
+	display: none;
+}
+
 @keyframes ds-tooltip-in {
 	from {
 		opacity: 0;

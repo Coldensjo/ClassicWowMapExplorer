@@ -1,0 +1,87 @@
+/*
+ * Interactive tile. Spec: specs/interactive-tile.md.
+ *
+ * .ds-tile is a full-width outlined card (a <button>, or an <a> when it has a href) with a
+ * title, an optional one-line description and a trailing chevron. It navigates: hover washes
+ * the whole card, focus recolours the border like a field.
+ */
+.ds-tile {
+	--tile-border: var(--color-bg-inverse);
+	--tile-border-focus: var(--color-focus);
+	--tile-title-fg: var(--color-text);
+	--tile-description-fg: var(--color-text-muted);
+	--tile-hover-wash: var(--color-bg-hover);
+	--tile-pressed-wash: var(--color-bg-pressed);
+	--tile-min-height: 72px;
+
+	display: flex;
+	align-items: center;
+	gap: var(--space-2-5);
+	box-sizing: border-box;
+	inline-size: 100%;
+	min-block-size: var(--tile-min-height);
+	margin: 0;
+	padding: var(--space-4);
+	border: var(--border-width) solid var(--tile-border);
+	border-radius: var(--radius-lg);
+	background: none;
+	color: var(--tile-title-fg);
+	font: var(--type-body-secondary);
+	text-align: left;
+	text-decoration: none;
+	cursor: pointer;
+	overflow: hidden;
+	outline: none;
+	appearance: none;
+	-webkit-appearance: none;
+	transition: border-color var(--duration-fast) var(--easing-out);
+}
+
+.ds-tile-text {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-inline-size: 0;
+}
+
+.ds-tile-title,
+.ds-tile-description {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ds-tile-title {
+	color: var(--tile-title-fg);
+	font: var(--type-body-secondary-bold);
+}
+
+.ds-tile-description {
+	color: var(--tile-description-fg);
+}
+
+.ds-tile > .ds-icon {
+	flex: none;
+}
+
+@media (hover: hover) {
+	.ds-tile:not(:disabled, [aria-disabled='true']):hover {
+		background-image: linear-gradient(var(--tile-hover-wash), var(--tile-hover-wash));
+	}
+}
+
+.ds-tile:focus-visible {
+	border-color: var(--tile-border-focus);
+	background-image: linear-gradient(var(--tile-hover-wash), var(--tile-hover-wash));
+}
+
+.ds-tile:not(:disabled, [aria-disabled='true']):active {
+	background-image: linear-gradient(var(--tile-pressed-wash), var(--tile-pressed-wash));
+}
+
+.ds-tile:disabled,
+.ds-tile[aria-disabled='true'] {
+	opacity: var(--opacity-disabled);
+	cursor: not-allowed;
+}

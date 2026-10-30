@@ -2,7 +2,7 @@
  * Toast. Spec: specs/toast.md.
  *
  * .ds-toast-region is the one live region at the bottom centre of the viewport (its distance
- * from the bottom is --toast-bottom, which the editor sets to clear the mode bar); toasts stack
+ * from the bottom is --toast-bottom, 16px unless a page overrides it); toasts stack
  * inside it, newest at the bottom. A toast is a small accent card with a centred, wrapping
  * message and an optional action.
  */

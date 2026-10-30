@@ -25,6 +25,7 @@ import {
 import { listfile, listfileDate, refreshListfile } from './listfile';
 import { ModelThumbs } from './modelThumbs';
 import { creatureDisplays, type NpcAsset } from './npcs';
+import { browserWindowRect } from './windowDefaults';
 import { applyGridView, COLUMNS_BY_SCALE, loadScale, loadView, saveScale, saveView, tileLayout, viewToggle, type BrowserView } from './browserView';
 
 /** A model and its skin variants, as Existing NPCs groups them (spec 7.9.2). */
@@ -50,7 +51,7 @@ interface ThumbJob {
 
 /** Model tiles put in the grid at once; search narrows the rest. */
 const MAX_MODELS = 120;
-const STORAGE_KEY = 'wdb.window.npc-library';
+const STORAGE_KEY = 'wdb.window.npc-library.2'; // .2: the default moved to the bottom left on 2026-10-30
 const SCALE_KEY = 'wdb.npc-library.scale';
 const VIEW_KEY = 'wdb.npc-library.view';
 const FAVORITES_KEY = 'wdb.npc-library.favorites';
@@ -145,7 +146,7 @@ export class NpcLibrary {
 		this.window = floatingWindow({
 			title: 'NPC library',
 			id: 'npc-library',
-			defaultRect: { right: 28, y: topBarHeight() + 10, width: 360, height: 487 },
+			defaultRect: browserWindowRect(),
 			minWidth: 300,
 			minHeight: 240,
 			storageKey: STORAGE_KEY,
@@ -660,6 +661,3 @@ function loadFavorites(): NpcAppearance[] {
 }
 
 /** The editor's top bar height, so the window opens just under it. */
-function topBarHeight(): number {
-	return document.getElementById('editor-bar')?.offsetHeight ?? 0;
-}

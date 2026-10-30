@@ -20,6 +20,7 @@ import {
 	type SliderHandle,
 } from '../ui';
 import { listfileDate, refreshListfile, tilesetListfile } from './listfile';
+import { browserWindowRect } from './windowDefaults';
 import { applyGridView, COLUMNS_BY_SCALE, loadScale, loadView, saveScale, saveView, tileLayout, viewToggle, type BrowserView } from './browserView';
 import { BASE_TEXTURES, textureName } from './baseTextures';
 
@@ -55,7 +56,7 @@ const MAX_SHOWN = 400;
 const THUMB = 128;
 /** Thumbnails decoded per worker batch. */
 const BATCH = 16;
-const STORAGE_KEY = 'wdb.window.texture-browser';
+const STORAGE_KEY = 'wdb.window.texture-browser.2'; // .2: the default moved to the bottom left on 2026-10-30
 const SCALE_KEY = 'wdb.texture-browser.scale';
 const VIEW_KEY = 'wdb.texture-browser.view';
 
@@ -101,7 +102,7 @@ export class TextureBrowser {
 		this.window = floatingWindow({
 			title: 'Texture browser',
 			id: 'texture-browser',
-			defaultRect: { right: 28, y: topBarHeight() + 10, width: 360, height: 487 },
+			defaultRect: browserWindowRect(),
 			minWidth: 300,
 			minHeight: 240,
 			storageKey: STORAGE_KEY,
@@ -415,6 +416,3 @@ function fallbackFdids(): number[] {
 }
 
 /** The editor's top bar height, so the window opens just under it. */
-function topBarHeight(): number {
-	return document.getElementById('editor-bar')?.offsetHeight ?? 0;
-}

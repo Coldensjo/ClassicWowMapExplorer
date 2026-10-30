@@ -16,8 +16,10 @@ export interface WindowRect {
 	x?: number;
 	/** Distance from the viewport's right edge, in px, used when `x` is omitted. */
 	right?: number;
-	/** Distance from the top, in px; default 0. */
+	/** Distance from the top, in px. Omit it and give `bottom` to anchor there; default 0. */
 	y?: number;
+	/** Distance from the viewport's bottom edge, in px, used when `y` is omitted. */
+	bottom?: number;
 	width: number;
 	height: number;
 }
@@ -93,7 +95,7 @@ export function floatingWindow(options: FloatingWindowOptions): FloatingWindowHa
 	const rect = options.defaultRect;
 	const state: State = load(options.storageKey) ?? {
 		x: rect.x ?? Math.max(0, window.innerWidth - rect.width - (rect.right ?? 0)),
-		y: rect.y ?? 0,
+		y: rect.y ?? (rect.bottom === undefined ? 0 : Math.max(0, window.innerHeight - rect.height - rect.bottom)),
 		width: rect.width,
 		height: rect.height,
 		collapsed: options.collapsed ?? false,

@@ -70,3 +70,11 @@ three). Radius, border, blur and the grip are unchanged.
 
 **Built:** `.ds-floating-window-title-row` is `min-block-size: 24px`, the title
 `--type-heading-2`, the toggle `iconButton({ variant: 'ghost', size: 'xs' })` with `sm` icons.
+
+## 4. Default placement (decided 2026-10-30): the bottom left
+
+With the tool panel on the right ([side-panel-controls.md](side-panel-controls.md)), the three
+browsers open at the **bottom left**: 16px from the left edge, 16px above the status bar, still
+360 × 487. `WindowRect` gained `bottom` (the distance from the viewport's bottom edge, used when
+`y` is omitted), `src/editor/windowDefaults.ts` gives the three the same rect, and their storage
+keys moved to `wdb.window.<name>.2` so a place remembered from the old default is not kept.

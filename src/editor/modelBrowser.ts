@@ -19,6 +19,7 @@ import {
 } from '../ui';
 import { listfile, listfileDate, refreshListfile, type ListfileEntry } from './listfile';
 import { ModelThumbs } from './modelThumbs';
+import { browserWindowRect } from './windowDefaults';
 import { applyGridView, COLUMNS_BY_SCALE, loadScale, loadView, saveScale, saveView, tileLayout, viewToggle, type BrowserView } from './browserView';
 
 /** What the Place tool drops on a click: a model picked from the browser (spec 7.8). */
@@ -38,7 +39,7 @@ interface Item {
 
 /** How many matches are put in the grid at once; search narrows the rest. */
 const MAX_SHOWN = 200;
-const STORAGE_KEY = 'wdb.window.object-browser';
+const STORAGE_KEY = 'wdb.window.object-browser.2'; // .2: the default moved to the bottom left on 2026-10-30
 const SCALE_KEY = 'wdb.object-browser.scale';
 const VIEW_KEY = 'wdb.object-browser.view';
 /** How long the "click in the scene" toast stays after a pick. */
@@ -90,7 +91,7 @@ export class ModelBrowser {
 		this.window = floatingWindow({
 			title: 'Object browser',
 			id: 'object-browser',
-			defaultRect: { right: 28, y: topBarHeight() + 10, width: 360, height: 487 },
+			defaultRect: browserWindowRect(),
 			minWidth: 300,
 			minHeight: 240,
 			storageKey: STORAGE_KEY,
@@ -311,6 +312,3 @@ export class ModelBrowser {
 }
 
 /** The editor's top bar height, so the window opens just under it. */
-function topBarHeight(): number {
-	return document.getElementById('editor-bar')?.offsetHeight ?? 0;
-}

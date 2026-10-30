@@ -2346,7 +2346,16 @@ body.wow-ui {
 
 /* --- The dungeon builder: the scene library, the new-scene dialog and the editor bar. --- */
 
-#scenes, #scene-create, /* ---- The bottom controls (src/ui/specs/bottom-controls.md) ----
+#scenes, #scene-create, #npc-editor {
+	position: fixed;
+	inset: 0;
+	display: grid;
+	place-items: center;
+	padding: 16px;
+	background: rgba(0, 0, 0, 0.35);
+}
+
+/* ---- The bottom controls (src/ui/specs/bottom-controls.md) ----
    The mode controller over a grab bar over the tool panel, docked across the bottom of the
    viewport by src/editor/bottomControls.ts, holding the active tool's modules from
    src/editor/editorPanels.ts. Controls are molecules; tokens only. */
@@ -2551,15 +2560,6 @@ body.wow-ui {
 	.dock-module-body {
 		transition: none;
 	}
-}
-
-#npc-editor {
-	position: fixed;
-	inset: 0;
-	display: grid;
-	place-items: center;
-	padding: 16px;
-	background: rgba(0, 0, 0, 0.35);
 }
 
 .scenes-frame {

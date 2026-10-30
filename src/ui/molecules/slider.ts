@@ -33,6 +33,11 @@ export interface SliderOptions {
 	stops?: number | SliderStop[];
 	/** Unit shown after the value, e.g. "%" or "yd"; also read out with the value. */
 	suffix?: string;
+	/**
+	 * Shows the value as text instead of a number, e.g. a time of day as "12:00"; the value
+	 * field is then read-only (the range alone moves it) and the text is read out with it.
+	 */
+	format?: (value: number) => string;
 	/** Show the editable value field; default true. */
 	showInput?: boolean;
 	disabled?: boolean;
@@ -109,7 +114,8 @@ export function slider(options: SliderOptions): SliderHandle {
 	const step = options.step ?? 1;
 	const scale = makeScale(options, min, max, step);
 	const discrete = scale.stops.length > 0;
-	const labelled = scale.stops.some((s) => s.label !== undefined);
+	// A labelled or formatted value is shown as read-only text; a plain one is an editable number.
+	const labelled = scale.stops.some((s) => s.label !== undefined) || options.format !== undefined;
 	const name = options.label ?? options.ariaLabel ?? '';
 
 	const range = el('input', {
@@ -146,6 +152,7 @@ export function slider(options: SliderOptions): SliderHandle {
 	}
 
 	const display = (v: number): string => {
+		if (options.format) return options.format(v);
 		const stop = scale.stopAt(v);
 		return stop?.label ?? String(v);
 	};
@@ -182,7 +189,7 @@ export function slider(options: SliderOptions): SliderHandle {
 
 	const describe = () => {
 		const stop = scale.stopAt(value);
-		range.setAttribute('aria-valuetext', stop?.label ?? (options.suffix ? `${value} ${options.suffix}` : String(value)));
+		range.setAttribute('aria-valuetext', options.format?.(value) ?? stop?.label ?? (options.suffix ? `${value} ${options.suffix}` : String(value)));
 	};
 	describe();
 

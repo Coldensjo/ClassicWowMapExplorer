@@ -81,8 +81,8 @@ export function modeController(options: ModeControllerOptions): ModeControllerHa
 	return { root };
 }
 
-/** Selects `mode` without firing onChange. */
-export function setMode(root: HTMLElement, mode: ModeId): void {
+/** Selects `mode` without firing onChange; null selects no chip. */
+export function setMode(root: HTMLElement, mode: ModeId | null): void {
 	for (const input of root.querySelectorAll<HTMLInputElement>('.ds-mode-chip-input')) {
 		input.checked = input.value === mode;
 	}
@@ -90,13 +90,15 @@ export function setMode(root: HTMLElement, mode: ModeId): void {
 
 /**
  * Makes the number keys select the chips in order (1 for the first shown chip) from anywhere
- * on the page except while typing in a field. Selecting through a shortcut fires onChange like
- * a click. Returns a function that removes the listener.
+ * on the page except while typing in a field, and only while `when` (if given) returns true,
+ * so the editor can switch them off while the bar is hidden. Selecting through a shortcut
+ * fires onChange like a click. Returns a function that removes the listener.
  */
-export function bindModeShortcuts(root: HTMLElement, target: Window | HTMLElement = window): () => void {
+export function bindModeShortcuts(root: HTMLElement, target: Window | HTMLElement = window, when?: () => boolean): () => void {
 	const onKey = (event: Event) => {
 		const key = event as KeyboardEvent;
 		if (key.ctrlKey || key.metaKey || key.altKey || isTyping(key.target)) return;
+		if (when && !when()) return;
 		const n = Number(key.key);
 		if (!Number.isInteger(n) || n < 1) return;
 		const inputs = root.querySelectorAll<HTMLInputElement>('.ds-mode-chip-input');

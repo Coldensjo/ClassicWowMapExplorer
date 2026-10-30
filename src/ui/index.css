@@ -26,6 +26,7 @@
 @import './molecules/menu.css';
 @import './molecules/select.css';
 @import './molecules/key-command.css';
+@import './molecules/hotkey-list.css';
 @import './molecules/tooltip.css';
 @import './molecules/toast.css';
 @import './molecules/scrollbar.css';

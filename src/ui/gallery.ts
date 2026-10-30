@@ -10,6 +10,7 @@ import {
 	button,
 	floatingWindow,
 	grabBar,
+	hotkeyList,
 	icon,
 	iconButton,
 	iconNames,
@@ -223,6 +224,20 @@ const status = () => el('div', { class: 'status' }, '—');
 // Key command
 {
 	section('Key command', 'key-command.md', 'Medium and small keycaps, and a chord.', row(kbd('Shift'), kbd('W'), kbd('Esc'), caption('small'), kbd('Shift', { size: 'sm' }), kbd('1', { size: 'sm' }), caption('chord'), kbdChord(['Shift', '1']), kbdChord(['Cmd', 'S'], { size: 'sm' })));
+}
+
+// Hotkey list
+{
+	const plain = hotkeyList({
+		rows: [
+			{ label: 'Move gizmo', keys: ['W'] },
+			{ label: 'Rotate', keys: ['Cmd'], tail: 'drag' },
+			{ label: 'Drop to ground', keys: ['Cmd', 'Space'] },
+			{ label: 'Delete', keys: ['Del'] },
+		],
+	});
+	const headed = hotkeyList({ heading: 'Hotkeys', rows: [{ label: 'Raise', keys: ['Shift'], tail: 'click' }, { label: 'Lower', keys: ['Cmd'], tail: 'click' }] });
+	section('Hotkey list', 'hotkey-list.md', 'What each key does, as a tool panel lists them: a plain list for a module of its own, and a headed list indented behind a rule as it sits under a radio option.', row(col(plain.root), col(headed.root)));
 }
 
 // Tooltip

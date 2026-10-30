@@ -13,6 +13,7 @@ export * from './stepper';
 export * from './menu';
 export * from './select';
 export * from './key-command';
+export * from './hotkey-list';
 export * from './tooltip';
 export * from './toast';
 export * from './grab-bar';

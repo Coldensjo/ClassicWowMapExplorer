@@ -2,10 +2,11 @@
  * Mode controller. Spec: specs/mode-controller.md.
  *
  * .ds-mode-controller is a floating translucent, blurred bar of .ds-mode-chip labels, each
- * holding a native radio, a 24px icon and the mode's name. Unselected chips are 40px squares
+ * holding a native radio, a 16px icon and the mode's name. Unselected chips are 24px squares
  * showing only the icon (the name stays in the DOM, visually hidden); the checked chip expands
- * to show its name and inverts: light fill, dark icon at a 2px stroke, dark bold label. The
- * bar hugs its chips, so its width changes with the mode, as designed.
+ * to show its name and inverts: light fill, dark icon at a 2px stroke, dark semibold label.
+ * The bar hugs its chips, so its width changes with the mode, as designed (mode-controller.md
+ * §12 for the 2026-10-30 condensing).
  */
 .ds-mode-controller {
 	--mode-bar-bg: var(--color-bg-panel);
@@ -14,7 +15,7 @@
 	--mode-chip-bg-selected: var(--color-text);
 	--mode-chip-fg-selected: var(--color-bg-control);
 	--mode-chip-hover-wash: var(--color-bg-hover);
-	--mode-chip-size: 40px;
+	--mode-chip-size: 24px;
 	--mode-chip-icon-stroke: 2px;
 
 	display: inline-flex;
@@ -32,12 +33,12 @@
 	position: relative;
 	display: inline-flex;
 	align-items: center;
-	gap: var(--space-2);
+	gap: var(--space-1);
 	box-sizing: border-box;
 	min-inline-size: var(--mode-chip-size);
-	block-size: var(--mode-chip-size);
-	padding: var(--space-2);
-	border-radius: var(--radius-md);
+	min-block-size: var(--mode-chip-size);
+	padding: var(--space-1);
+	border-radius: var(--radius-sm);
 	color: var(--mode-chip-fg);
 	cursor: pointer;
 	overflow: hidden;
@@ -51,7 +52,7 @@
 }
 
 .ds-mode-chip-label {
-	font: var(--type-body-bold);
+	font: var(--type-body-secondary-bold);
 	white-space: nowrap;
 }
 
@@ -69,7 +70,6 @@
 .ds-mode-chip:has(:checked) {
 	--icon-stroke-width: var(--mode-chip-icon-stroke);
 
-	padding-inline-end: var(--space-2-5);
 	background-color: var(--mode-chip-bg-selected);
 	color: var(--mode-chip-fg-selected);
 	cursor: default;

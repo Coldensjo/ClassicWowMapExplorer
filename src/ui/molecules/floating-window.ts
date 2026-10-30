@@ -104,7 +104,7 @@ export function floatingWindow(options: FloatingWindowOptions): FloatingWindowHa
 		icon: state.collapsed ? 'plus' : 'minus',
 		label: state.collapsed ? `Expand ${options.title}` : `Collapse ${options.title}`,
 		variant: 'ghost',
-		size: 'sm',
+		size: 'xs',
 		onClick: () => setCollapsed(!state.collapsed),
 	});
 	toggle.setAttribute('aria-expanded', String(!state.collapsed));
@@ -130,7 +130,7 @@ export function floatingWindow(options: FloatingWindowOptions): FloatingWindowHa
 
 	/** Keeps the window inside the viewport: at least its header stays reachable. */
 	const clamp = () => {
-		const headerHeight = header.offsetHeight || 70;
+		const headerHeight = header.offsetHeight || 60;
 		state.width = Math.min(Math.max(minWidth, state.width), window.innerWidth);
 		state.height = Math.min(Math.max(minHeight, state.height), window.innerHeight);
 		state.x = Math.min(Math.max(0, state.x), Math.max(0, window.innerWidth - state.width));
@@ -154,7 +154,7 @@ export function floatingWindow(options: FloatingWindowOptions): FloatingWindowHa
 	const setCollapsed = (collapsed: boolean) => {
 		if (collapsed === state.collapsed) return;
 		state.collapsed = collapsed;
-		toggle.replaceChildren(icon(collapsed ? 'plus' : 'minus', { size: 'lg' }));
+		toggle.replaceChildren(icon(collapsed ? 'plus' : 'minus', { size: 'sm' }));
 		toggle.setAttribute('aria-label', collapsed ? `Expand ${options.title}` : `Collapse ${options.title}`);
 		toggle.title = toggle.getAttribute('aria-label') ?? '';
 		toggle.setAttribute('aria-expanded', String(!collapsed));
@@ -248,7 +248,7 @@ export function floatingWindow(options: FloatingWindowOptions): FloatingWindowHa
 	window.addEventListener('resize', onResize);
 
 	document.body.append(root);
-	toggle.replaceChildren(icon(state.collapsed ? 'plus' : 'minus', { size: 'lg' }));
+	toggle.replaceChildren(icon(state.collapsed ? 'plus' : 'minus', { size: 'sm' }));
 	commit();
 
 	return {

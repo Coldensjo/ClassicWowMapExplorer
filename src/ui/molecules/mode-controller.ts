@@ -65,7 +65,7 @@ export function modeController(options: ModeControllerOptions): ModeControllerHa
 			'label',
 			{ class: 'ds-mode-chip', 'data-mode': mode.id },
 			input,
-			icon(mode.icon, { size: 'lg' }),
+			icon(mode.icon, { size: 'sm' }),
 			el('span', { class: 'ds-mode-chip-label' }, mode.label),
 		);
 		if (options.tooltips ?? true) attachTooltip(chip, { text: mode.label, shortcut: String(i + 1), placement: 'top' });

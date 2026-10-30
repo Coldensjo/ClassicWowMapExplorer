@@ -58,3 +58,15 @@ top. Collapsed is the header alone: 70px tall, the same width, the button turned
   button; a 1px divider under it; the grip in the corner.
 - Dragging the header moves it, the grip resizes it, the button collapses it to the header.
 - Reload: it comes back where it was.
+
+## Update read file version `2416211887664560962`, 2026-10-30: condensed header
+
+The three windows (`18:5399`, `17:4739`, `35:13664`) now have a **24px** title row: the title is
+`heading/h2` (**16px**, `--type-heading-2`) instead of h1, and the collapse button is the ghost
+icon button at **X-Small** (24px, 16px icon) instead of 32px. The 8px above the dots and 16px
+below the row stay, so the header is **60px** (was 70). The body's gap under the toolbar is now
+12px and the window's bottom padding 12px (the texture browser's is drawn 16; built 12 for all
+three). Radius, border, blur and the grip are unchanged.
+
+**Built:** `.ds-floating-window-title-row` is `min-block-size: 24px`, the title
+`--type-heading-2`, the toggle `iconButton({ variant: 'ghost', size: 'xs' })` with `sm` icons.

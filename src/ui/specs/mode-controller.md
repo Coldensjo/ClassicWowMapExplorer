@@ -310,3 +310,21 @@ every existing tool's number up by one (Sculpt 1 → 2, …) and swaps Water and
 9. **Chip names vs labels**: "Chip - Hole" is labelled "Holes", "Chip - Object" "Objects",
    "Chip - Water v2" (is there a v1 to delete?), and the controller variant is "NPC" while the
    label is "NPCs".
+
+## 12. Condensed chips (update read file version `2416211887664560962`, 2026-10-30)
+
+The bar and chips were tightened (`7:485` and siblings). The bar keeps its 8px padding, 12px
+gap, 12px radius and blur, but is **42px** tall (was 56). Chips:
+
+| | Size | Padding | Radius | Icon | Label |
+|---|---|---|---|---|---|
+| Unselected | **24 × 24** | 4 | **4** | **16px**, 1px stroke `#E7E7E7` | hidden |
+| Selected | hugs, 26 tall | 4 all round, gap 4 | 4 | 16px, 2px stroke `#181818` | `body/body-secondary-bold` (**14px / 600**, `--type-body-secondary-bold`) `#181818` |
+
+The hover wash, states and behaviour are as before. The 24px chip is the minimum target size;
+flagged, built as drawn.
+
+**Built:** `--mode-chip-size` 24px, chip padding and gap `--space-1`, radius `--radius-sm`,
+`min-block-size` rather than a fixed height so the selected chip can hug its 18px label line,
+icons at `sm`, label `--type-body-secondary-bold`; the selected chip's extra right padding (§3.2)
+is gone.

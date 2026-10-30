@@ -225,3 +225,25 @@ described in §2 and §4.
 - Keys 1–7 switch modes; [ ] size the brush; Shift + [ ] change strength (or the water height);
   Cmd + [ ] change the paint opacity; Cmd + Space drops the selection to the ground.
 - Playing hides the dock; Edit brings it back as it was.
+
+## Update read file version `2416211887664560962`, 2026-10-30: condensed panel
+
+The panel (`29:8804` and siblings) kept its radius (12), border, blur and the 4px gaps around
+the grab bar, and tightened its insides:
+
+| Part | Was | Now |
+|---|---|---|
+| Mode Description | `body-secondary` 14px, 12px above and below | `label/label` **12px**, 12px above and below |
+| Module | 16px top and bottom padding, gap 16 | **12px** top and bottom, gap **12** |
+| Module title row | 24px, `heading-2` 16px, 16px side padding | **18px** (the line), `body/body-secondary-bold` **14px / 600**, 16px side padding; with a help button the row is drawn 24 |
+| Module body | 16px side padding, 12px gaps | 16px side padding, 12px gaps |
+
+So a module's header is 12 + 18 + 12 = **42px** over its divider (was 56). The mode controller
+above it is condensed too ([mode-controller.md](mode-controller.md) §12).
+
+**Decision (2026-10-30):** the help button (24px) overhangs the 18px title line by 3px above
+and below instead of making its module's header 48px, so every module's divider lines up.
+
+**Built:** `.bottom-controls-description` is `--type-label`; `.dock-module-header` pads
+`--space-3 --space-4` with the title in `--type-body-secondary-bold` and the icon button's
+block margins at `calc(-1 * var(--space-1))`; `.dock-module-body` pads `--space-3 --space-4`.

@@ -233,8 +233,9 @@ const status = () => el('div', { class: 'status' }, '—');
 	const s = status();
 	const bar = modeController({ value: 'sculpt', onChange: (m) => (s.textContent = `Mode: ${m}`) });
 	bindModeShortcuts(bar.root);
-	const scene = el('div', { class: 'scene' }, bar.root);
-	section('Mode controller', 'mode-controller.md', 'Over a fake scene so the blur shows. ←/→ switch; keys 1 to 7 switch from anywhere on this page; hover a chip for its tooltip.', scene, s);
+	const column = modeController({ value: 'sculpt', name: 'gallery-mode-column', orientation: 'vertical', onChange: (m) => (s.textContent = `Mode: ${m}`) });
+	const scene = el('div', { class: 'scene', style: 'height: 288px; gap: var(--space-4)' }, bar.root, column.root);
+	section('Mode controller', 'mode-controller.md', 'Over a fake scene so the blur shows. ←/→ switch; keys 1 to 7 switch the bar from anywhere on this page; hover a chip for its tooltip. Beside it, the vertical column for the side panel: every chip icon-only.', scene, s);
 }
 
 // Key command

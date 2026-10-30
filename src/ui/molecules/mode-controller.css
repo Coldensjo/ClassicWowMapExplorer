@@ -6,7 +6,8 @@
  * showing only the icon (the name stays in the DOM, visually hidden); the checked chip expands
  * to show its name and inverts: light fill, dark icon at a 2px stroke, dark semibold label.
  * The bar hugs its chips, so its width changes with the mode, as designed (mode-controller.md
- * §12 for the 2026-10-30 condensing).
+ * §12 for the 2026-10-30 condensing). data-orientation="vertical" stacks the chips in a 40px
+ * column for the side panel, every chip icon-only (§13).
  */
 .ds-mode-controller {
 	--mode-bar-bg: var(--color-bg-panel);
@@ -27,6 +28,10 @@
 	background-color: var(--mode-bar-bg);
 	backdrop-filter: blur(var(--mode-bar-blur));
 	-webkit-backdrop-filter: blur(var(--mode-bar-blur));
+}
+
+.ds-mode-controller[data-orientation='vertical'] {
+	flex-direction: column;
 }
 
 .ds-mode-chip {
@@ -56,8 +61,9 @@
 	white-space: nowrap;
 }
 
-/* Unselected: icon only; the name stays for assistive technology. */
-.ds-mode-chip:not(:has(:checked)) .ds-mode-chip-label {
+/* Unselected, or any chip in the vertical bar: icon only; the name stays for assistive technology. */
+.ds-mode-chip:not(:has(:checked)) .ds-mode-chip-label,
+.ds-mode-controller[data-orientation='vertical'] .ds-mode-chip-label {
 	position: absolute;
 	width: 1px;
 	height: 1px;

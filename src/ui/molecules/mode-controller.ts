@@ -41,6 +41,8 @@ export interface ModeControllerOptions {
 	label?: string;
 	/** Show each chip's tooltip with its name and number; default true. */
 	tooltips?: boolean;
+	/** `horizontal` (default): a bar of chips. `vertical`: a column, every chip icon-only, for a side panel. */
+	orientation?: 'horizontal' | 'vertical';
 	onChange?: (mode: ModeId) => void;
 }
 
@@ -51,7 +53,14 @@ export interface ModeControllerHandle {
 /** Makes the bar: `<div class="ds-mode-controller" role="radiogroup">`. */
 export function modeController(options: ModeControllerOptions): ModeControllerHandle {
 	const shown = options.modes ? MODES.filter((m) => options.modes!.includes(m.id)) : MODES;
-	const root = el('div', { class: 'ds-mode-controller', role: 'radiogroup', 'aria-label': options.label ?? 'Editor mode' });
+	const vertical = options.orientation === 'vertical';
+	const root = el('div', {
+		class: 'ds-mode-controller',
+		role: 'radiogroup',
+		'aria-label': options.label ?? 'Editor mode',
+		'aria-orientation': vertical ? 'vertical' : 'horizontal',
+		'data-orientation': vertical ? 'vertical' : undefined,
+	});
 	shown.forEach((mode, i) => {
 		const input = el('input', {
 			class: 'ds-mode-chip-input ds-visually-hidden',
@@ -68,7 +77,7 @@ export function modeController(options: ModeControllerOptions): ModeControllerHa
 			icon(mode.icon, { size: 'sm' }),
 			el('span', { class: 'ds-mode-chip-label' }, mode.label),
 		);
-		if (options.tooltips ?? true) attachTooltip(chip, { text: mode.label, shortcut: String(i + 1), placement: 'top' });
+		if (options.tooltips ?? true) attachTooltip(chip, { text: mode.label, shortcut: String(i + 1), placement: vertical ? 'left' : 'top' });
 		root.append(chip);
 	});
 	if (options.onChange) {

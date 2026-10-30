@@ -328,3 +328,16 @@ flagged, built as drawn.
 `min-block-size` rather than a fixed height so the selected chip can hug its 18px label line,
 icons at `sm`, label `--type-body-secondary-bold`; the selected chip's extra right padding (§3.2)
 is gone.
+
+## 13. Vertical orientation (update read file version `2416248821189540021`, 2026-10-30)
+
+The set gained an **Orientation** axis (Horizontal | Vertical; `267:56353` and siblings) for the
+side panel controls ([side-panel-controls.md](side-panel-controls.md)). Vertical: the same bar
+(padding 8, gap 12, radius 12, blur) laid out as a **40 × 256** column, and **every chip is the
+24px icon-only square**: the selected chip inverts as before but its label layer is hidden, so
+the column's width never changes.
+
+**Built:** `modeController({ orientation: 'vertical' })` sets `data-orientation="vertical"` and
+`aria-orientation="vertical"` on the group; the CSS turns the flex direction and hides every
+chip's label (visually; it stays for assistive technology). The chips' tooltips open to the left.
+Arrow keys keep working as the native radio group's.

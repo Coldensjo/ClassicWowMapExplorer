@@ -1,0 +1,79 @@
+/*
+ * Toast. Spec: specs/toast.md.
+ *
+ * .ds-toast-region is the one live region at the bottom centre of the viewport (its distance
+ * from the bottom is --toast-bottom, which the editor sets to clear the mode bar); toasts stack
+ * inside it, newest at the bottom. A toast is a small accent card with a centred, wrapping
+ * message and an optional action.
+ */
+.ds-toast-region {
+	--toast-bottom: var(--space-4);
+	--toast-gap: var(--space-2);
+
+	position: fixed;
+	left: 50%;
+	bottom: var(--toast-bottom);
+	z-index: var(--z-toast);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--toast-gap);
+	transform: translateX(-50%);
+	pointer-events: none;
+}
+
+.ds-toast {
+	--toast-bg: var(--color-accent);
+	--toast-fg: var(--color-text);
+	--toast-max-width: 280px;
+
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-1-5);
+	box-sizing: border-box;
+	max-inline-size: var(--toast-max-width);
+	padding: var(--space-3) var(--space-4);
+	border-radius: var(--radius-lg);
+	background-color: var(--toast-bg);
+	color: var(--toast-fg);
+	font: var(--type-label);
+	text-align: center;
+	text-wrap: balance;
+	pointer-events: auto;
+	cursor: pointer;
+	animation: ds-toast-in var(--duration-slow) var(--easing-out);
+}
+
+.ds-toast[data-leaving] {
+	animation: ds-toast-out var(--duration-slow) var(--easing-out) forwards;
+	pointer-events: none;
+}
+
+@keyframes ds-toast-in {
+	from {
+		opacity: 0;
+		transform: translateY(var(--space-2));
+	}
+}
+
+@keyframes ds-toast-out {
+	to {
+		opacity: 0;
+	}
+}
+
+.ds-toast-message {
+	margin: 0;
+}
+
+.ds-toast-action {
+	margin-block-start: var(--space-0-5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ds-toast,
+	.ds-toast[data-leaving] {
+		animation: none;
+	}
+}

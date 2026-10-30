@@ -14,3 +14,4 @@ export * from './menu';
 export * from './select';
 export * from './key-command';
 export * from './tooltip';
+export * from './toast';

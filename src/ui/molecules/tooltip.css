@@ -1,0 +1,119 @@
+/*
+ * Tooltips. Spec: specs/tooltip.md.
+ *
+ * .ds-tooltip floats in the top layer beside its anchor. data-variant="simple" is a one-line
+ * dark label, optionally with a small keycap; "complex" is a wrapping explanation on the
+ * accent colour with room for extra content. data-placement names the side of the anchor the
+ * tooltip is on, and --tooltip-anchor (set by the factory) is where along that edge the
+ * nubbin points.
+ */
+.ds-tooltip {
+	--tooltip-bg: var(--color-bg-control);
+	--tooltip-bg-complex: var(--color-accent);
+	--tooltip-fg: var(--color-text);
+	--tooltip-nubbin-base: 10px;
+	--tooltip-nubbin-height: 4px;
+	--tooltip-anchor: 50%;
+
+	position: fixed;
+	z-index: var(--z-tooltip);
+	margin: 0;
+	pointer-events: none;
+	animation: ds-tooltip-in var(--duration-fast) var(--easing-out);
+}
+
+@keyframes ds-tooltip-in {
+	from {
+		opacity: 0;
+	}
+}
+
+.ds-tooltip-body {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1-5);
+	box-sizing: border-box;
+	padding: var(--space-1) var(--space-2);
+	border-radius: var(--radius-xs);
+	background-color: var(--tooltip-bg);
+	color: var(--tooltip-fg);
+	font: var(--type-label);
+	white-space: nowrap;
+}
+
+.ds-tooltip-text {
+	min-inline-size: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ds-tooltip[data-variant='complex'] {
+	pointer-events: auto;
+}
+
+.ds-tooltip[data-variant='complex'] .ds-tooltip-body {
+	flex-direction: column;
+	align-items: stretch;
+	padding: var(--space-3);
+	border-radius: var(--radius-xl);
+	background-color: var(--tooltip-bg-complex);
+	inline-size: max-content;
+	min-inline-size: 148px;
+	max-inline-size: 280px;
+	white-space: normal;
+}
+
+.ds-tooltip[data-variant='complex'] .ds-tooltip-text {
+	overflow: visible;
+	text-overflow: clip;
+}
+
+/* The nubbin: a triangle outside the body, pointing at the anchor. */
+.ds-tooltip-nubbin {
+	position: absolute;
+	background-color: var(--tooltip-bg);
+}
+
+.ds-tooltip[data-variant='complex'] .ds-tooltip-nubbin {
+	background-color: var(--tooltip-bg-complex);
+}
+
+.ds-tooltip[data-placement='bottom'] .ds-tooltip-nubbin,
+.ds-tooltip[data-placement='top'] .ds-tooltip-nubbin {
+	inline-size: var(--tooltip-nubbin-base);
+	block-size: var(--tooltip-nubbin-height);
+	left: calc(var(--tooltip-anchor) - var(--tooltip-nubbin-base) / 2);
+}
+
+.ds-tooltip[data-placement='bottom'] .ds-tooltip-nubbin {
+	top: calc(-1 * var(--tooltip-nubbin-height));
+	clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+.ds-tooltip[data-placement='top'] .ds-tooltip-nubbin {
+	bottom: calc(-1 * var(--tooltip-nubbin-height));
+	clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+
+.ds-tooltip[data-placement='right'] .ds-tooltip-nubbin,
+.ds-tooltip[data-placement='left'] .ds-tooltip-nubbin {
+	inline-size: var(--tooltip-nubbin-height);
+	block-size: var(--tooltip-nubbin-base);
+	top: calc(var(--tooltip-anchor) - var(--tooltip-nubbin-base) / 2);
+}
+
+.ds-tooltip[data-placement='right'] .ds-tooltip-nubbin {
+	left: calc(-1 * var(--tooltip-nubbin-height));
+	clip-path: polygon(100% 0, 100% 100%, 0 50%);
+}
+
+.ds-tooltip[data-placement='left'] .ds-tooltip-nubbin {
+	right: calc(-1 * var(--tooltip-nubbin-height));
+	clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ds-tooltip {
+		animation: none;
+	}
+}

@@ -10,7 +10,7 @@ import {
 	icon,
 	iconButton,
 	loading,
-	setAssetGridColumns,
+	setAssetTileLayout,
 	setAssetTileSelected,
 	setSliderValue,
 	slider,
@@ -20,6 +20,7 @@ import {
 	type SliderHandle,
 } from '../ui';
 import { listfileDate, refreshListfile, tilesetListfile } from './listfile';
+import { applyGridView, COLUMNS_BY_SCALE, loadScale, loadView, saveScale, saveView, tileLayout, viewToggle, type BrowserView } from './browserView';
 import { BASE_TEXTURES, textureName } from './baseTextures';
 
 /**
@@ -54,11 +55,9 @@ const MAX_SHOWN = 400;
 const THUMB = 128;
 /** Thumbnails decoded per worker batch. */
 const BATCH = 16;
-/** Tile size stops: the slider's value is the stop, the grid gets its columns. */
-const COLUMNS_BY_SCALE = [5, 4, 3];
-const DEFAULT_SCALE = 3;
 const STORAGE_KEY = 'wdb.window.texture-browser';
 const SCALE_KEY = 'wdb.texture-browser.scale';
+const VIEW_KEY = 'wdb.texture-browser.view';
 
 /** Decoded thumbnails, kept across scenes for the session. */
 const thumbCache = new Map<number, Image | null>();
@@ -74,8 +73,10 @@ export class TextureBrowser {
 	private readonly sampleBody: HTMLDivElement;
 	private readonly sampleToggle: HTMLButtonElement;
 	private sampleOpen = true;
-	/** Tile size, 1 (smallest) to 3. */
-	private scaleStop = loadScale();
+	/** Tile size, 1 (smallest) to 3: the grid's columns, or the list's picture size. */
+	private scaleStop = loadScale(SCALE_KEY);
+	/** The list as a grid of tiles or a list of rows. */
+	private view: BrowserView = loadView(VIEW_KEY);
 	private sample: SampleState = { kind: 'unsampled' };
 	/** The result shown before a sample was armed, to go back to when it is cancelled. */
 	private lastResults: Item[] | null = null;
@@ -118,14 +119,16 @@ export class TextureBrowser {
 			this.sampleBody,
 		);
 
-		// The browser: search and tile size, the grid, the footer line.
-		const search = textInput({ ariaLabel: 'Search textures', type: 'search', icon: 'search', placeholder: 'Search… e.g. elwynn grass', autocomplete: 'off', spellcheck: false, onInput: () => this.renderList() });
+		// The browser: the view toggle, search and tile size, the grid, the footer line.
+		const views = viewToggle('texture-browser-view', this.view, (v) => this.setView(v));
+		const search = textInput({ ariaLabel: 'Search textures', type: 'search', icon: 'search', placeholder: 'Search… e.g. elwynn grass', autocomplete: 'off', spellcheck: false, size: 'sm', onInput: () => this.renderList() });
 		this.search = search.input;
-		this.scale = slider({ ariaLabel: 'Tile size', value: this.scaleStop, min: 1, max: 3, stops: 3, showInput: false, onInput: (v) => this.setScale(v) });
+		this.scale = slider({ ariaLabel: 'Tile size', value: this.scaleStop, min: 1, max: 3, stops: 3, showInput: false, size: 'sm', onInput: (v) => this.setScale(v) });
 		const smaller = iconButton({ icon: 'minus', label: 'Smaller tiles', variant: 'ghost', size: 'xs', onClick: () => this.setScale(this.scaleStop - 1) });
 		const larger = iconButton({ icon: 'plus', label: 'Larger tiles', variant: 'ghost', size: 'xs', onClick: () => this.setScale(this.scaleStop + 1) });
-		const tools = el('div', { class: 'asset-browser-tools' }, search.root, el('div', { class: 'asset-browser-scale', role: 'group', 'aria-label': 'Tile size' }, smaller, this.scale.root, larger));
+		const tools = el('div', { class: 'asset-browser-tools' }, views.root, search.root, el('div', { class: 'asset-browser-scale', role: 'group', 'aria-label': 'Tile size' }, smaller, this.scale.root, larger));
 		this.grid = assetGrid(COLUMNS_BY_SCALE[this.scaleStop - 1], { 'aria-label': 'Textures' });
+		applyGridView(this.grid, this.view, this.scaleStop);
 		this.grid.classList.add('asset-browser-grid', 'ds-scroll');
 		this.count = el('span', { class: 'asset-browser-count' });
 		this.picked = el('span', { class: 'asset-browser-picked' });
@@ -153,18 +156,27 @@ export class TextureBrowser {
 		this.window.show(on);
 	}
 
-	// ---- Tile size ----
+	// ---- View and tile size ----
 
 	private setScale(value: number): void {
 		const scale = Math.min(3, Math.max(1, Math.round(value)));
 		this.scaleStop = scale;
 		setSliderValue(this.scale.root, scale);
-		setAssetGridColumns(this.grid, COLUMNS_BY_SCALE[scale - 1]);
-		try {
-			localStorage.setItem(SCALE_KEY, String(scale));
-		} catch {
-			// Forgetting the tile size is fine.
-		}
+		this.applyView();
+		saveScale(SCALE_KEY, scale);
+	}
+
+	private setView(view: BrowserView): void {
+		this.view = view;
+		this.applyView();
+		saveView(VIEW_KEY, view);
+	}
+
+	/** Lays the grid and its tiles out for the view and tile size (the sampled tiles stay a grid). */
+	private applyView(): void {
+		applyGridView(this.grid, this.view, this.scaleStop);
+		const { layout, pictureSize } = tileLayout(this.view, this.scaleStop);
+		for (const item of this.items) setAssetTileLayout(item.tile.root, layout, pictureSize);
 	}
 
 	// ---- The list ----
@@ -210,7 +222,8 @@ export class TextureBrowser {
 		this.syncPicked();
 	}
 
-	private makeItem(fdid: number, path: string, status: FileStatus): Item {
+	/** A tile for the list (laid out for the current view) or, with `inList` false, the sampled grid. */
+	private makeItem(fdid: number, path: string, status: FileStatus, inList = true): Item {
 		const parts = path.replace(/\.blp$/, '').split('/');
 		const label = parts.slice(1).join(' / ');
 		const canvas = document.createElement('canvas');
@@ -222,6 +235,7 @@ export class TextureBrowser {
 			picture: canvas,
 			selected: fdid === this.selected,
 			disabled: status === 'not-local' || status === 'no-encoding',
+			...(inList ? tileLayout(this.view, this.scaleStop) : {}),
 			onActivate: () => this.pick(fdid),
 		});
 		if (status !== 'ok') tile.root.dataset.unavailable = '';
@@ -296,7 +310,7 @@ export class TextureBrowser {
 			if (seen.has(fdid)) continue;
 			seen.add(fdid);
 			const listed = this.items.find((i) => i.fdid === fdid);
-			items.push(this.makeItem(fdid, listed?.path ?? `tileset/${textureName(fdid).toLowerCase()}.blp`, listed?.status ?? 'ok'));
+			items.push(this.makeItem(fdid, listed?.path ?? `tileset/${textureName(fdid).toLowerCase()}.blp`, listed?.status ?? 'ok', false));
 		}
 		this.sample = { kind: 'results', items };
 		this.lastResults = items;
@@ -398,16 +412,6 @@ export class TextureBrowser {
 /** The starter textures, for the fallback list when there is no listfile. */
 function fallbackFdids(): number[] {
 	return BASE_TEXTURES.map((t) => t.fdid);
-}
-
-/** The tile size kept from last time, 1 (smallest) to 3. */
-function loadScale(): number {
-	try {
-		const scale = Number(localStorage.getItem(SCALE_KEY));
-		return scale >= 1 && scale <= 3 ? Math.round(scale) : DEFAULT_SCALE;
-	} catch {
-		return DEFAULT_SCALE;
-	}
 }
 
 /** The editor's top bar height, so the window opens just under it. */

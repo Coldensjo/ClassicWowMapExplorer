@@ -10,7 +10,7 @@ import {
 	icon,
 	iconButton,
 	menu,
-	setAssetGridColumns,
+	setAssetTileLayout,
 	setAssetTileSelected,
 	setSliderValue,
 	slider,
@@ -25,6 +25,7 @@ import {
 import { listfile, listfileDate, refreshListfile } from './listfile';
 import { ModelThumbs } from './modelThumbs';
 import { creatureDisplays, type NpcAsset } from './npcs';
+import { applyGridView, COLUMNS_BY_SCALE, loadScale, loadView, saveScale, saveView, tileLayout, viewToggle, type BrowserView } from './browserView';
 
 /** A model and its skin variants, as Existing NPCs groups them (spec 7.9.2). */
 interface CreatureModel {
@@ -49,11 +50,9 @@ interface ThumbJob {
 
 /** Model tiles put in the grid at once; search narrows the rest. */
 const MAX_MODELS = 120;
-/** Tile size stops: the slider's value is the stop, the grid gets its columns. */
-const COLUMNS_BY_SCALE = [5, 4, 3];
-const DEFAULT_SCALE = 3;
 const STORAGE_KEY = 'wdb.window.npc-library';
 const SCALE_KEY = 'wdb.npc-library.scale';
+const VIEW_KEY = 'wdb.npc-library.view';
 const FAVORITES_KEY = 'wdb.npc-library.favorites';
 /** How long the "click in the scene" toast stays after a pick. */
 const TOAST_MS = 4000;
@@ -116,8 +115,10 @@ export class NpcLibrary {
 	private view: View = { kind: 'main' };
 	/** Each view's search text, kept while the user moves between them. */
 	private readonly queries: Record<ViewKind, string> = { main: '', local: '', favorites: '', existing: '', variants: '' };
-	/** Tile size, 1 (smallest) to 3. */
-	private scaleStop = loadScale();
+	/** Tile size, 1 (smallest) to 3: the grid's columns, or the list's picture size. */
+	private scaleStop = loadScale(SCALE_KEY);
+	/** The tiles as a grid or a list of rows. */
+	private tileView: BrowserView = loadView(VIEW_KEY);
 	private models: CreatureModel[] = [];
 	private readonly displays = new Map<number, CreatureDisplaySummary>();
 	/** Progress text while the creature list loads; null once it is in. */
@@ -185,17 +186,20 @@ export class NpcLibrary {
 			placeholder: 'Search for NPCs…',
 			autocomplete: 'off',
 			spellcheck: false,
+			size: 'sm',
 			onInput: () => {
 				this.queries[this.view.kind] = this.search.value;
 				this.renderList();
 			},
 		});
 		this.search = search.input;
-		this.scale = slider({ ariaLabel: 'Tile size', value: this.scaleStop, min: 1, max: 3, stops: 3, showInput: false, onInput: (v) => this.setScale(v) });
+		const views = viewToggle('npc-library-view', this.tileView, (v) => this.setTileView(v));
+		this.scale = slider({ ariaLabel: 'Tile size', value: this.scaleStop, min: 1, max: 3, stops: 3, showInput: false, size: 'sm', onInput: (v) => this.setScale(v) });
 		const smaller = iconButton({ icon: 'minus', label: 'Smaller tiles', variant: 'ghost', size: 'xs', onClick: () => this.setScale(this.scaleStop - 1) });
 		const larger = iconButton({ icon: 'plus', label: 'Larger tiles', variant: 'ghost', size: 'xs', onClick: () => this.setScale(this.scaleStop + 1) });
-		const tools = el('div', { class: 'asset-browser-tools' }, search.root, el('div', { class: 'asset-browser-scale', role: 'group', 'aria-label': 'Tile size' }, smaller, this.scale.root, larger));
+		const tools = el('div', { class: 'asset-browser-tools' }, views.root, search.root, el('div', { class: 'asset-browser-scale', role: 'group', 'aria-label': 'Tile size' }, smaller, this.scale.root, larger));
 		this.grid = assetGrid(COLUMNS_BY_SCALE[this.scaleStop - 1], { 'aria-label': 'NPCs' });
+		applyGridView(this.grid, this.tileView, this.scaleStop);
 		this.grid.classList.add('asset-browser-grid', 'npc-library-grid', 'ds-scroll');
 		this.empty = el('div', { class: 'npc-library-empty', hidden: true });
 		this.count = el('span', { class: 'asset-browser-count' });
@@ -279,18 +283,27 @@ export class NpcLibrary {
 		]);
 	}
 
-	// ---- Tile size ----
+	// ---- View and tile size ----
 
 	private setScale(value: number): void {
 		const scale = Math.min(3, Math.max(1, Math.round(value)));
 		this.scaleStop = scale;
 		setSliderValue(this.scale.root, scale);
-		setAssetGridColumns(this.grid, COLUMNS_BY_SCALE[scale - 1]);
-		try {
-			localStorage.setItem(SCALE_KEY, String(scale));
-		} catch {
-			// Forgetting the tile size is fine.
-		}
+		this.applyTileView();
+		saveScale(SCALE_KEY, scale);
+	}
+
+	private setTileView(view: BrowserView): void {
+		this.tileView = view;
+		this.applyTileView();
+		saveView(VIEW_KEY, view);
+	}
+
+	/** Lays the grid and its tiles out for the view and tile size. */
+	private applyTileView(): void {
+		applyGridView(this.grid, this.tileView, this.scaleStop);
+		const { layout, pictureSize } = tileLayout(this.tileView, this.scaleStop);
+		for (const tile of this.tiles.values()) setAssetTileLayout(tile.root, layout, pictureSize);
 	}
 
 	// ---- The creature list (spec 7.9.2) ----
@@ -435,7 +448,7 @@ export class NpcLibrary {
 			action = iconButton({ icon: 'more', label: `More for ${options.label}`, variant: 'secondary', size: 'sm' });
 			this.menus.push(menu(action, options.items));
 		}
-		const handle = assetTile({ label: options.label, title: options.title, picture: img, disabled: options.disabled, badge: options.badge, action, onActivate: options.onActivate });
+		const handle = assetTile({ label: options.label, title: options.title, picture: img, disabled: options.disabled, badge: options.badge, action, ...tileLayout(this.tileView, this.scaleStop), onActivate: options.onActivate });
 		this.tiles.set(options.key, handle);
 		if (options.thumb) this.queueThumb(handle.root, img, options.thumb);
 		return handle;
@@ -643,16 +656,6 @@ function loadFavorites(): NpcAppearance[] {
 		});
 	} catch {
 		return [];
-	}
-}
-
-/** The tile size kept from last time, 1 (smallest) to 3. */
-function loadScale(): number {
-	try {
-		const scale = Number(localStorage.getItem(SCALE_KEY));
-		return scale >= 1 && scale <= 3 ? Math.round(scale) : DEFAULT_SCALE;
-	} catch {
-		return DEFAULT_SCALE;
 	}
 }
 

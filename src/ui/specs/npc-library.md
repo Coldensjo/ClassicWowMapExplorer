@@ -124,3 +124,15 @@ confirm for now.
 - Picking a tile arms it, marks it selected and shows the toast; picking it again disarms it.
 - The tile menu edits, remixes, favourites, exports and deletes a custom NPC; a game NPC can
   be remixed (humanoids) and favourited; Favorites lists what was added.
+
+## 6. Toolbar update read file version `2416211887664560962`, 2026-10-30: grid/list view
+
+The toolbar row (`Frame 43`, 30px, gap 16) now starts with the **icon segmented control**
+([segmented-control.md](segmented-control.md) §11) holding the `grid` and `list` icons, grid
+selected; the search is the **small** text input ([text-input.md](text-input.md) §10) and the
+tile-size slider the **small** fixed-step slider ([slider.md](slider.md) §12) between the 16px
+minus and plus. Under the toolbar the gap is 12px (was 16). No frame shows the list itself; it
+is built from the row tile ([asset-tile.md](asset-tile.md) §9): in the list the slider's three
+stops are the row picture's size (48, 80, 120px) instead of the grid's columns, and the choice
+is kept per window in `localStorage` (`wdb.<window>.view`) beside the tile size. The shared
+toggle, stops and storage live in `src/editor/browserView.ts`.

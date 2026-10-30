@@ -8,7 +8,7 @@ import {
 	floatingWindow,
 	iconButton,
 	segmentedControl,
-	setAssetGridColumns,
+	setAssetTileLayout,
 	setAssetTileSelected,
 	setSliderValue,
 	slider,
@@ -19,6 +19,7 @@ import {
 } from '../ui';
 import { listfile, listfileDate, refreshListfile, type ListfileEntry } from './listfile';
 import { ModelThumbs } from './modelThumbs';
+import { applyGridView, COLUMNS_BY_SCALE, loadScale, loadView, saveScale, saveView, tileLayout, viewToggle, type BrowserView } from './browserView';
 
 /** What the Place tool drops on a click: a model picked from the browser (spec 7.8). */
 export interface PlaceAsset {
@@ -37,11 +38,9 @@ interface Item {
 
 /** How many matches are put in the grid at once; search narrows the rest. */
 const MAX_SHOWN = 200;
-/** Tile size stops: the slider's value is the stop, the grid gets its columns. */
-const COLUMNS_BY_SCALE = [5, 4, 3];
-const DEFAULT_SCALE = 3;
 const STORAGE_KEY = 'wdb.window.object-browser';
 const SCALE_KEY = 'wdb.object-browser.scale';
+const VIEW_KEY = 'wdb.object-browser.view';
 /** How long the "click in the scene" toast stays after a pick. */
 const TOAST_MS = 4000;
 /** Model thumbnails rendered at most once per session beyond the IndexedDB cache. */
@@ -66,8 +65,10 @@ export class ModelBrowser {
 	private readonly refresh: HTMLButtonElement;
 	private readonly toast: HTMLDivElement;
 	private toastTimer: ReturnType<typeof setTimeout> | null = null;
-	/** Tile size, 1 (smallest) to 3. */
-	private scaleStop = loadScale();
+	/** Tile size, 1 (smallest) to 3: the grid's columns, or the list's picture size. */
+	private scaleStop = loadScale(SCALE_KEY);
+	/** The list as a grid of tiles or a list of rows. */
+	private view: BrowserView = loadView(VIEW_KEY);
 
 	private readonly items: Record<ObjectKind, Item[]> = { m2: [], wmo: [] };
 	private readonly loadedTabs = new Set<ObjectKind>();
@@ -106,13 +107,15 @@ export class ModelBrowser {
 			],
 			onChange: (value) => this.setTab(value as ObjectKind),
 		});
-		const search = textInput({ ariaLabel: 'Search models', type: 'search', icon: 'search', placeholder: 'Search… e.g. elwynn tree', autocomplete: 'off', spellcheck: false, onInput: () => this.renderList() });
+		const views = viewToggle('object-browser-view', this.view, (v) => this.setView(v));
+		const search = textInput({ ariaLabel: 'Search models', type: 'search', icon: 'search', placeholder: 'Search… e.g. elwynn tree', autocomplete: 'off', spellcheck: false, size: 'sm', onInput: () => this.renderList() });
 		this.search = search.input;
-		this.scale = slider({ ariaLabel: 'Tile size', value: this.scaleStop, min: 1, max: 3, stops: 3, showInput: false, onInput: (v) => this.setScale(v) });
+		this.scale = slider({ ariaLabel: 'Tile size', value: this.scaleStop, min: 1, max: 3, stops: 3, showInput: false, size: 'sm', onInput: (v) => this.setScale(v) });
 		const smaller = iconButton({ icon: 'minus', label: 'Smaller tiles', variant: 'ghost', size: 'xs', onClick: () => this.setScale(this.scaleStop - 1) });
 		const larger = iconButton({ icon: 'plus', label: 'Larger tiles', variant: 'ghost', size: 'xs', onClick: () => this.setScale(this.scaleStop + 1) });
-		const tools = el('div', { class: 'asset-browser-tools' }, search.root, el('div', { class: 'asset-browser-scale', role: 'group', 'aria-label': 'Tile size' }, smaller, this.scale.root, larger));
+		const tools = el('div', { class: 'asset-browser-tools' }, views.root, search.root, el('div', { class: 'asset-browser-scale', role: 'group', 'aria-label': 'Tile size' }, smaller, this.scale.root, larger));
 		this.grid = assetGrid(COLUMNS_BY_SCALE[this.scaleStop - 1], { 'aria-label': 'Models' });
+		applyGridView(this.grid, this.view, this.scaleStop);
 		this.grid.classList.add('asset-browser-grid', 'ds-scroll');
 		this.count = el('span', { class: 'asset-browser-count' });
 		this.picked = el('span', { class: 'asset-browser-picked' });
@@ -141,18 +144,27 @@ export class ModelBrowser {
 		this.window.show(on);
 	}
 
-	// ---- Tile size ----
+	// ---- View and tile size ----
 
 	private setScale(value: number): void {
 		const scale = Math.min(3, Math.max(1, Math.round(value)));
 		this.scaleStop = scale;
 		setSliderValue(this.scale.root, scale);
-		setAssetGridColumns(this.grid, COLUMNS_BY_SCALE[scale - 1]);
-		try {
-			localStorage.setItem(SCALE_KEY, String(scale));
-		} catch {
-			// Forgetting the tile size is fine.
-		}
+		this.applyView();
+		saveScale(SCALE_KEY, scale);
+	}
+
+	private setView(view: BrowserView): void {
+		this.view = view;
+		this.applyView();
+		saveView(VIEW_KEY, view);
+	}
+
+	/** Lays the grid and its tiles out for the view and tile size. */
+	private applyView(): void {
+		applyGridView(this.grid, this.view, this.scaleStop);
+		const { layout, pictureSize } = tileLayout(this.view, this.scaleStop);
+		for (const tile of this.tiles.values()) setAssetTileLayout(tile.root, layout, pictureSize);
 	}
 
 	// ---- Tabs and the list ----
@@ -220,6 +232,7 @@ export class ModelBrowser {
 			picture: img,
 			selected: this.isSelected(item),
 			disabled: item.status !== 'ok',
+			...tileLayout(this.view, this.scaleStop),
 			onActivate: () => this.pick(item),
 		});
 		this.tiles.set(item.fdid, tile);
@@ -294,16 +307,6 @@ export class ModelBrowser {
 		this.pending.clear();
 		this.thumbs.dispose();
 		this.window.dispose();
-	}
-}
-
-/** The tile size kept from last time, 1 (smallest) to 3. */
-function loadScale(): number {
-	try {
-		const scale = Number(localStorage.getItem(SCALE_KEY));
-		return scale >= 1 && scale <= 3 ? Math.round(scale) : DEFAULT_SCALE;
-	} catch {
-		return DEFAULT_SCALE;
 	}
 }
 

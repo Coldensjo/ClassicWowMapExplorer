@@ -62,3 +62,15 @@ off): the footer line already names the picked texture. Add it when design turns
 - The sampled section walks its seven states; collapsing it keeps the browser.
 - The tile-size slider and its buttons step the grid between 3, 4 and 5 columns.
 - Clicking a tile selects it; clicking it again un-selects; the brush then refuses to paint.
+
+## 5. Toolbar update read file version `2416211887664560962`, 2026-10-30: grid/list view
+
+The toolbar row (`Frame 43`, 30px, gap 16) now starts with the **icon segmented control**
+([segmented-control.md](segmented-control.md) §11) holding the `grid` and `list` icons, grid
+selected; the search is the **small** text input ([text-input.md](text-input.md) §10) and the
+tile-size slider the **small** fixed-step slider ([slider.md](slider.md) §12) between the 16px
+minus and plus. Under the toolbar the gap is 12px (was 16). No frame shows the list itself; it
+is built from the row tile ([asset-tile.md](asset-tile.md) §9): in the list the slider's three
+stops are the row picture's size (48, 80, 120px) instead of the grid's columns, and the choice
+is kept per window in `localStorage` (`wdb.<window>.view`) beside the tile size. The shared
+toggle, stops and storage live in `src/editor/browserView.ts`.

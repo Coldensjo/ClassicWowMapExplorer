@@ -10,3 +10,4 @@ export * from './field';
 export * from './text-input';
 export * from './slider';
 export * from './stepper';
+export * from './menu';

@@ -1,0 +1,36 @@
+/*
+ * Scrollbar. Spec: specs/scrollbar.md.
+ *
+ * .ds-scroll styles native scrolling: a 4px rounded thumb floating in an 8px gutter, no
+ * track, no arrows. The thumb brightens slightly on hover. Native wheel, touch, keyboard and
+ * assistive-technology scrolling are untouched. Browsers without the -webkit- pseudo-elements
+ * get the thin native scrollbar in the same colours.
+ */
+.ds-scroll {
+	--scrollbar-thumb: var(--color-bg-inverse);
+	--scrollbar-thumb-hover: color-mix(in srgb, var(--color-text) 46%, transparent);
+	--scrollbar-gutter: 8px; /* 4px thumb plus 2px either side */
+
+	scrollbar-width: thin;
+	scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.ds-scroll::-webkit-scrollbar {
+	inline-size: var(--scrollbar-gutter);
+	block-size: var(--scrollbar-gutter);
+}
+
+.ds-scroll::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.ds-scroll::-webkit-scrollbar-thumb {
+	border: 2px solid transparent;
+	border-radius: var(--radius-full);
+	background-color: var(--scrollbar-thumb);
+	background-clip: padding-box;
+}
+
+.ds-scroll::-webkit-scrollbar-thumb:hover {
+	background-color: var(--scrollbar-thumb-hover);
+}

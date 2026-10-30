@@ -1,0 +1,98 @@
+/*
+ * Mode controller. Spec: specs/mode-controller.md.
+ *
+ * .ds-mode-controller is a floating translucent, blurred bar of .ds-mode-chip labels, each
+ * holding a native radio, a 24px icon and the mode's name. Unselected chips are 40px squares
+ * showing only the icon (the name stays in the DOM, visually hidden); the checked chip expands
+ * to show its name and inverts: light fill, dark icon at a 2px stroke, dark bold label. The
+ * bar hugs its chips, so its width changes with the mode, as designed.
+ */
+.ds-mode-controller {
+	--mode-bar-bg: var(--color-bg-panel);
+	--mode-bar-blur: var(--blur-panel);
+	--mode-chip-fg: var(--color-text);
+	--mode-chip-bg-selected: var(--color-text);
+	--mode-chip-fg-selected: var(--color-bg-control);
+	--mode-chip-hover-wash: var(--color-bg-hover);
+	--mode-chip-size: 40px;
+	--mode-chip-icon-stroke: 2px;
+
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-3);
+	box-sizing: border-box;
+	padding: var(--space-2);
+	border-radius: var(--radius-lg);
+	background-color: var(--mode-bar-bg);
+	backdrop-filter: blur(var(--mode-bar-blur));
+	-webkit-backdrop-filter: blur(var(--mode-bar-blur));
+}
+
+.ds-mode-chip {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	box-sizing: border-box;
+	min-inline-size: var(--mode-chip-size);
+	block-size: var(--mode-chip-size);
+	padding: var(--space-2);
+	border-radius: var(--radius-md);
+	color: var(--mode-chip-fg);
+	cursor: pointer;
+	overflow: hidden;
+	user-select: none;
+	-webkit-user-select: none;
+	transition: background-color var(--duration-fast) var(--easing-out);
+}
+
+.ds-mode-chip > .ds-icon {
+	flex: none;
+}
+
+.ds-mode-chip-label {
+	font: var(--type-body-bold);
+	white-space: nowrap;
+}
+
+/* Unselected: icon only; the name stays for assistive technology. */
+.ds-mode-chip:not(:has(:checked)) .ds-mode-chip-label {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+}
+
+.ds-mode-chip:has(:checked) {
+	--icon-stroke-width: var(--mode-chip-icon-stroke);
+
+	padding-inline-end: var(--space-2-5);
+	background-color: var(--mode-chip-bg-selected);
+	color: var(--mode-chip-fg-selected);
+	cursor: default;
+}
+
+@media (hover: hover) {
+	.ds-mode-chip:not(:has(:checked, :disabled)):hover {
+		background-image: linear-gradient(var(--mode-chip-hover-wash), var(--mode-chip-hover-wash));
+	}
+}
+
+.ds-mode-chip:has(:focus-visible) {
+	outline: var(--focus-ring-width) solid var(--color-focus);
+	outline-offset: var(--focus-ring-offset);
+}
+
+.ds-mode-chip:has(:disabled) {
+	opacity: var(--opacity-disabled);
+	cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ds-mode-chip {
+		transition: none;
+	}
+}

@@ -19,3 +19,4 @@ export * from './grab-bar';
 export * from './loading';
 export * from './swatch-picker';
 export * from './tile';
+export * from './mode-controller';

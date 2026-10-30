@@ -3,3 +3,4 @@
  * See DESIGN_SYSTEM.md §5.
  */
 export * from './button';
+export * from './switch';

@@ -1,0 +1,107 @@
+/*
+ * Switch. Spec: specs/switch.md.
+ *
+ * .ds-switch is a <label> holding a visually hidden checkbox (role="switch") and the drawn
+ * track and knob. data-layout="row" (default) puts a text label on the left and the switch on
+ * the right, filling the panel column; data-layout="bare" is the switch alone.
+ * On and off are the input's :checked; the knob slides, the track fill cross-fades.
+ */
+.ds-switch {
+	--switch-track-off: var(--color-bg-surface);
+	--switch-track-on: var(--color-accent);
+	--switch-border: var(--color-border);
+	--switch-knob: var(--color-text);
+	--switch-hover-wash: var(--color-bg-hover);
+	--switch-track-width: 55px;
+	--switch-track-height: 23px;
+	--switch-knob-width: 30px;
+	--switch-knob-height: 15px;
+	--switch-inset: 4px; /* knob ↔ track outer edge, border included */
+	--switch-row-gap: var(--space-2);
+
+	display: inline-flex;
+	align-items: center;
+	gap: var(--switch-row-gap);
+	position: relative;
+	min-block-size: 24px; /* WCAG 2.2 target size; the track itself is 23px */
+	color: var(--color-text);
+	font: var(--type-body-secondary);
+	cursor: pointer;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.ds-switch[data-layout='row'] {
+	display: flex;
+	inline-size: 100%;
+}
+
+.ds-switch-label {
+	flex: 1 1 auto;
+	min-inline-size: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ds-switch-control {
+	position: relative;
+	flex: none;
+	display: inline-block;
+	inline-size: var(--switch-track-width);
+	block-size: var(--switch-track-height);
+}
+
+.ds-switch-track {
+	position: absolute;
+	inset: 0;
+	box-sizing: border-box;
+	border: var(--border-width) solid var(--switch-border);
+	border-radius: var(--radius-full);
+	background-color: var(--switch-track-off);
+	overflow: hidden;
+	transition: background-color var(--duration-fast) var(--easing-out);
+}
+
+.ds-switch-knob {
+	position: absolute;
+	/* The inset is measured from the track's outer edge; `top`/`left` start inside the border. */
+	top: calc(var(--switch-inset) - var(--border-width));
+	left: calc(var(--switch-inset) - var(--border-width));
+	inline-size: var(--switch-knob-width);
+	block-size: var(--switch-knob-height);
+	border-radius: var(--radius-full);
+	background-color: var(--switch-knob);
+	transition: transform var(--duration-fast) var(--easing-out);
+}
+
+.ds-switch-input:checked + .ds-switch-track {
+	background-color: var(--switch-track-on);
+}
+
+.ds-switch-input:checked + .ds-switch-track .ds-switch-knob {
+	transform: translateX(calc(var(--switch-track-width) - var(--switch-knob-width) - 2 * var(--switch-inset)));
+}
+
+@media (hover: hover) {
+	.ds-switch:not(:has(:disabled)):hover .ds-switch-track {
+		background-image: linear-gradient(var(--switch-hover-wash), var(--switch-hover-wash));
+	}
+}
+
+.ds-switch-input:focus-visible + .ds-switch-track {
+	outline: var(--focus-ring-width) solid var(--color-focus);
+	outline-offset: var(--focus-ring-offset);
+}
+
+.ds-switch:has(:disabled) {
+	opacity: var(--opacity-disabled);
+	cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ds-switch-track,
+	.ds-switch-knob {
+		transition: none;
+	}
+}

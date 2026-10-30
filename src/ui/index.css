@@ -16,3 +16,4 @@
 /* Molecules, one line each, in dependency order. */
 @import './molecules/base.css';
 @import './molecules/button.css';
+@import './molecules/switch.css';

@@ -20,7 +20,7 @@ the layout CSS is `#bottom-controls` and `.dock-*` in `src/viewer/viewer.css`.
 
 Conventions match the other specs in this folder (Figma variable → code token in
 [tokens/color.css](../tokens/color.css) → value; **⚠ Figma issue**; **Proposed**; **Decided**
-marks a call made while building, for design to confirm).
+marks a call made while building; every one was confirmed by the designer on 2026-10-30, §5).
 
 ---
 
@@ -196,18 +196,20 @@ Shift + drag would collide with selecting. Built: the list shows the real bindin
 
 ---
 
-## 5. Open questions for design
+## 5. Questions put to design, and the answers
 
-1. Should the drag model change to the file's (Space / Cmd + drag / Shift + drag), and if so what
-   replaces Shift + click for adding to the selection?
-2. The Proposed modules and rows (§2): keep, redraw, or drop?
-3. Revert to base: a chip when the scene is copied, or key 8 only?
-4. Slime is disabled as drawn; is it really broken, or should it be offered?
-5. The status bar (cursor, height, layers, FPS) is not in the file; it stays under the dock.
-   Fold it into the dock later?
-6. Labels: "Doodad set" vs "Asset style", "Flood fill" vs "Flood scene".
+All eight defaults below were **confirmed by the designer on 2026-10-30**; the build stands as
+described in §2 and §4.
 
----
+1. The Objects drag model stays the editor's (W / E / R, Shift + click and drag to select); the
+   file's Space / Cmd + drag / Shift + drag are not adopted. Cmd + Space drops to ground.
+2. Holes and Water use Shift and Cmd instead of mode buttons; Water keeps Brush / Flood fill.
+3. Place / Select mode is gone for Objects and NPCs.
+4. The Proposed modules and rows (§2) stay, in the same style.
+5. Revert to base is key 8 in copied scenes, with no chip.
+6. Slime stays disabled as drawn.
+7. The status bar stays under the dock.
+8. Labels: "Doodad set" and "Flood fill"; Size sliders in yards.
 
 ## 6. Acceptance checks
 

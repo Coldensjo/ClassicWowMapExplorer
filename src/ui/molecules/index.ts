@@ -11,3 +11,4 @@ export * from './text-input';
 export * from './slider';
 export * from './stepper';
 export * from './menu';
+export * from './select';

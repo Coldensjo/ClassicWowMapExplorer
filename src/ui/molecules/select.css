@@ -1,0 +1,40 @@
+/*
+ * Select. Spec: specs/dropdown.md §3 and §5.
+ *
+ * .ds-select is a .ds-field whose body is the trigger: a <button role="combobox"> styled as
+ * the field box, with the current value and a chevron that points down when closed and up
+ * when open. The list it opens is a .ds-menu listbox (menu.css). Open and keyboard focus
+ * both recolour the border, like a focused text field.
+ */
+.ds-select-trigger {
+	--select-border-open: var(--color-focus);
+
+	cursor: pointer;
+	text-align: left;
+	appearance: none;
+	-webkit-appearance: none;
+	outline: none;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.ds-select-value {
+	flex: 1 1 auto;
+	min-inline-size: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ds-select[data-empty] .ds-select-value {
+	color: var(--field-placeholder);
+}
+
+.ds-select-trigger[aria-expanded='true'],
+.ds-select-trigger:focus-visible {
+	border-color: var(--select-border-open);
+}
+
+.ds-select[aria-disabled='true'] .ds-select-trigger {
+	cursor: not-allowed;
+}

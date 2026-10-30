@@ -7,9 +7,10 @@ the app is built (DOM made by hand in `src/editor` and `src/viewer`, one stylesh
 `src/viewer/viewer.css`).
 
 **Status:** the colour tokens are defined (from the Figma file "Dungeon Builder", mode
-"Mode 1"), so are the type tokens (from its text styles) and the icon set (§6) with its size
-tokens; the other layout tokens, the game theme's overrides and the molecules are not yet. The placeholder files say
-what goes in them. Fill them in the order of §8.
+"Mode 1"), so are the type tokens (from its text styles), the layout tokens (§3.3) and the icon
+set (§6). Every molecule the specs in `specs/` describe is built (§5), and `gallery.html` shows
+them all (§8). The game theme's overrides are not written yet, and the existing screens still
+use their own markup: the molecules are standalone until a screen migrates (§7).
 
 ## 1. Layout
 
@@ -18,6 +19,11 @@ src/ui/
 ├── DESIGN_SYSTEM.md      this file
 ├── index.css             the one stylesheet index.html links: fonts → tokens → themes → icons → molecules
 ├── index.ts              the one import for code: re-exports icons/ and molecules/
+├── dom.ts                el(), uid() and small helpers the molecules build DOM with
+├── popover.ts            positioning and closing of floating panels (menu, select, tooltip)
+├── gallery.ts            the script of /gallery.html, the dev-only page showing every molecule
+├── specs/
+│   └── <name>.md         one build spec per Figma component, read from the file
 ├── tokens/
 │   ├── color.css         palette (tier 1) and semantic colours (tier 2)
 │   ├── type.css          families, sizes, weights, line heights, and the type roles
@@ -30,9 +36,13 @@ src/ui/
 │   └── icon.css          .ds-icon: size and line width from tokens
 └── molecules/
     ├── index.ts          one export line per molecule
-    ├── <name>.ts         a factory returning an element  (added per molecule)
-    └── <name>.css        its styles, on .ds-<name>        (added per molecule)
+    ├── base.css          rules every molecule shares (.ds-visually-hidden)
+    ├── field.{css,ts}    the labelled field shell and field box the inputs build on
+    ├── <name>.ts         a factory returning an element  (one per molecule)
+    └── <name>.css        its styles, on .ds-<name>        (one per molecule)
 ```
+
+`gallery.html` sits at the project root beside `index.html`; Vite serves it in development only.
 
 Rules of the layout:
 
@@ -137,12 +147,23 @@ first. A new face is added the same way: a `@fontsource` package imported at the
 
 ### 3.3 Layout (`tokens/layout.css`)
 
-`--space-1 … -8` on a 2px-based scale, `--radius-sm/md/lg/xl`, `--border-width`,
-`--focus-ring`, `--duration-fast/slow`, and `--z-<layer>` for stacking. A molecule pads, gaps
-and layers only with these.
+A molecule pads, gaps and layers only with these. Figma binds no variables for any of them;
+the values are the ones the specs collected from the drawings.
 
-Defined so far: the icon tokens, `--icon-size-sm/md/lg` (16, 20, 24px) and
-`--icon-stroke-width` (1px), used by `icons/icon.css` (§6).
+- Spacing `--space-0-5 … -8`: a 4px scale (`--space-1` = 4px) with the half steps the drawings
+  use (`--space-1-5` = 6px, `--space-2-5` = 10px).
+- Radii `--radius-xs/sm/md/lg/xl` (2, 4, 8, 12, 14px) and `--radius-full` for pills and circles.
+- Lines `--border-width` (1px), `--focus-ring-width` (1px) and `--focus-ring-offset` (2px): the
+  keyboard focus outline on controls that have no border to recolour. A field shows focus by
+  recolouring its border to `--color-focus` instead, with no ring.
+- Motion `--duration-fast` (100ms: washes, a dot, a knob), `--duration-slow` (150ms: a panel or
+  toast appearing) and `--easing-out`. Every transition and animation is removed under
+  `prefers-reduced-motion: reduce`.
+- Stacking `--z-popover`, `--z-tooltip`, `--z-toast`, above anything the page draws.
+- `--opacity-disabled` (0.3) for any disabled control and `--blur-panel` (24px) for the backdrop
+  blur of translucent floating panels.
+- Icons `--icon-size-sm/md/lg` (16, 20, 24px) and `--icon-stroke-width` (1px), used by
+  `icons/icon.css` (§6).
 
 ### 3.4 Tokens that stay local
 
@@ -184,9 +205,11 @@ Each molecule is a pair of files in `molecules/`:
   token: `--button-bg: var(--color-bg-control);`.
 - Variants are `data-variant`, sizes `data-size`, layouts `data-layout`; a state that is on is
   `aria-pressed="true"` or the matching ARIA attribute, never a bespoke class.
-- Where `index.html` has static markup for the same control, the rule also lists the bare
+- Where `index.html` has static markup for the same control, the rule may also list the bare
   element or the legacy class so both render the same: `button, .ds-button { … }`,
   `.ds-field, .prop-row { … }`. This is how the static markup migrates without rewriting it.
+  No molecule does this yet (decided 2026-10-29): they are standalone, and a legacy selector is
+  added when its screen migrates, together with the `viewer.css` rule it replaces.
 - Takes every colour, size and space from a token. A raw value in a molecule is a defect.
 
 **`<name>.ts`**
@@ -199,10 +222,49 @@ Each molecule is a pair of files in `molecules/`:
   model, as the editor's tools already do.
 - Is exported from `molecules/index.ts`; its stylesheet is imported in `index.css`.
 
-The first molecules to make, from the controls the editor's panels already use: `button`
-(default, primary, plain; pressed state), `toggle-group` (the `.mode-row` button rows),
-`field` with `slider`, `number-input`, `select`, `text-input`, `checkbox` (the `.prop-row`
-rows), and `search-box` (the asset browsers' `.browser-top`).
+### 5.1 The molecules
+
+Each has a spec in `specs/` with the same name, read from the Figma file; the spec says what
+was drawn, what was decided and what is proposed. File names follow the specs (so
+`segmented-control`, not the `toggle-group` once planned here, and `stepper`, not
+`number-input`).
+
+| Molecule | Factory | What it is |
+|---|---|---|
+| `button` | `button()`, `iconButton()`, `setPressed()` | text buttons (primary, secondary, outline) and icon buttons (primary, secondary, ghost) |
+| `switch` | `toggleSwitch()`, `setChecked()` | an on/off row or bare switch, on a native checkbox with `role="switch"` |
+| `radio` | `radioGroup()`, `setRadioValue()` | a fieldset of options, each with an optional info button |
+| `segmented-control` | `segmentedControl()`, `setSegmentedValue()` | one of a few modes in a trough |
+| `field` | `fieldShell()`, `fieldBox()`, `setFieldInvalid()` | the labelled stack and 40px box the inputs share; not used on its own |
+| `text-input` | `textInput()`, `setTextValue()`, `setInvalid()` | a text or search field with icon, prefix, suffix and hint; the search box is this with `icon: 'search'` |
+| `slider` | `slider()`, `setSliderValue()` | a range with a caption and an editable value field |
+| `stepper` | `stepper()`, `setStepperValue()` | a number field between minus and plus buttons |
+| `menu` | `menu()`, `menuPanel()`, `menuOption()` | the floating panel, and an action menu on any button |
+| `select` | `select()`, `setSelectValue()`, `setSelectOptions()` | a select-only combobox on the field box and the menu panel |
+| `swatch-picker` | `swatchPicker()`, `setSwatchValue()` | a radiogroup of colour squares |
+| `tile` | `tile()` | an outlined card that navigates |
+| `mode-controller` | `modeController()`, `setMode()`, `bindModeShortcuts()` | the editor's tool bar of seven chips |
+| `key-command` | `kbd()`, `kbdChord()` | keycaps |
+| `tooltip` | `tooltip()`, `attachTooltip()` | simple and complex tooltips on any anchor |
+| `toast` | `showToast()`, `dismissToasts()` | transient status messages in one live region |
+| `scrollbar` | (CSS only: `.ds-scroll`) | the thin thumb on native scrolling |
+| `grab-bar` | `grabBar()`, `setGrabBarValue()` | a separator that resizes a panel |
+| `loading` | `loading()` | the turning ring, in place of the Figma GIF |
+
+The Level Indicator spec is not a molecule: it belongs inside the outline tree when that is
+built. Floating panels (menu, select list, tooltip, toast) are appended to `<body>` and
+positioned by `popover.ts`, so a scrolling panel never clips them.
+
+### 5.2 Conventions the molecules follow
+
+- A drawn control sits on a native input that is visually hidden (`.ds-visually-hidden` in
+  `base.css`), never `display: none`, so keyboard and assistive technology get the native
+  behaviour: `:checked`, `:disabled` and `:focus-visible` on the input drive the drawing, through
+  `:has()` on the wrapper where the input is not a sibling of the drawn part.
+- Hover, pressed and selected states are layered background washes
+  (`background-image: linear-gradient(wash, wash)`) over the fill, so nothing moves by a pixel.
+  Hover rules sit under `@media (hover: hover)`.
+- A setter never fires the molecule's `onChange`; it only moves the DOM to match the model.
 
 ## 6. Icons
 
@@ -306,8 +368,8 @@ class (§5). New UI is built with factories. The one ad-hoc helper in code, `but
 1. `molecules/<name>.css` and `molecules/<name>.ts` as in §5.
 2. Export from `molecules/index.ts`; import the CSS in `index.css`.
 3. If static markup has the same control, list its element or class in the root rule.
-4. Add it to a gallery page once one exists (a dev-only `gallery.html` showing every molecule
-   in the default look is the intended way to eyeball changes without loading the game).
+4. Add it to `gallery.html` (a section in `gallery.ts`), the dev-only page that shows every
+   molecule in the default look. Open it at `/gallery.html` on the dev server.
 
 **Checks before committing:** `bun run build` (type check plus Vite build) passes; no raw
 colour or size in a molecule; nothing outside `src/ui` imports a molecule file directly.

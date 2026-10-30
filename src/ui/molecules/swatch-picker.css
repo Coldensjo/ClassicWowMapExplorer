@@ -1,0 +1,89 @@
+/*
+ * Swatch picker. Spec: specs/color-swatch.md.
+ *
+ * .ds-swatch-picker is a radiogroup of .ds-swatch labels, each a 32px square filled with the
+ * colour it offers (--swatch-color, set inline from data: the one raw colour the system
+ * expects). The checked swatch gets a 3px accent ring outside its box and a centred accent
+ * dot. Hover outlines rather than washes, so the colour being judged is not altered.
+ */
+.ds-swatch-picker {
+	--swatch-ring: var(--color-accent);
+	--swatch-dot: var(--color-accent);
+	--swatch-hover-outline: var(--color-border);
+	--swatch-size: 32px;
+	--swatch-ring-width: 3px;
+	--swatch-dot-size: 12px;
+	--swatch-gap: var(--space-2);
+
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-inline-size: 0;
+}
+
+.ds-swatch-picker-label {
+	color: var(--color-text-muted);
+	font: var(--type-label);
+}
+
+.ds-swatch-picker-swatches {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--swatch-gap);
+	/* Room for the ring, which paints outside the swatches. */
+	padding: var(--swatch-ring-width);
+}
+
+.ds-swatch {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	inline-size: var(--swatch-size);
+	block-size: var(--swatch-size);
+	border-radius: var(--radius-sm);
+	background-color: var(--swatch-color);
+	cursor: pointer;
+	transition: box-shadow var(--duration-fast) var(--easing-out);
+}
+
+.ds-swatch-dot {
+	inline-size: var(--swatch-dot-size);
+	block-size: var(--swatch-dot-size);
+	border-radius: 50%;
+	background-color: var(--swatch-dot);
+	transform: scale(0);
+	transition: transform var(--duration-fast) var(--easing-out);
+}
+
+.ds-swatch:has(:checked) {
+	box-shadow: 0 0 0 var(--swatch-ring-width) var(--swatch-ring);
+}
+
+.ds-swatch:has(:checked) .ds-swatch-dot {
+	transform: scale(1);
+}
+
+@media (hover: hover) {
+	.ds-swatch:not(:has(:checked, :disabled)):hover {
+		outline: var(--border-width) solid var(--swatch-hover-outline);
+	}
+}
+
+.ds-swatch:has(:focus-visible) {
+	outline: var(--focus-ring-width) solid var(--color-focus);
+	outline-offset: calc(var(--swatch-ring-width) + var(--focus-ring-offset));
+}
+
+.ds-swatch:has(:disabled) {
+	opacity: var(--opacity-disabled);
+	cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ds-swatch,
+	.ds-swatch-dot {
+		transition: none;
+	}
+}

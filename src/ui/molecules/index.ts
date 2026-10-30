@@ -17,3 +17,4 @@ export * from './tooltip';
 export * from './toast';
 export * from './grab-bar';
 export * from './loading';
+export * from './swatch-picker';

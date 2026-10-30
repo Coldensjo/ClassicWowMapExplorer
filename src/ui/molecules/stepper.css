@@ -1,0 +1,34 @@
+/*
+ * Stepper. Spec: specs/stepper.md.
+ *
+ * .ds-stepper is a row: a secondary icon button (minus), a fixed-width .ds-field-box holding
+ * the number input with its value centred, and a second icon button (plus). The field draws
+ * hover and focus from field.css; the buttons carry their own states from button.css.
+ */
+.ds-stepper {
+	--stepper-field-width: 72px;
+
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	block-size: 40px;
+}
+
+.ds-stepper-field {
+	flex: none;
+	inline-size: var(--stepper-field-width);
+}
+
+.ds-stepper-field .ds-field-control {
+	text-align: center;
+	font-variant-numeric: tabular-nums;
+}
+
+.ds-stepper[aria-disabled='true'] {
+	opacity: var(--opacity-disabled);
+}
+
+.ds-stepper[aria-disabled='true'] .ds-field-box,
+.ds-stepper[aria-disabled='true'] .ds-icon-button {
+	cursor: not-allowed;
+}

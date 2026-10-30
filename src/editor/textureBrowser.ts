@@ -1,15 +1,37 @@
 import type { Image } from '../formats/blp';
 import type { FileStatus } from '../casc/storage';
 import type { AsyncStorageApi } from '../worker/protocol';
+import {
+	assetGrid,
+	assetTile,
+	button,
+	el,
+	floatingWindow,
+	icon,
+	iconButton,
+	loading,
+	setAssetGridColumns,
+	setAssetTileSelected,
+	setSliderValue,
+	slider,
+	textInput,
+	type AssetTileHandle,
+	type FloatingWindowHandle,
+	type SliderHandle,
+} from '../ui';
 import { listfileDate, refreshListfile, tilesetListfile } from './listfile';
 import { BASE_TEXTURES, textureName } from './baseTextures';
 
 /**
- * The texture asset browser (spec 7.3, Phase 2's texture-only cut): the tileset textures of the
- * listfile with substring/token search and lazy thumbnails decoded in the worker. Files whose
- * data is not in the local install show greyed and cannot be picked (spec 7.1). Clicking an entry
- * selects it as the paint brush. Above the list, a sampled chunk's own textures (up to 4, spec 7.5)
- * show the same way and pick the same way.
+ * The Texture browser window (spec 7.3 and 7.5; design in src/ui/specs/texture-browser.md): a
+ * floating window, shown only while the Paint tool is active, holding the sampled-chunk section
+ * and the listfile's tileset textures with search, a tile-size slider and lazy thumbnails decoded
+ * in the worker. Files whose data is not in the local install show dimmed and cannot be picked
+ * (spec 7.1). Clicking a tile selects it as the paint brush; clicking the selected tile again
+ * leaves no texture selected, and the brush then refuses to paint until one is picked.
+ *
+ * The browser owns the window and its DOM; the editor panels tell it when sampling starts and
+ * stops and hand it each sample's textures, and it asks them to arm a sample.
  */
 
 interface Item {
@@ -18,29 +40,51 @@ interface Item {
 	/** "elwynn / elwynngrassbase01" for tileset/elwynn/elwynngrassbase01.blp. */
 	label: string;
 	status: FileStatus;
-	element: HTMLButtonElement;
+	tile: AssetTileHandle;
 	canvas: HTMLCanvasElement;
 	drawn: boolean;
 }
 
-/** How many matches are put in the panel at once; search narrows the rest. */
+/** What the sampled section shows. */
+type SampleState = { kind: 'unsampled' } | { kind: 'sampling' } | { kind: 'results'; items: Item[] };
+
+/** How many matches are put in the grid at once; search narrows the rest. */
 const MAX_SHOWN = 400;
-const THUMB = 56;
+/** Thumbnail pixels, enough for the largest tile. */
+const THUMB = 128;
 /** Thumbnails decoded per worker batch. */
 const BATCH = 16;
+/** Tile size stops: the slider's value is the stop, the grid gets its columns. */
+const COLUMNS_BY_SCALE = [5, 4, 3];
+const DEFAULT_SCALE = 3;
+const STORAGE_KEY = 'wdb.window.texture-browser';
+const SCALE_KEY = 'wdb.texture-browser.scale';
 
 /** Decoded thumbnails, kept across scenes for the session. */
 const thumbCache = new Map<number, Image | null>();
 
-const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-
 export class TextureBrowser {
+	private readonly window: FloatingWindowHandle;
+	private readonly search: HTMLInputElement;
+	private readonly scale: SliderHandle;
+	private readonly grid: HTMLDivElement;
+	private readonly count: HTMLElement;
+	private readonly picked: HTMLElement;
+	private readonly refresh: HTMLButtonElement;
+	private readonly sampleBody: HTMLDivElement;
+	private readonly sampleToggle: HTMLButtonElement;
+	private sampleOpen = true;
+	/** Tile size, 1 (smallest) to 3. */
+	private scaleStop = loadScale();
+	private sample: SampleState = { kind: 'unsampled' };
+	/** The result shown before a sample was armed, to go back to when it is cancelled. */
+	private lastResults: Item[] | null = null;
+
 	private items: Item[] = [];
-	/** The last sampled chunk's textures, shown above the list. */
-	private sampled: Item[] = [];
 	private readonly observer: IntersectionObserver;
 	private readonly queue: Item[] = [];
 	private loadingThumbs = false;
+	/** The selected texture, or 0 for none. */
 	private selected: number;
 	private disposed = false;
 
@@ -49,31 +93,87 @@ export class TextureBrowser {
 		selected: number,
 		private readonly onPick: (fdid: number) => void,
 		private readonly onNotice: (text: string) => void,
+		/** Asked to arm (true) or disarm (false) the next ground click as a chunk sample. */
+		private readonly onSampleRequest: (on: boolean) => void,
 	) {
 		this.selected = selected;
+		this.window = floatingWindow({
+			title: 'Texture browser',
+			id: 'texture-browser',
+			defaultRect: { right: 28, y: topBarHeight() + 10, width: 360, height: 487 },
+			minWidth: 300,
+			minHeight: 240,
+			storageKey: STORAGE_KEY,
+		});
+		this.window.show(false);
+
+		// Sampled textures: heading row, collapsible body, divider.
+		this.sampleToggle = iconButton({ icon: 'up', label: 'Collapse sampled textures', variant: 'ghost', size: 'xs', onClick: () => this.setSampleOpen(!this.sampleOpen) });
+		this.sampleToggle.setAttribute('aria-expanded', 'true');
+		this.sampleBody = el('div', { class: 'texture-browser-sample-body' });
+		const sampleSection = el(
+			'section',
+			{ class: 'texture-browser-sample', 'aria-label': 'Sampled textures' },
+			el('div', { class: 'texture-browser-sample-head' }, el('h3', { class: 'texture-browser-heading' }, 'Sampled textures'), this.sampleToggle),
+			this.sampleBody,
+		);
+
+		// The browser: search and tile size, the grid, the footer line.
+		const search = textInput({ ariaLabel: 'Search textures', type: 'search', icon: 'search', placeholder: 'Search… e.g. elwynn grass', autocomplete: 'off', spellcheck: false, onInput: () => this.renderList() });
+		this.search = search.input;
+		this.scale = slider({ ariaLabel: 'Tile size', value: this.scaleStop, min: 1, max: 3, stops: 3, showInput: false, onInput: (v) => this.setScale(v) });
+		const smaller = iconButton({ icon: 'minus', label: 'Smaller tiles', variant: 'ghost', size: 'xs', onClick: () => this.setScale(this.scaleStop - 1) });
+		const larger = iconButton({ icon: 'plus', label: 'Larger tiles', variant: 'ghost', size: 'xs', onClick: () => this.setScale(this.scaleStop + 1) });
+		const tools = el('div', { class: 'texture-browser-tools' }, search.root, el('div', { class: 'texture-browser-scale', role: 'group', 'aria-label': 'Tile size' }, smaller, this.scale.root, larger));
+		this.grid = assetGrid(COLUMNS_BY_SCALE[this.scaleStop - 1], { 'aria-label': 'Textures' });
+		this.grid.classList.add('texture-browser-grid', 'ds-scroll');
+		this.count = el('span', { class: 'texture-browser-count' });
+		this.picked = el('span', { class: 'texture-browser-picked' });
+		this.refresh = iconButton({ icon: 'reset', label: 'Fetch the listfile afresh', variant: 'ghost', size: 'xs', onClick: () => void this.loadEntries(true) });
+		const footer = el('div', { class: 'texture-browser-footer' }, this.count, this.picked, this.refresh);
+		this.window.body.append(sampleSection, el('div', { class: 'texture-browser-main' }, tools, this.grid, footer));
+
 		this.observer = new IntersectionObserver((entries) => {
 			for (const e of entries) {
 				if (!e.isIntersecting) continue;
-				const item = this.items.find((i) => i.element === e.target);
+				const item = this.items.find((i) => i.tile.root === e.target);
 				if (item && !item.drawn) this.queue.push(item);
 			}
 			void this.drainThumbnails();
-		}, { root: $('texture-grid') });
-		$<HTMLInputElement>('texture-search').value = '';
-		this.wire();
+		}, { root: this.grid });
+
+		this.renderSample();
+		this.syncPicked();
 		void this.loadEntries(false);
 	}
 
-	private wire(): void {
-		$('texture-search').oninput = () => this.renderList();
-		$('texture-refresh').onclick = () => void this.loadEntries(true);
+	/** Shows the window (the Paint tool is active) or hides it. */
+	setVisible(on: boolean): void {
+		this.window.show(on);
 	}
 
+	// ---- Tile size ----
+
+	private setScale(value: number): void {
+		const scale = Math.min(3, Math.max(1, Math.round(value)));
+		this.scaleStop = scale;
+		setSliderValue(this.scale.root, scale);
+		setAssetGridColumns(this.grid, COLUMNS_BY_SCALE[scale - 1]);
+		try {
+			localStorage.setItem(SCALE_KEY, String(scale));
+		} catch {
+			// Forgetting the tile size is fine.
+		}
+	}
+
+	// ---- The list ----
+
 	private async loadEntries(refresh: boolean): Promise<void> {
-		$('texture-count').textContent = 'Loading the texture list…';
+		this.count.textContent = 'Loading the texture list…';
 		let entries: { fdid: number; path: string }[];
 		try {
-			entries = await (refresh ? refreshListfile((t) => ($('texture-count').textContent = t)) : tilesetListfile((t) => ($('texture-count').textContent = t)));
+			const progress = (t: string) => (this.count.textContent = t);
+			entries = await (refresh ? refreshListfile(progress) : tilesetListfile(progress));
 		} catch (e) {
 			// No listfile (offline, or the fetch failed): fall back to the scene's own palette.
 			this.onNotice(`The listfile couldn't be loaded: ${e instanceof Error ? e.message : e}. Showing only this scene's textures.`);
@@ -97,86 +197,147 @@ export class TextureBrowser {
 			statuses = entries.map(() => 'ok');
 		}
 		if (this.disposed) return;
-		// Only textures the opened root knows stay listed (spec 7.1); not-local ones stay, greyed.
+		// Only textures the opened root knows stay listed (spec 7.1); not-local ones stay, dimmed.
 		this.items = entries
 			.map((e, i) => this.makeItem(e.fdid, e.path, statuses[i]))
 			.filter((item) => fallback || item.status !== 'unknown');
 		if (!fallback) {
 			const date = await listfileDate();
-			$('texture-refresh').title = date ? `Fetch the listfile afresh (this one is from ${new Date(date).toLocaleDateString()})` : 'Fetch the listfile afresh';
+			this.refresh.title = date ? `Fetch the listfile afresh (this one is from ${new Date(date).toLocaleDateString()})` : 'Fetch the listfile afresh';
 		}
 		this.renderList();
+		this.syncPicked();
 	}
 
 	private makeItem(fdid: number, path: string, status: FileStatus): Item {
-		const element = document.createElement('button');
-		element.className = 'texture-item';
 		const parts = path.replace(/\.blp$/, '').split('/');
 		const label = parts.slice(1).join(' / ');
 		const canvas = document.createElement('canvas');
 		canvas.width = THUMB;
 		canvas.height = THUMB;
-		const name = document.createElement('span');
-		name.textContent = label;
-		element.append(canvas, name);
-		element.title = status === 'not-local' ? `${path}\nNot downloaded in your install yet` : path;
-		if (status !== 'ok') {
-			element.classList.add('greyed');
-			element.disabled = status === 'not-local' || status === 'no-encoding';
-		}
-		element.addEventListener('click', () => {
-			this.selected = fdid;
-			this.onPick(fdid);
-			this.syncSelection();
+		const tile = assetTile({
+			label,
+			title: status === 'not-local' ? `${path}\nNot downloaded in your install yet` : path,
+			picture: canvas,
+			selected: fdid === this.selected,
+			disabled: status === 'not-local' || status === 'no-encoding',
+			onActivate: () => this.pick(fdid),
 		});
-		return { fdid, path, label, status, element, canvas, drawn: false };
+		if (status !== 'ok') tile.root.dataset.unavailable = '';
+		return { fdid, path, label, status, tile, canvas, drawn: false };
+	}
+
+	/** Selects a texture, or un-selects it when it is the selected one already. */
+	private pick(fdid: number): void {
+		this.selected = this.selected === fdid ? 0 : fdid;
+		this.onPick(this.selected);
+		this.syncSelection();
 	}
 
 	/** Fills the grid with what matches the search, up to the cap. */
 	private renderList(): void {
-		const grid = $('texture-grid');
-		const tokens = $<HTMLInputElement>('texture-search').value.toLowerCase().split(/\s+/).filter(Boolean);
+		const tokens = this.search.value.toLowerCase().split(/\s+/).filter(Boolean);
 		const matches = this.items.filter((i) => tokens.every((t) => i.path.includes(t)));
 		const shown = matches.slice(0, MAX_SHOWN);
-		grid.replaceChildren(...shown.map((i) => i.element));
-		for (const item of shown) if (!item.drawn) this.observer.observe(item.element);
-		$('texture-count').textContent =
-			matches.length > shown.length ? `Showing ${shown.length} of ${matches.length} — search to narrow` : `${matches.length} textures`;
+		this.grid.replaceChildren(...shown.map((i) => i.tile.root));
+		for (const item of shown) if (!item.drawn) this.observer.observe(item.tile.root);
+		this.count.textContent =
+			matches.length > shown.length ? `Showing ${shown.length} of ${matches.length.toLocaleString()} — search to narrow` : `${matches.length.toLocaleString()} texture${matches.length === 1 ? '' : 's'}`;
 		this.syncSelection();
 	}
 
 	private syncSelection(): void {
-		for (const item of [...this.items, ...this.sampled]) item.element.classList.toggle('active', item.fdid === this.selected);
+		const sampled = this.sample.kind === 'results' ? this.sample.items : [];
+		for (const item of [...this.items, ...sampled]) setAssetTileSelected(item.tile.root, item.fdid === this.selected);
+		this.syncPicked();
+	}
+
+	private syncPicked(): void {
+		this.picked.textContent = this.selected ? `Painting with ${this.labelOf(this.selected) ?? textureName(this.selected)}` : 'No texture selected';
+	}
+
+	// ---- Sampled textures (spec 7.5) ----
+
+	private setSampleOpen(open: boolean): void {
+		this.sampleOpen = open;
+		this.sampleBody.hidden = !open;
+		this.sampleToggle.replaceChildren(icon(open ? 'up' : 'down', { size: 'sm' }));
+		this.sampleToggle.setAttribute('aria-label', open ? 'Collapse sampled textures' : 'Expand sampled textures');
+		this.sampleToggle.title = this.sampleToggle.getAttribute('aria-label') ?? '';
+		this.sampleToggle.setAttribute('aria-expanded', String(open));
+	}
+
+	/** The panels armed or disarmed a sample. */
+	setSampling(on: boolean): void {
+		if (on) {
+			if (this.sample.kind === 'results') this.lastResults = this.sample.items;
+			this.sample = { kind: 'sampling' };
+		} else if (this.sample.kind === 'sampling') {
+			this.sample = this.lastResults ? { kind: 'results', items: this.lastResults } : { kind: 'unsampled' };
+		}
+		this.renderSample();
 	}
 
 	/**
-	 * Shows a sampled chunk's textures (base first) above the list, or the empty message when the
-	 * sample found none; null clears the row.
+	 * Shows a sampled chunk's textures (base first), or the no-textures message for an empty
+	 * sample; null clears the section back to unsampled.
 	 */
 	showSample(fdids: number[] | null): void {
-		const grid = $('texture-sample-grid');
-		const empty = $('texture-sample-empty');
-		this.sampled = [];
 		if (fdids === null) {
-			grid.hidden = true;
-			empty.hidden = true;
-			grid.replaceChildren();
+			this.sample = { kind: 'unsampled' };
+			this.lastResults = null;
+			this.renderSample();
 			return;
 		}
 		const seen = new Set<number>();
+		const items: Item[] = [];
 		for (const fdid of fdids) {
 			if (seen.has(fdid)) continue;
 			seen.add(fdid);
 			const listed = this.items.find((i) => i.fdid === fdid);
-			this.sampled.push(this.makeItem(fdid, listed?.path ?? `tileset/${textureName(fdid).toLowerCase()}.blp`, listed?.status ?? 'ok'));
+			items.push(this.makeItem(fdid, listed?.path ?? `tileset/${textureName(fdid).toLowerCase()}.blp`, listed?.status ?? 'ok'));
 		}
-		grid.replaceChildren(...this.sampled.map((i) => i.element));
-		grid.hidden = this.sampled.length === 0;
-		empty.hidden = this.sampled.length > 0;
-		this.syncSelection();
-		this.queue.push(...this.sampled);
+		this.sample = { kind: 'results', items };
+		this.lastResults = items;
+		this.renderSample();
+		this.queue.push(...items);
 		void this.drainThumbnails();
 	}
+
+	private renderSample(): void {
+		const message = (text: string) => el('p', { class: 'texture-browser-sample-text' }, text);
+		const again = () => button({ label: 'Sample another chunk', variant: 'outline', size: 'sm', onClick: () => this.onSampleRequest(true) });
+		switch (this.sample.kind) {
+			case 'unsampled':
+				this.sampleBody.replaceChildren(
+					message('Sample a chunk in your scene to see textures that are being used.'),
+					button({ label: 'Sample chunk', variant: 'primary', size: 'sm', onClick: () => this.onSampleRequest(true) }),
+				);
+				break;
+			case 'sampling':
+				this.sampleBody.replaceChildren(
+					loading({ label: 'Waiting for a chunk', size: 48 }),
+					message('Click a chunk in your scene to sample its textures.'),
+					button({ label: 'Cancel (Esc)', variant: 'outline', size: 'sm', onClick: () => this.onSampleRequest(false) }),
+				);
+				break;
+			case 'results': {
+				const items = this.sample.items;
+				if (items.length === 0) {
+					this.sampleBody.replaceChildren(icon('alert', { size: 'lg' }), message('No textures found on the sampled chunk.'), again());
+				} else {
+					const row = assetGrid(4, { 'aria-label': 'Sampled textures' });
+					row.classList.add('texture-browser-sample-grid');
+					row.append(...items.map((i) => i.tile.root));
+					this.sampleBody.replaceChildren(row, again());
+				}
+				break;
+			}
+		}
+		this.syncSelection();
+	}
+
+	// ---- Thumbnails ----
 
 	/** Decodes queued thumbnails in worker batches and draws them. */
 	private async drainThumbnails(): Promise<void> {
@@ -187,7 +348,7 @@ export class TextureBrowser {
 				const batch = this.queue.splice(0, BATCH).filter((i) => !i.drawn);
 				const need = batch.filter((i) => !thumbCache.has(i.fdid) && i.status === 'ok');
 				if (need.length) {
-					const images = await this.storage.loadThumbnails(need.map((i) => i.fdid), 128);
+					const images = await this.storage.loadThumbnails(need.map((i) => i.fdid), THUMB);
 					need.forEach((item, k) => thumbCache.set(item.fdid, images[k]));
 				}
 				for (const item of batch) this.draw(item);
@@ -201,7 +362,7 @@ export class TextureBrowser {
 
 	private draw(item: Item): void {
 		item.drawn = true;
-		this.observer.unobserve(item.element);
+		this.observer.unobserve(item.tile.root);
 		const image = thumbCache.get(item.fdid);
 		if (!image) return;
 		const ctx = item.canvas.getContext('2d');
@@ -214,7 +375,7 @@ export class TextureBrowser {
 		ctx.drawImage(off, 0, 0, THUMB, THUMB);
 	}
 
-	/** A texture's listfile label, for the "Painting with…" line; null when it isn't listed. */
+	/** A texture's listfile label; null when it isn't listed. */
 	labelOf(fdid: number): string | null {
 		return this.items.find((i) => i.fdid === fdid)?.label ?? null;
 	}
@@ -229,14 +390,26 @@ export class TextureBrowser {
 		this.disposed = true;
 		this.observer.disconnect();
 		this.queue.length = 0;
-		$('texture-grid').replaceChildren();
-		this.showSample(null);
-		$('texture-search').oninput = null;
-		$('texture-refresh').onclick = null;
+		this.window.dispose();
 	}
 }
 
 /** The starter textures, for the fallback list when there is no listfile. */
 function fallbackFdids(): number[] {
 	return BASE_TEXTURES.map((t) => t.fdid);
+}
+
+/** The tile size kept from last time, 1 (smallest) to 3. */
+function loadScale(): number {
+	try {
+		const scale = Number(localStorage.getItem(SCALE_KEY));
+		return scale >= 1 && scale <= 3 ? Math.round(scale) : DEFAULT_SCALE;
+	} catch {
+		return DEFAULT_SCALE;
+	}
+}
+
+/** The editor's top bar height, so the window opens just under it. */
+function topBarHeight(): number {
+	return document.getElementById('editor-bar')?.offsetHeight ?? 0;
 }

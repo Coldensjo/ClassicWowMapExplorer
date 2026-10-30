@@ -1482,6 +1482,11 @@ export class SceneEditor {
 			return;
 		}
 		if (this.tool === 'paint') {
+			// No texture is selected in the Texture browser: only erasing makes sense (spec 7.5).
+			if (this.paint.fdid === 0 && this.paint.mode !== 'erase') {
+				this.onNotice('Pick a texture in the Texture browser to paint with');
+				return;
+			}
 			this.stroke = new PaintStroke(this.model, this.paint, this.effectFor);
 			return;
 		}

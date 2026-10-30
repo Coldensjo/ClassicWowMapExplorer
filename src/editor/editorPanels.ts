@@ -1,5 +1,4 @@
 import type { AsyncStorageApi } from '../worker/protocol';
-import { textureName } from './baseTextures';
 import type { HoleMode, WaterMode } from './cells';
 import type { PaintMode } from './paint';
 import type { RevertChannel } from './revert';
@@ -92,6 +91,11 @@ export class EditorPanels {
 		private readonly editor: SceneEditor,
 		private readonly storage: AsyncStorageApi,
 	) {
+		// The texture browser window first: setTool() below shows it when the Paint tool is active.
+		this.textures = new TextureBrowser(storage, editor.paint.fdid, (fdid) => {
+			editor.paint.fdid = fdid;
+			this.syncPaint();
+		}, (text) => editor.onNotice(text), (on) => this.setSampling(on));
 		this.show(true);
 		this.wireRail();
 		this.wireSculpt();
@@ -107,10 +111,6 @@ export class EditorPanels {
 		this.wirePlay();
 		this.wireKeys();
 		this.wireStatus();
-		this.textures = new TextureBrowser(storage, editor.paint.fdid, (fdid) => {
-			editor.paint.fdid = fdid;
-			this.syncPaint();
-		}, (text) => editor.onNotice(text));
 		this.syncSculpt();
 		this.syncPaint();
 		this.syncHoles();
@@ -120,6 +120,7 @@ export class EditorPanels {
 	private show(on: boolean): void {
 		$('tool-rail').hidden = !on;
 		$('tool-panel').hidden = !on;
+		this.syncTextureWindow();
 		$('status-bar').hidden = !on;
 		$('editor-undo').hidden = !on;
 		$('editor-redo').hidden = !on;
@@ -148,6 +149,7 @@ export class EditorPanels {
 		button.textContent = playing ? 'Edit' : 'Play';
 		button.title = playing ? 'Back to editing, with the camera where the player stands' : 'Walk the scene as your character (spec 7.10); the same button comes back to editing';
 		document.body.classList.toggle('playing', playing);
+		this.syncTextureWindow();
 		$('editor-hint-edit').hidden = playing;
 		$('editor-hint-play').hidden = !playing;
 	}
@@ -182,6 +184,7 @@ export class EditorPanels {
 		for (const tool of TOOLS) $(`tool-${tool.id}`).classList.toggle('active', tool.id === id);
 		$('sculpt-props').hidden = id !== 'sculpt';
 		$('paint-props').hidden = id !== 'paint';
+		this.syncTextureWindow();
 		if (id !== 'paint' && this.sampling) this.setSampling(false);
 		$('holes-props').hidden = id !== 'holes';
 		$('water-props').hidden = id !== 'water';
@@ -265,19 +268,28 @@ export class EditorPanels {
 		this.listen($('paint-policy'), 'change', () => {
 			paint.policy = $<HTMLSelectElement>('paint-policy').value as typeof paint.policy;
 		});
-		this.listen($('texture-sample-toggle'), 'click', () => this.setSampling(!this.sampling));
 		this.cleanups.push(() => {
 			this.editor.onChunkClick = null;
 		});
 	}
 
-	/** Sample chunk: while on, a plain click on the ground lists that chunk's textures (spec 7.5). */
+	/** The Texture browser window shows only while editing with the Paint tool (spec 7.3). */
+	private syncTextureWindow(): void {
+		this.textures.setVisible(this.editor.tool === 'paint' && !this.editor.playing && !$('tool-panel').hidden);
+	}
+
+	/**
+	 * Sample chunk (spec 7.5): armed, the next plain click on the ground lists that chunk's
+	 * textures in the Texture browser and disarms; Escape or the window's Cancel disarms too.
+	 */
 	private setSampling(on: boolean): void {
+		if (on === this.sampling) return;
 		this.sampling = on;
-		$('texture-sample-toggle').classList.toggle('active', on);
+		this.textures.setSampling(on);
 		this.editor.onChunkClick = on
 			? (chunk) => {
 					const fdids = chunk ? chunk.layers.map((l) => this.editor.model.textures[l.texture]).filter((fdid): fdid is number => fdid !== undefined) : [];
+					this.setSampling(false);
 					this.textures.showSample(fdids);
 				}
 			: null;
@@ -289,7 +301,6 @@ export class EditorPanels {
 		for (const mode of Object.keys(PAINT_HINTS) as PaintMode[]) {
 			$(`paint-${mode}`).classList.toggle('active', paint.mode === mode);
 		}
-		$('texture-picked').textContent = `Painting with ${(this.textures as TextureBrowser | undefined)?.labelOf(paint.fdid) ?? textureName(paint.fdid)}`;
 		$<HTMLInputElement>('paint-radius').value = String(paint.radius);
 		$('paint-radius-out').textContent = `${paint.radius} yd`;
 		$<HTMLInputElement>('paint-strength').value = String(paint.strength);
@@ -297,7 +308,11 @@ export class EditorPanels {
 		$<HTMLInputElement>('paint-opacity').value = String(paint.opacity);
 		$('paint-opacity-out').textContent = `${Math.round(paint.opacity * 100)}%`;
 		$<HTMLSelectElement>('paint-policy').value = paint.policy;
-		$('paint-hint').textContent = this.sampling ? 'Click a chunk to list the textures it uses; click one to paint with it. Sample chunk again stops.' : PAINT_HINTS[paint.mode];
+		$('paint-hint').textContent = this.sampling
+			? 'Click a chunk to list the textures it uses in the Texture browser; click one there to paint with it. Esc cancels.'
+			: paint.fdid === 0 && paint.mode !== 'erase'
+				? 'Pick a texture in the Texture browser to paint with.'
+				: PAINT_HINTS[paint.mode];
 	}
 
 	// ---- Holes and water (spec 7.6) ----
@@ -801,6 +816,10 @@ export class EditorPanels {
 			if (e.ctrlKey || e.metaKey || e.altKey) return;
 			if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
 			if (this.editor.playing) return;
+			if (e.code === 'Escape' && this.sampling) {
+				this.setSampling(false);
+				return;
+			}
 			const tool = TOOLS.find((t) => t.key === e.code);
 			if (tool?.ready) {
 				this.setTool(tool.id);

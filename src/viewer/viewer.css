@@ -2654,38 +2654,144 @@ body.playing :is(#tool-rail, #tool-panel) {
 	grid-template-columns: 1fr 1fr;
 }
 
-/* ---- Sample chunk (spec 7.5): a clicked chunk's textures above the browser ---- */
+/* ---- The Texture browser window (spec 7.3 and 7.5; src/ui/specs/texture-browser.md) ----
+   The frame is the floating-window molecule and the controls are molecules; these rules lay
+   the window's two sections out, with tokens only. Built by src/editor/textureBrowser.ts. */
 
-#texture-sample {
-	margin-bottom: 6px;
+/* Playing (spec 7.10): the window goes with the other panels (the editor hides it too). */
+body.playing #texture-browser {
+	display: none;
 }
 
-#texture-sample-toggle.active {
-	background: var(--accent, #3a6ea5);
-	color: #fff;
-}
-
-.texture-grid.sample {
-	/* Up to 4 textures; they wrap when the panel is too narrow for a row of 4. */
-	grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
-	max-height: none;
-}
-
-#texture-sample-empty {
-	margin-top: 4px;
-}
-
-/* ---- The texture asset browser (spec 7.3) ---- */
-
-#texture-browser .browser-top {
+.texture-browser-sample {
+	flex: none;
 	display: flex;
-	gap: 4px;
+	flex-direction: column;
+	gap: var(--space-4);
+	padding: var(--space-4) var(--space-4);
+	border-block-end: var(--border-width) solid var(--color-bg-surface);
 }
 
-#texture-browser .browser-top input {
-	flex: 1;
+.texture-browser-sample-head {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-block-size: 24px;
+}
+
+.texture-browser-heading {
+	flex: 1 1 auto;
+	min-width: 0;
+	margin: 0;
+	font: var(--type-heading-2);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.texture-browser-sample-body {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-3);
+}
+
+.texture-browser-sample-body[hidden] {
+	display: none;
+}
+
+.texture-browser-sample-text {
+	margin: 0;
+	color: var(--color-text-muted);
+	font: var(--type-body-secondary);
+	text-align: center;
+	text-wrap: balance;
+}
+
+.texture-browser-sample-grid {
+	--asset-grid-gap: var(--space-2-5);
+
+	inline-size: 100%;
+}
+
+.texture-browser-main {
+	flex: 1 1 auto;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	min-block-size: 0;
+	padding: var(--space-4) var(--space-4) var(--space-2);
+}
+
+.texture-browser-tools {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: var(--space-4);
+}
+
+.texture-browser-tools .ds-text-input {
+	flex: 1 1 auto;
 	min-width: 0;
 }
+
+.texture-browser-scale {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	inline-size: 140px;
+}
+
+.texture-browser-scale .ds-slider {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.texture-browser-grid {
+	flex: 1 1 auto;
+	min-block-size: 0;
+	/* Room for the thin scrollbar's gutter beside the tiles. */
+	padding-inline-end: var(--space-1);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+/* The footer keeps what the design dropped: the count with the listfile refresh on one line,
+   the picked texture on the next. Padded on the right so the window's resize grip does not sit
+   on the button. */
+.texture-browser-footer {
+	flex: none;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0 var(--space-2);
+	padding-inline-end: var(--space-6);
+	color: var(--color-text-muted);
+	font: var(--type-label);
+}
+
+.texture-browser-count,
+.texture-browser-picked {
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.texture-browser-count {
+	flex: 1 1 0;
+}
+
+.texture-browser-footer .ds-icon-button {
+	flex: none;
+}
+
+.texture-browser-picked {
+	flex: 1 1 100%;
+}
+
+/* ---- Asset grids of the other browsers (models, NPCs) ---- */
 
 .texture-grid {
 	display: grid;
@@ -2760,10 +2866,6 @@ body.playing :is(#tool-rail, #tool-panel) {
 
 .texture-item.greyed {
 	opacity: 0.35;
-}
-
-#texture-count {
-	margin-top: 4px;
 }
 
 /* ---- The NPCs tab (spec 7.9) ---- */

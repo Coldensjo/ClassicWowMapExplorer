@@ -9,8 +9,9 @@ the app is built (DOM made by hand in `src/editor` and `src/viewer`, one stylesh
 **Status:** the colour tokens are defined (from the Figma file "Dungeon Builder", mode
 "Mode 1"), so are the type tokens (from its text styles), the layout tokens (§3.3) and the icon
 set (§6). Every molecule the specs in `specs/` describe is built (§5), and `gallery.html` shows
-them all (§8). The game theme's overrides are not written yet, and the existing screens still
-use their own markup: the molecules are standalone until a screen migrates (§7).
+them all (§8). The game theme's overrides are not written yet. The first piece of a screen has
+migrated: the Paint tool's texture browser is a floating window built from molecules (§7.1);
+the rest of the existing screens still use their own markup.
 
 ## 1. Layout
 
@@ -19,7 +20,7 @@ src/ui/
 ├── DESIGN_SYSTEM.md      this file
 ├── index.css             the one stylesheet index.html links: fonts → tokens → themes → icons → molecules
 ├── index.ts              the one import for code: re-exports icons/ and molecules/
-├── dom.ts                el(), uid() and small helpers the molecules build DOM with
+├── dom.ts                el(), uid() and small helpers the molecules (and migrated screens) build DOM with
 ├── popover.ts            positioning and closing of floating panels (menu, select, tooltip)
 ├── gallery.ts            the script of /gallery.html, the dev-only page showing every molecule
 ├── specs/
@@ -49,7 +50,8 @@ Rules of the layout:
 - A file holds one kind of thing. Tokens never style an element; a molecule never defines a
   raw colour; a theme never contains a selector other than its scope.
 - `index.css` and `index.ts` are the only entry points. Nothing outside `src/ui` imports a
-  token or molecule file directly.
+  token or molecule file directly. `index.ts` also re-exports `el()`, `append()` and `uid()`
+  from `dom.ts`, so a screen built from molecules makes its own DOM the same way.
 - New kinds of file (a second theme, an "organism" folder for composed panels) are added at
   this level and listed here.
 
@@ -159,7 +161,8 @@ the values are the ones the specs collected from the drawings.
 - Motion `--duration-fast` (100ms: washes, a dot, a knob), `--duration-slow` (150ms: a panel or
   toast appearing) and `--easing-out`. Every transition and animation is removed under
   `prefers-reduced-motion: reduce`.
-- Stacking `--z-popover`, `--z-tooltip`, `--z-toast`, above anything the page draws.
+- Stacking `--z-window` (floating windows such as the texture browser, above the page's own
+  panels) and `--z-popover`, `--z-tooltip`, `--z-toast` above anything the page draws.
 - `--opacity-disabled` (0.3) for any disabled control and `--blur-panel` (24px) for the backdrop
   blur of translucent floating panels.
 - Icons `--icon-size-sm/md/lg` (16, 20, 24px) and `--icon-stroke-width` (1px), used by
@@ -250,6 +253,8 @@ was drawn, what was decided and what is proposed. File names follow the specs (s
 | `scrollbar` | (CSS only: `.ds-scroll`) | the thin thumb on native scrolling |
 | `grab-bar` | `grabBar()`, `setGrabBarValue()` | a separator that resizes a panel |
 | `loading` | `loading()` | the turning ring, in place of the Figma GIF |
+| `asset-tile` | `assetTile()`, `setAssetTileSelected()`, `assetGrid()`, `setAssetGridColumns()` | a square picture with a caption, and the grid of them the browsers scroll |
+| `floating-window` | `floatingWindow()` | the movable, resizable, collapsible panel the texture, object and NPC browsers share |
 
 The Level Indicator spec is not a molecule: it belongs inside the outline tree when that is
 built. Floating panels (menu, select list, tooltip, toast) are appended to `<body>` and
@@ -346,6 +351,18 @@ The static markup in `index.html` keeps its class names (`.prop-row`, `.mode-row
 `.browser-top`, `.primary`, `.plain`, `.active`); molecule CSS lists them beside the `.ds-*`
 class (§5). New UI is built with factories. The one ad-hoc helper in code, `button()` in
 `src/editor/scenesUi.ts`, is replaced by the button molecule when it exists.
+
+### 7.1 Screens that have migrated
+
+A screen (or a piece of one) migrates by building its DOM from molecules in the feature's own
+module and keeping only its layout rules in page CSS, written with tokens. The pattern so far:
+
+| Piece | Built by | Layout CSS | Spec |
+|---|---|---|---|
+| The Paint tool's texture browser (2026-10-30): a floating window with the sampled-chunk section and the texture grid, shown only in Paint mode | `src/editor/textureBrowser.ts` | `viewer.css`, "The Texture browser window" | `specs/texture-browser.md` |
+
+Its markup left `index.html` and its old rules left `viewer.css`; the Paint panel keeps the
+brush settings until the whole panel migrates.
 
 ## 8. Adding things: checklists
 

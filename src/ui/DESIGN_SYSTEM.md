@@ -359,10 +359,11 @@ module and keeping only its layout rules in page CSS, written with tokens. The p
 
 | Piece | Built by | Layout CSS | Spec |
 |---|---|---|---|
-| The Paint tool's texture browser (2026-10-30): a floating window with the sampled-chunk section and the texture grid, shown only in Paint mode | `src/editor/textureBrowser.ts` | `viewer.css`, "The Texture browser window" | `specs/texture-browser.md` |
+| The Paint tool's texture browser (2026-10-30): a floating window with the sampled-chunk section and the texture grid, shown only in Paint mode | `src/editor/textureBrowser.ts` | `viewer.css`, "The browser windows" (`.asset-browser-*`) | `specs/texture-browser.md` |
+| The Place tool's object browser (2026-10-30): the same window with a Doodads / Buildings segmented control, the model grid and a selection toast, shown only in Place mode | `src/editor/modelBrowser.ts` | the same `.asset-browser-*` rules | `specs/object-browser.md` |
 
-Its markup left `index.html` and its old rules left `viewer.css`; the Paint panel keeps the
-brush settings until the whole panel migrates.
+Their markup left `index.html` and their old rules left `viewer.css`; the Paint and Place
+panels keep their settings until the whole panel migrates.
 
 ## 8. Adding things: checklists
 

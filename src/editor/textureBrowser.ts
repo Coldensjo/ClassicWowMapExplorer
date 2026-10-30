@@ -124,15 +124,15 @@ export class TextureBrowser {
 		this.scale = slider({ ariaLabel: 'Tile size', value: this.scaleStop, min: 1, max: 3, stops: 3, showInput: false, onInput: (v) => this.setScale(v) });
 		const smaller = iconButton({ icon: 'minus', label: 'Smaller tiles', variant: 'ghost', size: 'xs', onClick: () => this.setScale(this.scaleStop - 1) });
 		const larger = iconButton({ icon: 'plus', label: 'Larger tiles', variant: 'ghost', size: 'xs', onClick: () => this.setScale(this.scaleStop + 1) });
-		const tools = el('div', { class: 'texture-browser-tools' }, search.root, el('div', { class: 'texture-browser-scale', role: 'group', 'aria-label': 'Tile size' }, smaller, this.scale.root, larger));
+		const tools = el('div', { class: 'asset-browser-tools' }, search.root, el('div', { class: 'asset-browser-scale', role: 'group', 'aria-label': 'Tile size' }, smaller, this.scale.root, larger));
 		this.grid = assetGrid(COLUMNS_BY_SCALE[this.scaleStop - 1], { 'aria-label': 'Textures' });
-		this.grid.classList.add('texture-browser-grid', 'ds-scroll');
-		this.count = el('span', { class: 'texture-browser-count' });
-		this.picked = el('span', { class: 'texture-browser-picked' });
+		this.grid.classList.add('asset-browser-grid', 'ds-scroll');
+		this.count = el('span', { class: 'asset-browser-count' });
+		this.picked = el('span', { class: 'asset-browser-picked' });
 		this.refresh = iconButton({ icon: 'reset', label: 'Fetch the listfile afresh', variant: 'ghost', size: 'xs', onClick: () => void this.loadEntries(true) });
 		// Count and refresh share the first line; the picked texture wraps onto its own.
-		const footer = el('div', { class: 'texture-browser-footer' }, this.count, this.refresh, this.picked);
-		this.window.body.append(sampleSection, el('div', { class: 'texture-browser-main' }, tools, this.grid, footer));
+		const footer = el('div', { class: 'asset-browser-footer' }, this.count, this.refresh, this.picked);
+		this.window.body.append(sampleSection, el('div', { class: 'asset-browser-main' }, tools, el('div', { class: 'asset-browser-grid-wrap' }, this.grid), footer));
 
 		this.observer = new IntersectionObserver((entries) => {
 			for (const e of entries) {

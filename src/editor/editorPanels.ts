@@ -196,6 +196,7 @@ export class EditorPanels {
 				this.editor.objects.place.asset = asset;
 				this.syncPlace();
 			}, (text) => this.editor.onNotice(text));
+			this.syncTextureWindow();
 		}
 		if (id === 'npcs' && !this.npcBrowser) this.makeNpcBrowser();
 		this.syncSelection();
@@ -273,9 +274,14 @@ export class EditorPanels {
 		});
 	}
 
-	/** The Texture browser window shows only while editing with the Paint tool (spec 7.3). */
+	/**
+	 * The browser windows (spec 7.3) show only while editing with their tool: the Texture browser
+	 * with Paint, the Object browser with Place.
+	 */
 	private syncTextureWindow(): void {
-		this.textures.setVisible(this.editor.tool === 'paint' && !this.editor.playing && !$('tool-panel').hidden);
+		const editing = !this.editor.playing && !$('tool-panel').hidden;
+		this.textures.setVisible(this.editor.tool === 'paint' && editing);
+		this.models?.setVisible(this.editor.tool === 'place' && editing);
 	}
 
 	/**
@@ -688,7 +694,6 @@ export class EditorPanels {
 		$<HTMLInputElement>('place-scale-min').value = String(place.scaleMin);
 		$<HTMLInputElement>('place-scale-max').value = String(place.scaleMax);
 		$<HTMLSelectElement>('place-snap').value = String(place.gridSnap);
-		$('model-picked').textContent = place.asset ? `Placing ${place.asset.label}` : 'Nothing picked yet';
 		$('place-hint').textContent = PLACE_HINTS[place.mode];
 	}
 

@@ -13,24 +13,23 @@ import {
 } from '../ui';
 
 /**
- * The bottom controls (design "Bottom Controls"; src/ui/specs/bottom-controls.md): the mode
- * controller bar over a grab bar over the tool panel, docked across the bottom of the viewport.
- * The dock owns the frame: the panel's height (dragged with the grab bar, stepped with its
- * arrow keys, remembered in localStorage), collapsing to the bar alone (a double click or Enter
- * on the grab bar), the description line and the row of modules. The editor panels
- * (editorPanels.ts) decide which modules the active tool shows and what they do.
+ * The side panel controls (design "Side Panel Controls"; src/ui/specs/side-panel-controls.md):
+ * the vertical mode controller beside a grab bar beside the tool panel, docked down the right
+ * of the viewport. The dock owns the frame: the panel's width (dragged with the grab bar,
+ * stepped with its arrow keys, remembered in localStorage), collapsing to the mode column alone
+ * (dragging the panel narrower than its minimum, a double click or Enter on the grab bar), the
+ * title, the description line and the column of modules. The editor panels (editorPanels.ts)
+ * decide which modules the active tool shows and what they do.
  */
 
-const STORAGE_KEY = 'wdb.bottom-controls';
-/** The panel's smallest height, as the design's minimum. */
-const MIN_HEIGHT = 180;
-/** The panel's height until the user drags it, as drawn. */
-const DEFAULT_HEIGHT = 240;
-/** Room kept above the panel for the top bar, the mode bar and some of the scene. */
-const RESERVED_ABOVE = 220;
+const STORAGE_KEY = 'wdb.side-controls';
+/** The panel's narrowest width; dragged narrower, it collapses. */
+const MIN_WIDTH = 120;
+/** The panel's widest width, and its width until the user drags it, as drawn. */
+const MAX_WIDTH = 320;
 
 interface State {
-	height: number;
+	width: number;
 	collapsed: boolean;
 }
 
@@ -39,7 +38,7 @@ function load(): State | null {
 		const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null');
 		if (typeof parsed !== 'object' || parsed === null) return null;
 		const v = parsed as Record<string, unknown>;
-		return typeof v.height === 'number' && Number.isFinite(v.height) && typeof v.collapsed === 'boolean' ? { height: v.height, collapsed: v.collapsed } : null;
+		return typeof v.width === 'number' && Number.isFinite(v.width) && typeof v.collapsed === 'boolean' ? { width: v.width, collapsed: v.collapsed } : null;
 	} catch {
 		return null;
 	}
@@ -49,7 +48,7 @@ function save(state: State): void {
 	try {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 	} catch {
-		// Private mode or full storage: the height just isn't remembered.
+		// Private mode or full storage: the width just isn't remembered.
 	}
 }
 
@@ -67,22 +66,22 @@ export interface DockModuleOptions {
 
 export interface DockModule {
 	root: HTMLElement;
-	/** The scrolling column the module's controls go in. */
+	/** The column the module's controls go in. */
 	body: HTMLDivElement;
 }
 
 /**
- * One column of the tool panel: a title row (with an optional help button), a divider and a
- * body that scrolls on its own.
+ * One section of the tool panel: a title row (with an optional help button) over a body. The
+ * panel's column of modules scrolls as one; a divider separates each module from the next.
  */
 export function dockModule(options: DockModuleOptions): DockModule {
 	const header = el('div', { class: 'dock-module-header' }, el('h3', { class: 'dock-module-title' }, options.title));
 	if (options.help) {
 		const help = iconButton({ icon: 'help', variant: 'ghost', size: 'xs', label: `About ${options.title.toLowerCase()}` });
-		attachTooltip(help, { variant: 'complex', text: options.help.text, content: options.help.content, placement: 'top' });
+		attachTooltip(help, { variant: 'complex', text: options.help.text, content: options.help.content, placement: 'left' });
 		header.append(help);
 	}
-	const body = el('div', { class: 'dock-module-body ds-scroll' }, ...(options.children ?? []));
+	const body = el('div', { class: 'dock-module-body' }, ...(options.children ?? []));
 	const content = el('div', { class: 'dock-module-content' }, body);
 	if (options.emptyText) content.append(el('div', { class: 'dock-module-empty', hidden: true }, icon('info'), el('span', {}, options.emptyText)));
 	const root = el('section', { class: 'dock-module', 'aria-label': options.title }, header, content);
@@ -110,12 +109,14 @@ export function dockRow(...children: HTMLElement[]): HTMLDivElement {
 // ---- The dock ----
 
 export interface DockContent {
-	/** The line across the top of the panel; null hides it. */
+	/** The panel's title: the mode's name, e.g. "Sculpt terrain". */
+	title: string;
+	/** The line under the title; null hides it. */
 	description?: string | null;
 	modules: HTMLElement[];
 }
 
-export interface BottomControlsOptions {
+export interface SideControlsOptions {
 	/** The selected chip; null selects none (a tool with no chip, such as Revert to base). */
 	mode: ModeId | null;
 	onMode: (mode: ModeId) => void;
@@ -123,57 +124,69 @@ export interface BottomControlsOptions {
 	shortcutsEnabled?: () => boolean;
 }
 
-export class BottomControls {
+export class SideControls {
 	readonly root: HTMLDivElement;
 	private readonly controller: HTMLElement;
 	private readonly grab: GrabBarHandle;
+	private readonly title: HTMLHeadingElement;
 	private readonly description: HTMLParagraphElement;
 	private readonly modules: HTMLDivElement;
 	private state: State;
 	private readonly unbind: () => void;
-	private readonly onResize = (): void => this.applyHeight();
 
-	constructor(options: BottomControlsOptions) {
-		this.state = load() ?? { height: DEFAULT_HEIGHT, collapsed: false };
-		const controller = modeController({ value: options.mode ?? 'sculpt', onChange: options.onMode });
+	constructor(options: SideControlsOptions) {
+		this.state = load() ?? { width: MAX_WIDTH, collapsed: false };
+		const controller = modeController({ value: options.mode ?? 'sculpt', orientation: 'vertical', onChange: options.onMode });
 		this.controller = controller.root;
 		if (options.mode === null) setMode(this.controller, null);
 		this.unbind = bindModeShortcuts(this.controller, window, () => !this.root.hidden && (options.shortcutsEnabled?.() ?? true));
 		this.grab = grabBar({
 			label: 'Resize tool panel',
-			value: this.state.height,
-			min: MIN_HEIGHT,
-			// The real ceiling follows the viewport (applyHeight clamps); the bar only needs an upper bound.
-			max: 4000,
+			value: this.state.collapsed ? 0 : this.state.width,
+			// Below MIN_WIDTH the drag collapses the panel rather than squeezing it.
+			min: 0,
+			max: MAX_WIDTH,
+			orientation: 'vertical',
 			grows: 'start',
-			onChange: (height) => {
-				this.state.height = height;
-				this.state.collapsed = false;
-				this.applyHeight();
+			onChange: (width) => {
+				if (width < MIN_WIDTH) {
+					this.state.collapsed = true;
+				} else {
+					this.state.width = width;
+					this.state.collapsed = false;
+				}
+				this.apply();
 			},
 			onToggle: () => this.setCollapsed(!this.state.collapsed),
 		});
-		this.description = el('p', { class: 'bottom-controls-description', hidden: true });
-		this.modules = el('div', { class: 'bottom-controls-modules' });
+		this.title = el('h2', { class: 'side-controls-title' });
+		this.description = el('p', { class: 'side-controls-description', hidden: true });
+		this.modules = el('div', { class: 'side-controls-modules ds-scroll' });
 		this.root = el(
 			'div',
-			{ id: 'bottom-controls' },
-			el('div', { class: 'bottom-controls-bar' }, this.controller),
-			el('div', { class: 'bottom-controls-grab' }, this.grab.root),
-			el('section', { class: 'bottom-controls-panel', 'aria-label': 'Tool panel' }, this.description, this.modules),
+			{ id: 'side-controls' },
+			el('div', { class: 'side-controls-rail' }, this.controller, el('div', { class: 'side-controls-grab' }, this.grab.root)),
+			el(
+				'section',
+				{ class: 'side-controls-panel', 'aria-labelledby': 'side-controls-title' },
+				el('div', { class: 'side-controls-header' }, this.title),
+				this.description,
+				this.modules,
+			),
 		);
-		window.addEventListener('resize', this.onResize);
-		this.applyHeight();
+		this.title.id = 'side-controls-title';
+		this.apply();
 	}
 
 	get collapsed(): boolean {
 		return this.state.collapsed;
 	}
 
-	/** Collapses the panel to the mode bar, or brings it back. */
+	/** Collapses the panel to the mode column, or brings it back at its last width. */
 	setCollapsed(collapsed: boolean): void {
+		if (collapsed === this.state.collapsed) return;
 		this.state.collapsed = collapsed;
-		this.applyHeight();
+		this.apply();
 	}
 
 	/** Selects a chip without firing onMode; null selects none. */
@@ -181,10 +194,12 @@ export class BottomControls {
 		setMode(this.controller, mode);
 	}
 
-	/** Replaces the panel's description and modules. */
+	/** Replaces the panel's title, description and modules. */
 	setContent(content: DockContent): void {
+		this.title.textContent = content.title;
 		this.setDescription(content.description ?? null);
 		this.modules.replaceChildren(...content.modules);
+		this.modules.scrollTop = 0;
 	}
 
 	setDescription(text: string | null): void {
@@ -199,21 +214,14 @@ export class BottomControls {
 
 	dispose(): void {
 		this.unbind();
-		window.removeEventListener('resize', this.onResize);
 		this.root.remove();
 	}
 
-	private maxHeight(): number {
-		return Math.max(MIN_HEIGHT, window.innerHeight - RESERVED_ABOVE);
-	}
-
-	private applyHeight(): void {
-		const max = this.maxHeight();
-		this.state.height = Math.min(max, Math.max(MIN_HEIGHT, Math.round(this.state.height)));
-		this.root.style.setProperty('--dock-panel-height', `${this.state.height}px`);
+	private apply(): void {
+		this.state.width = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(this.state.width)));
+		this.root.style.setProperty('--dock-panel-width', `${this.state.width}px`);
 		this.root.toggleAttribute('data-collapsed', this.state.collapsed);
-		this.grab.root.setAttribute('aria-valuemax', String(max));
-		setGrabBarValue(this.grab.root, this.state.height);
+		setGrabBarValue(this.grab.root, this.state.collapsed ? 0 : this.state.width);
 		save(this.state);
 	}
 }

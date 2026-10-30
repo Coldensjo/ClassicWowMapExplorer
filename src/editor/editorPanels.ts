@@ -13,7 +13,7 @@ import { PresetLibrary } from '../scene/presetLibrary';
 import { NPC_POSES, SCENE_WEATHERS, type NpcPose, type NpcPreset, type PlacedNpc, type PlacedObject } from '../scene/types';
 import { animationName } from '../formats/animationNames';
 import { POSE_LABELS, poseSequences } from '../scene/npcPoses';
-import { BottomControls, dockModule, dockNote, dockRow, setModuleEmpty, type DockModule } from './bottomControls';
+import { SideControls, dockModule, dockNote, dockRow, setModuleEmpty, type DockModule } from './sideControls';
 import {
 	attachTooltip,
 	button,
@@ -105,24 +105,25 @@ const PAINT_KEYS: Record<PaintMode, HotkeyRow[]> = {
 /** The chip's radio option in the water Tool module: the brush (add or remove) or the flood fill. */
 type WaterTool = 'brush' | 'flood';
 
-/** What one tool puts in the panel: its description line, its modules, and how to bring them in line with the model. */
+/** What one tool puts in the panel: its title, its description line, its modules, and how to bring them in line with the model. */
 interface ToolContent {
+	title: string;
 	description(): string | null;
 	modules: HTMLElement[];
 	sync(): void;
 }
 
 /**
- * The editing panels around the viewport (spec 8): the bottom controls (the mode bar over the
- * tool panel; design "Bottom Controls", src/ui/specs/bottom-controls.md), the status bar along
- * the bottom, and Undo/Redo and Play in the top bar. Each tool's modules are built once from
+ * The editing panels around the viewport (spec 8): the side panel controls (the mode column
+ * beside the tool panel; design "Side Panel Controls", src/ui/specs/side-panel-controls.md),
+ * the status bar along the bottom, and Undo/Redo and Play in the top bar. Each tool's modules are built once from
  * the design system's molecules when the tool is first opened, and brought in line with the
  * editor's settings whenever they change elsewhere (shortcuts, undo, a selection). One is made
  * per open scene and disposed with it.
  */
 export class EditorPanels {
 	private readonly cleanups: (() => void)[] = [];
-	private readonly dock: BottomControls;
+	private readonly dock: SideControls;
 	/** Whether the editing panels are shown at all (not while the scene is closing). */
 	private shown = false;
 	private readonly contents = new Map<Tool, ToolContent>();
@@ -150,7 +151,7 @@ export class EditorPanels {
 			editor.paint.fdid = fdid;
 			this.syncActive();
 		}, (text) => editor.onNotice(text), (on) => this.setSampling(on));
-		this.dock = new BottomControls({
+		this.dock = new SideControls({
 			mode: modeOf(editor.tool),
 			onMode: (mode) => this.setTool(TOOL_OF[mode]),
 			shortcutsEnabled: () => !this.editor.playing,
@@ -191,7 +192,7 @@ export class EditorPanels {
 		this.syncPlay(this.editor.playing);
 	}
 
-	/** Playing hides the bottom controls (by a body class, so the button stays put). */
+	/** Playing hides the side panel (by a body class, so the button stays put). */
 	private syncPlay(playing: boolean): void {
 		const button = $<HTMLButtonElement>('editor-play');
 		button.textContent = playing ? 'Edit' : 'Play';
@@ -229,7 +230,7 @@ export class EditorPanels {
 		if (tool === 'npcs' && !this.npcLibrary) this.makeNpcLibrary();
 		this.dock.setMode(modeOf(tool));
 		const content = this.content(tool);
-		this.dock.setContent({ description: content.description(), modules: content.modules });
+		this.dock.setContent({ title: content.title, description: content.description(), modules: content.modules });
 		content.sync();
 		this.syncWindows();
 	}
@@ -305,7 +306,7 @@ export class EditorPanels {
 		for (const row of group.root.querySelectorAll<HTMLElement>('.ds-radio-row')) {
 			const text = tips[row.dataset.value ?? ''];
 			const anchor = row.querySelector<HTMLElement>('.ds-icon-button');
-			if (text && anchor) attachTooltip(anchor, { variant: 'complex', text, placement: 'top' });
+			if (text && anchor) attachTooltip(anchor, { variant: 'complex', text, placement: 'left' });
 		}
 	}
 
@@ -422,7 +423,7 @@ export class EditorPanels {
 		this.cleanups.push(() => {
 			editor.onEnvironmentChange = () => {};
 		});
-		return { description: () => null, modules: [weatherModule.root, clutterModule.root, timeModule.root], sync };
+		return { title: 'Environment', description: () => null, modules: [weatherModule.root, clutterModule.root, timeModule.root], sync };
 	}
 
 	// ---- Sculpt (spec 7.4) ----
@@ -503,7 +504,7 @@ export class EditorPanels {
 			strength.sync();
 			setRadioValue(falloff.root, brush.falloff);
 		};
-		return { description: () => null, modules: [settingModule.root, size.module.root, strength.module.root, falloffModule.root], sync };
+		return { title: 'Sculpt terrain', description: () => null, modules: [settingModule.root, size.module.root, strength.module.root, falloffModule.root], sync };
 	}
 
 	// ---- Paint (spec 7.5) ----
@@ -576,7 +577,7 @@ export class EditorPanels {
 				: paint.fdid === 0 && paint.mode !== 'erase'
 					? 'Pick a texture in the Texture browser to paint with.'
 					: 'Paint up to four textures per chunk.';
-		return { description, modules: [toolModule.root, size.module.root, strength.module.root, opacity.module.root, policyModule.root], sync };
+		return { title: 'Paint terrain', description, modules: [toolModule.root, size.module.root, strength.module.root, opacity.module.root, policyModule.root], sync };
 	}
 
 	/**
@@ -604,6 +605,7 @@ export class EditorPanels {
 		const keysModule = dockModule({ title: 'Hotkeys', children: [hotkeyList({ rows: [SHIFT_CLICK('Cut hole'), MOD_CLICK('Fill hole')] }).root] });
 		const size = this.sizeModule(30, () => holes.radius, (r) => (holes.radius = r));
 		return {
+			title: 'Cut holes',
 			description: () => 'Cut a hole in terrain to allow passage into structures like cave networks.',
 			modules: [keysModule.root, size.module.root],
 			sync: () => size.sync(),
@@ -672,7 +674,7 @@ export class EditorPanels {
 			size.sync();
 			setStepperValue(height.root, water.height);
 		};
-		return { description: () => 'Note: Water is a little buggy.', modules: [toolModule.root, kindModule.root, size.module.root, heightModule.root], sync };
+		return { title: 'Water', description: () => 'Note: Water is a little buggy.', modules: [toolModule.root, kindModule.root, size.module.root, heightModule.root], sync };
 	}
 
 	// ---- Objects and NPCs (spec 7.8, 7.9): the selection's transform and attributes ----
@@ -859,7 +861,7 @@ export class EditorPanels {
 			setStepperValue(scaleMax.root, place.scaleMax);
 			setSelectValue(snap.root, String(place.gridSnap));
 		};
-		return { description: () => null, modules: [keysModule.root, transform.module.root, attributes.root, placement.root], sync };
+		return { title: 'Objects', description: () => null, modules: [keysModule.root, transform.module.root, attributes.root, placement.root], sync };
 	}
 
 	/** Fills the doodad set select for one building, or disables it. */
@@ -959,7 +961,7 @@ export class EditorPanels {
 			setDisabled(playAs, !settings.asset);
 			setDisabled(playDefault, !player);
 		};
-		return { description: () => null, modules: [keysModule.root, transform.module.root, attributes.root, avatar.root], sync };
+		return { title: 'NPCs', description: () => null, modules: [keysModule.root, transform.module.root, attributes.root, avatar.root], sync };
 	}
 
 	/**
@@ -1110,6 +1112,7 @@ export class EditorPanels {
 		const keysModule = dockModule({ title: 'Hotkeys', children: [hotkeyList({ rows: [SHIFT_CLICK('Revert')] }).root] });
 		const size = this.sizeModule(100, () => revert.radius, (r) => (revert.radius = r));
 		return {
+			title: 'Revert to base',
 			description: () => 'Revert to base puts the chunks the brush passes over back the way the source map has them. Keys 1 to 7 go back to the other tools.',
 			modules: [channels.root, keysModule.root, size.module.root],
 			sync: () => {

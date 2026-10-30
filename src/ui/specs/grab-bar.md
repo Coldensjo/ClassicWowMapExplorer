@@ -65,9 +65,18 @@ Conventions match the other specs in this folder (Figma variable → code token 
    4px gaps.
 2. Is there a hover or dragging look?
 3. 47px vs 48px?
-4. Does it also need to work vertically (side panels)?
+4. ~~Does it also need to work vertically (side panels)?~~ Yes: see the update below.
 
 ### Acceptance checks
 
 - A 48 × 2px `#E7E7E7` rounded bar, centred in a 16px-tall, full-width hit area.
 - Dragging the hit area resizes the panel; it is focusable and resizable with the arrow keys.
+
+## Update read file version `2416248821189540021`, 2026-10-30: Orientation variant
+
+Grab Bar is a component set now (`267:56536`: Orientation=Horizontal `29:8356`, Vertical
+`267:56537`), the vertical one a 2 × 48 bar for the side panel controls
+([side-panel-controls.md](side-panel-controls.md)), where it stands beside the vertical mode
+controller, centred in a container as tall as the column, 4px from the controller and 4px from
+the panel. The molecule already had `orientation: 'vertical'`; the side panel uses it with
+`grows: 'start'` (dragging left widens the panel to its right) and a 10px hit area.

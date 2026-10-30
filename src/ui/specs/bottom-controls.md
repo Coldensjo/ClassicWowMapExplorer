@@ -1,5 +1,9 @@
 # Bottom Controls: build spec
 
+> **Superseded on 2026-10-30** by [side-panel-controls.md](side-panel-controls.md): the same
+> modules now stack down the right of the viewport (`src/editor/sideControls.ts`). §1 and §6
+> below describe the bottom dock as it was; §2 to §5 (the modules, the decisions) still apply.
+
 Source: Figma file "Dungeon Builder", component set **Bottom Controls** (node `29:7815`,
 <https://www.figma.com/design/BGcDYElmHi41sl4IxcpsVg/Dungeon-Builder?node-id=29-7815>), its
 parts **Mode Controller** ([mode-controller.md](mode-controller.md)), **Grab Bar**
@@ -43,7 +47,7 @@ marks a call made while building; every one was confirmed by the designer on 202
 | Part | Figma | Build |
 |---|---|---|
 | Dock | vertical, centred, fills the width up to **1280**, gap 4; 16px from the viewport's left, right and bottom in the flows | `position: fixed`, bottom `var(--status-bar-height) + 16px` (the status bar stays under it, §6), `max-inline-size: 1280px`, horizontally centred |
-| Tool Panel | fill × **240** tall, `minHeight` 180; `surface-transparent-primary` → `--color-bg-panel` with a 24px background blur (`--blur-panel`), 1px `6:273` → `--color-bg-surface` border, radius 12, clips | the same tokens; its height is `--dock-panel-height` |
+| Tool Panel | fill × **240** tall, `minHeight` 80; `surface-transparent-primary` → `--color-bg-panel` with a 24px background blur (`--blur-panel`), 1px `6:273` → `--color-bg-surface` border, radius 12, clips | the same tokens; its height is `--dock-panel-height` |
 | Mode Description | 12px top padding, centred `body-secondary` text, then a 1px divider | `.bottom-controls-description`, hidden when the tool has none |
 | Modules row | horizontal, fills the rest | `.bottom-controls-modules`, scrolls sideways if the modules don't fit |
 | Module | 320 wide (`maxWidth` 320, fill where there is room), 16px top and bottom padding, gap 16: title row (24px, 16px side padding, `heading-2`, optional help button) → 1px divider → content (16px side padding, 12px gaps); 1px vertical divider between modules; a 4px scrollbar at the right of a body that overflows | `.dock-module`: `flex: 1 1 320px; max-inline-size: 320px; min-inline-size: 240px`; header padding 16, divider, body `.ds-scroll` padding 16 gap 12 |
@@ -57,7 +61,7 @@ so (as the grab bar spec proposed) **dragging the grab bar resizes the panel**:
 
 | Aspect | Build |
 |---|---|
-| Drag | `grows: 'start'`: dragging up makes the panel taller; between **180px** and the viewport height minus 220px (room for the top bar, the mode bar and some scene) |
+| Drag | `grows: 'start'`: dragging up makes the panel taller; between **80px** and the viewport height minus 220px (room for the top bar, the mode bar and some scene) |
 | Keyboard | ↑/↓ 16px, Home/End to the limits, on the focused bar |
 | Collapse | a double click or Enter on the bar hides the panel, leaving the mode bar and the grab bar; the same brings it back |
 | Memory | height and collapsed state in `localStorage` (`wdb.bottom-controls`) |
@@ -215,7 +219,7 @@ described in §2 and §4.
 
 - The mode bar sits centred over a grab bar over the panel; the panel fills the width up to
   1280px, 16px in from the edges, above the status bar.
-- Dragging the grab bar changes the panel's height between 180px and the viewport's limit;
+- Dragging the grab bar changes the panel's height between 80px and the viewport's limit;
   double-clicking collapses it to the bar; both come back after a reload.
 - Each module is at most 320px wide with a 24px title row, a divider and a body that scrolls
   on its own; a help button opens a blue complex tooltip.

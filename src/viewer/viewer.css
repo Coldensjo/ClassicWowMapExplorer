@@ -2355,55 +2355,60 @@ body.wow-ui {
 	background: rgba(0, 0, 0, 0.35);
 }
 
-/* ---- The bottom controls (src/ui/specs/bottom-controls.md) ----
-   The mode controller over a grab bar over the tool panel, docked across the bottom of the
-   viewport by src/editor/bottomControls.ts, holding the active tool's modules from
+/* ---- The side panel controls (src/ui/specs/side-panel-controls.md) ----
+   The vertical mode controller beside a grab bar beside the tool panel, docked down the right
+   of the viewport by src/editor/sideControls.ts, holding the active tool's modules from
    src/editor/editorPanels.ts. Controls are molecules; tokens only. */
-#bottom-controls {
-	--dock-panel-height: 240px;
-	--dock-module-width: 320px;
-	--dock-module-min-width: 240px;
+#side-controls {
+	--dock-panel-width: 320px;
+	--dock-panel-min-height: 180px;
 
 	position: fixed;
-	left: 50%;
+	top: calc(var(--bar) + var(--space-4));
+	right: var(--space-4);
 	bottom: calc(var(--status-bar-height) + var(--space-4));
 	z-index: 30; /* over the page's panels, under the floating windows (--z-window) */
 	display: flex;
-	flex-direction: column;
-	align-items: center;
-	box-sizing: border-box;
-	inline-size: calc(100vw - 2 * var(--space-4));
-	max-inline-size: 1280px;
-	transform: translateX(-50%);
-	pointer-events: none; /* the room beside the mode bar stays the scene's */
+	align-items: flex-start;
+	gap: var(--space-1);
+	pointer-events: none; /* the room under the mode column stays the scene's */
 }
 
-#bottom-controls[hidden] {
+#side-controls[hidden] {
 	display: none;
 }
 
-#bottom-controls > * {
+#side-controls > * {
 	pointer-events: auto;
 }
 
-.bottom-controls-grab {
+/* The mode column and the grab bar, which is as tall as the column, as drawn. */
+.side-controls-rail {
+	flex: none;
 	display: flex;
-	justify-content: center;
-	inline-size: 100%;
+	align-items: stretch;
+	gap: var(--space-1);
 }
 
-/* A 10px hit area keeps the drawn 4px gaps above and below the 2px bar. */
-.bottom-controls-grab .ds-grab-bar {
+.side-controls-grab {
+	display: flex;
+}
+
+/* A 10px hit area keeps the drawn 4px gaps either side of the 2px bar. */
+.side-controls-grab .ds-grab-bar {
 	--grab-bar-hit: 10px;
 }
 
-.bottom-controls-panel {
+/* 16px above the title, 8px under the last module; hugs its modules up to the room it has. */
+.side-controls-panel {
+	flex: none;
 	display: flex;
 	flex-direction: column;
 	box-sizing: border-box;
-	inline-size: 100%;
-	block-size: var(--dock-panel-height);
-	min-block-size: 180px;
+	inline-size: var(--dock-panel-width);
+	min-block-size: var(--dock-panel-min-height);
+	max-block-size: 100%;
+	padding-block: var(--space-4) var(--space-2);
 	border: var(--border-width) solid var(--color-bg-surface);
 	border-radius: var(--radius-lg);
 	background-color: var(--color-bg-panel);
@@ -2413,51 +2418,68 @@ body.wow-ui {
 	overflow: hidden;
 }
 
-#bottom-controls[data-collapsed] .bottom-controls-panel {
+#side-controls[data-collapsed] .side-controls-panel {
 	display: none;
 }
 
-.bottom-controls-description {
+.side-controls-header {
+	flex: none;
+	padding: 0 var(--space-4) var(--space-4);
+	border-block-end: var(--border-width) solid var(--color-bg-surface);
+}
+
+.side-controls-title {
+	margin: 0;
+	font: var(--type-heading-2);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Pinned under the title; the modules scroll beneath it. */
+.side-controls-description {
 	flex: none;
 	margin: 0;
 	padding: var(--space-3) var(--space-4);
 	border-block-end: var(--border-width) solid var(--color-bg-surface);
 	font: var(--type-label);
-	text-align: center;
-	text-wrap: balance;
+	text-wrap: pretty;
 }
 
-.bottom-controls-description[hidden] {
+.side-controls-description[hidden] {
 	display: none;
 }
 
-.bottom-controls-modules {
+.side-controls-modules {
 	flex: 1 1 auto;
 	display: flex;
+	flex-direction: column;
 	min-block-size: 0;
-	overflow: auto hidden;
+	overflow: hidden auto;
 }
 
+/* 12px above the title and below the body, 12px between them; a divider under all but the last. */
 .dock-module {
-	flex: 1 1 var(--dock-module-width);
+	flex: none;
 	display: flex;
 	flex-direction: column;
+	gap: var(--space-3);
 	box-sizing: border-box;
-	min-inline-size: var(--dock-module-min-width);
-	max-inline-size: var(--dock-module-width);
-	min-block-size: 0;
-	border-inline-end: var(--border-width) solid var(--color-bg-surface);
+	padding-block: var(--space-3);
+	border-block-end: var(--border-width) solid var(--color-bg-surface);
 }
 
-/* 12px above and below the title's own line; the help button is taller than the line and
-   overhangs it rather than pushing the divider down, so every module's divider lines up. */
+.dock-module:last-child {
+	border-block-end: none;
+}
+
+/* The help button is taller than the title's line and overhangs it rather than growing the row. */
 .dock-module-header {
 	flex: none;
 	display: flex;
 	align-items: center;
 	gap: var(--space-1);
-	padding: var(--space-3) var(--space-4);
-	border-block-end: var(--border-width) solid var(--color-bg-surface);
+	padding-inline: var(--space-4);
 }
 
 .dock-module-header .ds-icon-button {
@@ -2465,7 +2487,7 @@ body.wow-ui {
 }
 
 .dock-module-title {
-	flex: 1 1 auto;
+	flex: 0 1 auto;
 	min-inline-size: 0;
 	margin: 0;
 	font: var(--type-body-secondary-bold);
@@ -2476,9 +2498,7 @@ body.wow-ui {
 
 .dock-module-content {
 	position: relative;
-	flex: 1 1 auto;
 	display: flex;
-	min-block-size: 0;
 }
 
 .dock-module-body {
@@ -2487,9 +2507,7 @@ body.wow-ui {
 	flex-direction: column;
 	gap: var(--space-3);
 	min-inline-size: 0;
-	min-block-size: 0;
-	padding: var(--space-3) var(--space-4);
-	overflow: hidden auto;
+	padding-inline: var(--space-4);
 	transition: opacity var(--duration-fast) var(--easing-out);
 }
 
@@ -2702,7 +2720,7 @@ body.wow-ui {
 /* ---- Scene editing panels (spec 8) ---- */
 
 /* Playing (spec 7.10): the bottom controls go; the top bar and its Edit button stay put. */
-body.playing #bottom-controls {
+body.playing #side-controls {
 	display: none;
 }
 

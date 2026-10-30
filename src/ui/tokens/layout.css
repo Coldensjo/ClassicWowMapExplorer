@@ -1,12 +1,54 @@
 /*
  * Layout tokens. See DESIGN_SYSTEM.md §3.3.
  *
- * Spacing (--space-*), radii (--radius-*), line widths, motion and stacking (--z-*): the
- * numbers a molecule pads, gaps and layers with, so none is a bare value in a component.
+ * Spacing (--space-*), radii (--radius-*), line widths, motion, stacking (--z-*), the shared
+ * opacity and blur values, and the icon sizes: the numbers a molecule pads, gaps and layers
+ * with, so none is a bare value in a component.
  *
- * Only the icon tokens are defined yet.
+ * Figma binds no variables for these (every padding, gap and radius there is a raw number), so
+ * the values are the ones the component specs in specs/ collected from the drawings.
  */
 :root {
+	/* Spacing: a 4px scale with the half steps the drawings use. */
+	--space-0-5: 2px; /* hairline gaps: keycap padding */
+	--space-1: 4px; /* tight padding and gaps: ghost buttons, segments, menu options */
+	--space-1-5: 6px; /* icon ↔ label in a text button */
+	--space-2: 8px; /* the common gap: rows, chips, between swatches */
+	--space-2-5: 10px; /* field vertical padding; option text ↔ checkmark */
+	--space-3: 12px; /* text-button and field horizontal padding; panel padding */
+	--space-4: 16px; /* large-button padding; tile padding; toast horizontal padding */
+	--space-5: 20px;
+	--space-6: 24px;
+	--space-8: 32px;
+
+	/* Radii */
+	--radius-xs: 2px; /* keycaps and the simple tooltip */
+	--radius-sm: 4px; /* buttons, segments, swatches, menu options */
+	--radius-md: 8px; /* fields, the segmented trough, mode chips, the menu panel */
+	--radius-lg: 12px; /* card-like surfaces: tiles, the mode bar, toasts */
+	--radius-xl: 14px; /* the complex tooltip */
+	--radius-full: 9999px; /* pills and circles */
+
+	/* Lines */
+	--border-width: 1px; /* every control border and outline */
+	--focus-ring-width: 1px; /* keyboard focus outline on controls without a border to recolour */
+	--focus-ring-offset: 2px; /* its distance from the control */
+
+	/* Motion */
+	--duration-fast: 100ms; /* hover washes, a radio dot, a switch knob */
+	--duration-slow: 150ms; /* a chip expanding, a toast or menu appearing */
+	--easing-out: ease-out;
+
+	/* Stacking, above the page's own layers (viewer.css uses up to 40) */
+	--z-popover: 100; /* menus and select lists */
+	--z-tooltip: 110;
+	--z-toast: 120;
+
+	/* Shared values */
+	--opacity-disabled: 0.3; /* a disabled control, as the radio components draw it */
+	--blur-panel: 24px; /* backdrop blur of translucent floating panels: the menu, the mode bar */
+
+	/* Icons */
 	--icon-size-sm: 16px; /* icons inside dense rows and small buttons */
 	--icon-size-md: 20px; /* the default icon, in buttons and tool rows */
 	--icon-size-lg: 24px; /* the drawing's own size; toolbar and empty states */

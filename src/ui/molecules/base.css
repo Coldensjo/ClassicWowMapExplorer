@@ -1,0 +1,19 @@
+/*
+ * Rules every molecule shares. See DESIGN_SYSTEM.md §5.
+ *
+ * .ds-visually-hidden: present for assistive technology and keyboard focus, invisible on
+ * screen. Used for the native input behind a drawn control (switch, radio, segment, mode chip,
+ * swatch) and for text that only screen readers should get. Never display: none, which would
+ * take the input out of the Tab order.
+ */
+.ds-visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	border: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}

@@ -4,6 +4,11 @@
  * .ds-slider is a .ds-field whose body is a 40px row: a native range input (rail and thumb
  * drawn with the pseudo-elements, the input itself transparent and row-high so the whole row
  * grabs the thumb) and an 80px value field box with a suffix.
+ *
+ * A discrete slider (data-stops, slider.md §11) draws a tick at every stop behind the rail,
+ * and labels under the ticks when the stops have them. Each tick's --stop is its position
+ * from 0 to 1 along the thumb's travel, which starts and ends half a thumb in from the rail's
+ * ends, so ticks line up with where the thumb's centre can rest.
  */
 .ds-slider {
 	--slider-rail: var(--color-border);
@@ -12,19 +17,29 @@
 	--slider-thumb-width: 16px;
 	--slider-thumb-height: 32px;
 	--slider-input-width: 80px;
+	--slider-stop: var(--color-border);
+	--slider-stop-width: 2px;
+	--slider-stop-height: 8px;
+	--slider-stop-label-fg: var(--color-text-muted);
 }
 
 .ds-slider-row {
 	display: flex;
-	align-items: center;
+	align-items: flex-start;
 	gap: var(--space-2);
-	block-size: var(--field-height);
+	min-block-size: var(--field-height);
+	min-inline-size: 0;
+}
+
+.ds-slider-track {
+	position: relative;
+	flex: 1 1 auto;
 	min-inline-size: 0;
 }
 
 .ds-slider-range {
-	flex: 1 1 auto;
-	min-inline-size: 0;
+	position: relative;
+	display: block;
 	inline-size: 100%;
 	block-size: var(--field-height);
 	margin: 0;
@@ -88,6 +103,54 @@
 	flex: none;
 	inline-size: var(--slider-input-width);
 }
+
+/* Discrete stops: ticks behind the rail, labels under it. */
+.ds-slider-stops {
+	position: absolute;
+	inset: 0 0 auto;
+	block-size: var(--field-height);
+	pointer-events: none;
+}
+
+.ds-slider-stop {
+	position: absolute;
+	top: 50%;
+	left: calc(var(--slider-thumb-width) / 2 + var(--stop) * (100% - var(--slider-thumb-width)));
+	inline-size: var(--slider-stop-width);
+	block-size: var(--slider-stop-height);
+	border-radius: var(--radius-full);
+	background-color: var(--slider-stop);
+	transform: translate(-50%, -50%);
+}
+
+.ds-slider-stop-labels {
+	position: relative;
+	block-size: calc(var(--font-size-xs) * 1.3);
+	margin-block-start: var(--space-0-5);
+	color: var(--slider-stop-label-fg);
+	font: var(--type-label-small);
+}
+
+.ds-slider-stop-label {
+	position: absolute;
+	top: 0;
+	left: calc(var(--slider-thumb-width) / 2 + var(--stop) * (100% - var(--slider-thumb-width)));
+	transform: translateX(-50%);
+	white-space: nowrap;
+}
+
+/* The first and last labels hug the rail's ends instead of overhanging them. */
+.ds-slider-stop-label:first-child {
+	left: 0;
+	transform: none;
+}
+
+.ds-slider-stop-label:last-child {
+	left: auto;
+	right: 0;
+	transform: none;
+}
+
 
 .ds-slider-input .ds-field-control {
 	font-variant-numeric: tabular-nums;

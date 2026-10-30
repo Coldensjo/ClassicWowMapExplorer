@@ -5,9 +5,17 @@
  * editable value field beside it. Dragging updates the field live; typing a value commits on
  * Enter or blur, clamped to the range and rounded to the step. The molecule keeps no model
  * state: it reports through onInput and onChange and callers move it with setSliderValue().
+ *
+ * With `stops` the slider is discrete (slider.md §11): the thumb snaps to a fixed set of
+ * values, each marked by a tick on the rail. The range input then runs over the stop indexes
+ * and the molecule translates to and from the stop values. Stops may carry labels, drawn under
+ * the ticks; the value field then shows the current stop's label and is read-only.
  */
 import { el, snap } from '../dom';
 import { fieldBox, fieldShell } from './field';
+
+/** A discrete stop: its value, with an optional label shown under its tick and in the field. */
+export type SliderStop = number | { value: number; label?: string };
 
 export interface SliderOptions {
 	/** Caption above; also the accessible name. */
@@ -18,6 +26,11 @@ export interface SliderOptions {
 	min?: number;
 	max?: number;
 	step?: number;
+	/**
+	 * Discrete stops instead of a continuous range: a count of evenly spaced stops between
+	 * `min` and `max`, or the stops themselves. `step` is ignored; `value` snaps to the nearest.
+	 */
+	stops?: number | SliderStop[];
 	/** Unit shown after the value, e.g. "%" or "yd"; also read out with the value. */
 	suffix?: string;
 	/** Show the editable value field; default true. */
@@ -39,39 +52,125 @@ export interface SliderHandle {
 	input: HTMLInputElement | null;
 }
 
+interface Stop {
+	value: number;
+	label?: string;
+}
+
+interface Scale {
+	/** The stops, in value order; empty for a continuous slider. */
+	stops: Stop[];
+	/** What the range input holds for a value: the value itself, or the stop's index. */
+	toRange(value: number): number;
+	/** The value the range input's number means. */
+	fromRange(raw: number): number;
+	/** The nearest legal value. */
+	snap(value: number): number;
+	/** The stop at a value, when discrete. */
+	stopAt(value: number): Stop | undefined;
+}
+
+function makeStops(spec: number | SliderStop[], min: number, max: number): Stop[] {
+	let list: Stop[];
+	if (typeof spec === 'number') {
+		const count = Math.max(2, Math.round(spec));
+		list = Array.from({ length: count }, (_, i) => ({ value: min + ((max - min) * i) / (count - 1) }));
+	} else {
+		list = spec.map((s) => (typeof s === 'number' ? { value: s } : { value: s.value, label: s.label }));
+	}
+	return list.sort((a, b) => a.value - b.value);
+}
+
+function makeScale(options: SliderOptions, min: number, max: number, step: number): Scale {
+	if (options.stops === undefined) {
+		return {
+			stops: [],
+			toRange: (v) => v,
+			fromRange: (r) => r,
+			snap: (v) => snap(v, min, max, step),
+			stopAt: () => undefined,
+		};
+	}
+	const stops = makeStops(options.stops, min, max);
+	const nearest = (v: number) => stops.reduce((best, s, i) => (Math.abs(s.value - v) < Math.abs(stops[best].value - v) ? i : best), 0);
+	return {
+		stops,
+		toRange: (v) => nearest(v),
+		fromRange: (r) => stops[Math.min(stops.length - 1, Math.max(0, Math.round(r)))].value,
+		snap: (v) => stops[nearest(v)].value,
+		stopAt: (v) => stops[nearest(v)],
+	};
+}
+
 /** Makes a slider: `<div class="ds-field ds-slider">`. */
 export function slider(options: SliderOptions): SliderHandle {
 	const min = options.min ?? 0;
 	const max = options.max ?? 100;
 	const step = options.step ?? 1;
+	const scale = makeScale(options, min, max, step);
+	const discrete = scale.stops.length > 0;
+	const labelled = scale.stops.some((s) => s.label !== undefined);
+	const name = options.label ?? options.ariaLabel ?? '';
+
 	const range = el('input', {
 		class: 'ds-slider-range',
 		type: 'range',
 		id: options.id,
-		min,
-		max,
-		step,
+		min: discrete ? 0 : min,
+		max: discrete ? scale.stops.length - 1 : max,
+		step: discrete ? 1 : step,
 		disabled: options.disabled,
 		title: options.title,
 		'aria-label': options.label ? undefined : options.ariaLabel,
 	});
-	range.value = String(options.value);
+	let value = scale.snap(options.value);
+	range.value = String(scale.toRange(value));
+
+	const track = el('div', { class: 'ds-slider-track' }, range);
+	if (discrete) {
+		const ticks = el('div', { class: 'ds-slider-stops', 'aria-hidden': 'true' });
+		const labels = labelled ? el('div', { class: 'ds-slider-stop-labels', 'aria-hidden': 'true' }) : null;
+		scale.stops.forEach((stop, i) => {
+			const at = `${i / (scale.stops.length - 1)}`;
+			const tick = el('span', { class: 'ds-slider-stop' });
+			tick.style.setProperty('--stop', at);
+			ticks.append(tick);
+			if (labels) {
+				const text = el('span', { class: 'ds-slider-stop-label' }, stop.label ?? '');
+				text.style.setProperty('--stop', at);
+				labels.append(text);
+			}
+		});
+		track.prepend(ticks);
+		if (labels) track.append(labels);
+	}
+
+	const display = (v: number): string => {
+		const stop = scale.stopAt(v);
+		return stop?.label ?? String(v);
+	};
 
 	let input: HTMLInputElement | null = null;
-	const row = el('div', { class: 'ds-slider-row' }, range);
+	const row = el('div', { class: 'ds-slider-row' }, track);
 	if (options.showInput ?? true) {
 		input = el('input', {
 			class: 'ds-field-control',
-			type: 'number',
-			inputmode: 'decimal',
-			min,
-			max,
-			step,
+			type: labelled ? 'text' : 'number',
+			inputmode: labelled ? undefined : 'decimal',
+			min: labelled ? undefined : min,
+			max: labelled ? undefined : max,
+			step: labelled || discrete ? undefined : step,
+			readonly: labelled,
+			tabindex: labelled ? -1 : undefined,
 			disabled: options.disabled,
-			'aria-label': `${options.label ?? options.ariaLabel ?? ''} value`.trim(),
+			'aria-label': `${name} value`.trim(),
 		});
-		input.value = range.value;
-		const box = fieldBox(input, input, options.suffix ? el('span', { class: 'ds-field-suffix', 'aria-hidden': 'true' }, options.suffix) : null);
+		input.value = display(value);
+		const box = fieldBox(
+			input,
+			input,
+			options.suffix && !labelled ? el('span', { class: 'ds-field-suffix', 'aria-hidden': 'true' }, options.suffix) : null,
+		);
 		box.classList.add('ds-slider-input');
 		row.append(box);
 	}
@@ -79,64 +178,75 @@ export function slider(options: SliderOptions): SliderHandle {
 	const shell = fieldShell({ label: options.label, controlId: options.id }, row);
 	range.id = shell.controlId;
 	shell.root.classList.add('ds-slider');
+	if (discrete) shell.root.dataset.stops = '';
 
 	const describe = () => {
-		range.setAttribute('aria-valuetext', options.suffix ? `${range.value} ${options.suffix}` : range.value);
+		const stop = scale.stopAt(value);
+		range.setAttribute('aria-valuetext', stop?.label ?? (options.suffix ? `${value} ${options.suffix}` : String(value)));
 	};
 	describe();
 
-	range.addEventListener('input', () => {
-		if (input) input.value = range.value;
+	/** Moves to `next` (snapped); `commit` reports through onInput and onChange, `silent` through neither. */
+	const apply = (next: number, mode: 'commit' | 'silent') => {
+		next = scale.snap(next);
+		const changed = next !== value;
+		value = next;
+		range.value = String(scale.toRange(value));
+		if (input) input.value = display(value);
 		describe();
-		options.onInput?.(Number(range.value));
-	});
-	range.addEventListener('change', () => options.onChange?.(Number(range.value)));
+		if (changed && mode === 'commit') {
+			options.onInput?.(value);
+			options.onChange?.(value);
+		}
+	};
 
-	if (input) {
+	range.addEventListener('input', () => {
+		value = scale.fromRange(Number(range.value));
+		if (input) input.value = display(value);
+		describe();
+		options.onInput?.(value);
+	});
+	range.addEventListener('change', () => options.onChange?.(value));
+
+	if (input && !labelled) {
 		const field = input;
 		const commit = () => {
 			const typed = Number(field.value);
 			if (field.value.trim() === '' || Number.isNaN(typed)) {
-				field.value = range.value;
+				field.value = display(value);
 				return;
 			}
-			const value = snap(typed, min, max, step);
-			field.value = String(value);
-			if (String(value) !== range.value) {
-				range.value = String(value);
-				describe();
-				options.onInput?.(value);
-				options.onChange?.(value);
-			}
+			apply(typed, 'commit');
 		};
 		field.addEventListener('input', () => {
 			const typed = Number(field.value);
-			if (field.value.trim() !== '' && !Number.isNaN(typed)) options.onInput?.(snap(typed, min, max, step));
+			if (field.value.trim() !== '' && !Number.isNaN(typed)) options.onInput?.(scale.snap(typed));
 		});
 		field.addEventListener('change', commit);
 		field.addEventListener('keydown', (event) => {
 			if (event.key === 'Enter') {
 				event.preventDefault();
 				commit();
-			} else if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && event.shiftKey) {
+			} else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+				if (!discrete && !event.shiftKey) return; // native stepping
 				event.preventDefault();
 				const direction = event.key === 'ArrowUp' ? 1 : -1;
-				field.value = String(snap(Number(field.value || range.value) + direction * step * 10, min, max, step));
-				commit();
+				if (discrete) {
+					apply(scale.fromRange(scale.toRange(value) + direction), 'commit');
+				} else {
+					apply(Number(field.value || value) + direction * step * 10, 'commit');
+				}
 			}
 		});
 	}
 
+	handles.set(shell.root, (v) => apply(v, 'silent'));
 	return { root: shell.root, range, input };
 }
 
-/** Moves the slider (and its field) to `value` without firing onInput or onChange. */
+const handles = new WeakMap<HTMLElement, (value: number) => void>();
+
+/** Moves the slider (and its field) to `value`, snapped to the step or nearest stop, without firing onInput or onChange. */
 export function setSliderValue(root: HTMLElement, value: number): void {
-	const range = root.querySelector<HTMLInputElement>('.ds-slider-range');
-	const input = root.querySelector<HTMLInputElement>('.ds-slider-input .ds-field-control');
-	if (!range) return;
-	range.value = String(value);
-	if (input) input.value = range.value;
-	const suffix = root.querySelector('.ds-field-suffix')?.textContent;
-	range.setAttribute('aria-valuetext', suffix ? `${range.value} ${suffix}` : range.value);
+	handles.get(root)?.(value);
 }

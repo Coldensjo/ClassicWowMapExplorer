@@ -275,6 +275,39 @@ Figma draws only rest. Proposed, reusing the system's existing treatments:
    Fine, just unusual; confirm it isn't a placeholder.
 9. ~~**Existing panels show the label inline.**~~ Decided: all 16 sliders move to the Figma
    layout, label above and value editable (§6).
+10. **Discrete stops** (§11) are built but not drawn: please draw the ticks and labels, or say
+    how a stepped slider should look.
+
+---
+
+## 11. Discrete stops (Proposed, not drawn)
+
+Added 2026-10-29 at the product's request: a slider whose thumb snaps to a **fixed set of
+stops** rather than any value on the rail, for settings like quality levels, brush shapes or a
+handful of named sizes. Figma draws only the continuous slider; this section proposes the
+variant and needs design sign-off (§9.10).
+
+| Property | Value (**Proposed**) |
+|---|---|
+| Stops | `stops`: a count of evenly spaced stops between `min` and `max`, or the stop values themselves, each with an optional label |
+| Ticks | one per stop behind the rail: 2 × 8px, fully round, `--color-border` (the rail's colour), centred on the rail so it shows 2px above and below; positioned where the thumb's centre rests at that stop (half a thumb in from each rail end) |
+| Labels | when stops have them: `label/label-small` (10px) in `content-secondary` under the ticks, centred on each, the first and last flush with the rail's ends; the row grows by the label line |
+| Thumb | as §3.3, snapping to the nearest stop while dragging |
+| Value field | numeric stops: as §5, typing commits to the **nearest stop**, ↑/↓ move one stop. Labelled stops: shows the current stop's **label**, read-only, no suffix |
+| Keyboard | ←/→ ↑/↓ move one stop; Home/End to the first and last (native, since the range runs over the stop indexes) |
+| Screen reader | the value text is the stop's label, or its value with the unit |
+| Tokens | `--slider-stop`, `--slider-stop-width`, `--slider-stop-height`, `--slider-stop-label-fg` (tier 3) |
+
+```
+Quality
+ ┃━━━━━━┃━━━━━━┃━━━━━━┃━━━━━━┃      ┌───────────┐
+ Low           ┣━━━━━━━━━━━━┫      │ Medium    │   read-only, shows the label
+ Low    Medium  High  Ultra  Max   └───────────┘
+```
+
+Open questions for design (also §9.10): tick colour and size (the rail colour keeps them
+quiet; `content-secondary` would make them read as a scale), whether labels belong under the
+rail or only in the field, and whether a stop that the value is on should look different.
 
 ---
 
@@ -288,6 +321,7 @@ export interface SliderOptions {
 	min?: number;                   // default 0
 	max?: number;                   // default 100
 	step?: number;                  // default 1
+	stops?: number | SliderStop[];  // discrete stops (§11); SliderStop = number | { value; label? }
 	suffix?: string;                // shown in the value input, e.g. "%"
 	format?: (value: number) => string;
 	showInput?: boolean;            // default true ("Show value input?")

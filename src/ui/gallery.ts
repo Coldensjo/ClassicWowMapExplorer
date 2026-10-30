@@ -131,7 +131,21 @@ const status = () => el('div', { class: 'status' }, '—');
 	const strength = slider({ label: 'Strength', value: 0.5, min: 0, max: 1, step: 0.05, suffix: '%' });
 	const bare = slider({ ariaLabel: 'Opacity', value: 70, showInput: false });
 	const disabled = slider({ label: 'Disabled', value: 25, disabled: true });
-	section('Slider', 'slider.md', 'Native range with the tall thumb; the value field commits on Enter or blur, clamped and stepped.', row(col(radius.root, strength.root), col(bare.root, disabled.root)), s);
+	const five = slider({ label: 'Opacity (5 stops)', value: 60, stops: 5, suffix: '%', onChange: (v) => (s.textContent = `Opacity: ${v}`) });
+	const powers = slider({ label: 'Resolution', value: 4, stops: [1, 2, 4, 8, 16], suffix: 'x', onChange: (v) => (s.textContent = `Resolution: ${v}x`) });
+	const quality = slider({
+		label: 'Quality',
+		value: 2,
+		stops: [{ value: 0, label: 'Low' }, { value: 1, label: 'Medium' }, { value: 2, label: 'High' }, { value: 3, label: 'Ultra' }, { value: 4, label: 'Max' }],
+		onChange: (v) => (s.textContent = `Quality: ${v}`),
+	});
+	section(
+		'Slider',
+		'slider.md',
+		'Native range with the tall thumb; the value field commits on Enter or blur, clamped and stepped. The second column has discrete stops: evenly spaced, explicit values, and labelled.',
+		row(col(radius.root, strength.root, bare.root, disabled.root), col(five.root, powers.root, quality.root)),
+		s,
+	);
 }
 
 // Stepper

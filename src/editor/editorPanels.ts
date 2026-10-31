@@ -687,8 +687,14 @@ export class EditorPanels {
 	private wireSelection(): void {
 		const objects = this.editor.objects;
 		objects.onSelectionChange = () => this.syncActive();
+		// One placement per pick: the browser lets go of the asset once it is in the scene.
+		objects.onPlaced = () => {
+			this.models?.clearPick();
+			this.npcLibrary?.clearPick();
+		};
 		this.cleanups.push(() => {
 			objects.onSelectionChange = () => {};
+			objects.onPlaced = () => {};
 		});
 	}
 

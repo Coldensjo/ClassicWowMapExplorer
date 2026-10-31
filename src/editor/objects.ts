@@ -118,6 +118,8 @@ export class SceneObjects {
 	/** The last entity selected: the gizmo pivots on it. */
 	private primary: string | null = null;
 	onSelectionChange: () => void = () => {};
+	/** An armed asset or NPC was just placed: the browsers drop their pick, one placement per pick. */
+	onPlaced: () => void = () => {};
 	onNotice: (text: string) => void = () => {};
 
 	private readonly controls: TransformControls;
@@ -374,6 +376,7 @@ export class SceneObjects {
 			...(asset.kind === 'wmo' ? { doodadSet: 0, nameSet: 0 } : {}),
 		};
 		this.commandAdd([{ kind: 'object', o: object }], `Place ${asset.label}`);
+		this.onPlaced();
 	}
 
 	/**
@@ -405,6 +408,7 @@ export class SceneObjects {
 			animation: 'idle',
 		};
 		this.commandAdd([{ kind: 'npc', n: npc }], `Place ${asset.label}`);
+		this.onPlaced();
 	}
 
 	/** The ground under the cursor, or an object surface when nearer, snapped to the grid. */

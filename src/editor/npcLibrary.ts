@@ -515,6 +515,15 @@ export class NpcLibrary {
 
 	// ---- Picking (spec 7.9.1) ----
 
+	/** Drops the armed appearance (once it has been placed, say); nothing when none is armed. */
+	clearPick(): void {
+		if (!this.selected) return;
+		this.selected = null;
+		this.onPick(null);
+		this.syncSelection();
+		this.hideToast();
+	}
+
 	/** Arms an appearance for placing, or disarms it when it is the armed one already. */
 	private pick(asset: NpcAsset): void {
 		const same = this.selected !== null && appearanceKey(this.selected.appearance) === appearanceKey(asset.appearance);

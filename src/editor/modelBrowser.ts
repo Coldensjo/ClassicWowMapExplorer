@@ -53,7 +53,8 @@ const sessionThumbs = new Map<string, string | null>();
  * listfile, substring/token search, a tile-size slider and lazy 3D thumbnails rendered offscreen
  * and cached by build. Files whose data is not in the local install show dimmed and cannot be
  * picked (spec 7.1). Clicking a tile arms it as the Place tool's asset and a toast in the window
- * says to click in the scene; clicking the armed tile again disarms it.
+ * says to click in the scene; clicking the armed tile again disarms it, and placing it lets go of
+ * it too (clearPick), one placement per pick.
  */
 export class ModelBrowser {
 	private readonly window: FloatingWindowHandle;
@@ -250,6 +251,15 @@ export class ModelBrowser {
 
 	private isSelected(item: Item): boolean {
 		return this.selected !== null && this.selected.kind === this.tab && this.selected.fdid === item.fdid;
+	}
+
+	/** Drops the armed model (once it has been placed, say); nothing when none is armed. */
+	clearPick(): void {
+		if (!this.selected) return;
+		this.selected = null;
+		this.onPick(null);
+		this.syncSelection();
+		this.hideToast();
 	}
 
 	/** Arms a model for placing, or disarms it when it is the armed one already. */

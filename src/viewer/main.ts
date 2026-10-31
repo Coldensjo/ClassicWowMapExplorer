@@ -20,10 +20,13 @@ import { CHARACTER_OUTFITS, type CharacterOutfit, type CharacterRace } from '../
 import { WorldMap } from './worldMap';
 import { knownFolders, productRank, REFERENCE_PRODUCT } from './clientConfig';
 import { showScenes } from '../editor/scenesUi';
+import { folderWasLinked, rememberFolderLinked, showFolderLost, wireLanding } from '../editor/landing';
 import type { StorageStats } from '../casc/storage';
 import { keptVersions, productName, sessionHost, setKeptVersions, setQuickSwitching, quickSwitching, type SwitchState, type ViewerSession } from './session';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+// The landing page's art, icons and feature cards, before anything shows.
+wireLanding();
 const status = $('status');
 
 const storage = createStorageClient((message) => showProgress(message), () => ($('game-updated').hidden = false));
@@ -92,14 +95,9 @@ function hideProgress(): void {
 	$('loading-fill').style.width = '0%';
 }
 
-/** Fades the start screen out over the world's first frames, then takes it out of the page. */
+/** Takes the folder card out of the landing page: the scene library takes its place. */
 function dismissStart(): void {
-	const start = $('start');
-	start.classList.add('leaving');
-	const gone = () => (start.hidden = true);
-	start.addEventListener('transitionend', gone, { once: true });
-	// Reduced motion, or a tab in the background that doesn't run transitions: gone all the same.
-	setTimeout(gone, 1000);
+	$('start').hidden = true;
 }
 
 const PRODUCT_KEY = 'mapExplorer.product';
@@ -128,13 +126,9 @@ async function openScenes(): Promise<void> {
 		const stats = await openStorage();
 		hideProgress();
 		dismissStart();
-		showScenes(storage, stats, () => {
-			// The explorer loads the whole world: bring the start card's loading bar back for it.
-			const start = $('start');
-			start.hidden = false;
-			start.classList.remove('leaving');
-			void explore();
-		});
+		// For the next visit, which can't keep the folder itself: it says the connection was lost.
+		rememberFolderLinked();
+		showScenes(storage, stats);
 	} catch (e) {
 		perf.log('error', `could not open: ${(e as Error).message}`);
 		setStatus(`Could not open: ${(e as Error).message}`, true);
@@ -289,6 +283,8 @@ async function findWow(): Promise<void> {
 	}
 	$('start').classList.remove('finding');
 	if (found) await useSource({ kind: 'http', base });
+	// A folder opened here before, and the browser can't keep it: say so, over the button.
+	else if (folderWasLinked()) showFolderLost(true);
 }
 // A viewer made for a switch opens the folder the one before had.
 if (requested) void useSource(requested.source);

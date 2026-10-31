@@ -7,6 +7,7 @@ import { SceneLibrary, type SceneSummary } from '../scene/library';
 import { SceneModel } from '../scene/sceneModel';
 import { MAX_BLANK_TILES } from '../scene/types';
 import { decodeFile, readSceneFile } from '../scene/wscene';
+import { art, button, confirmDialog, el, iconButton, menu } from '../ui';
 import { CopyPicker } from './copyPicker';
 import { EditorPanels } from './editorPanels';
 import { groundEffectScan, type GroundEffectScan } from './groundEffectScan';
@@ -22,7 +23,6 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const library = new SceneLibrary();
 let storage: AsyncStorageApi;
 let stats: StorageStats;
-let onExplore: () => void;
 
 let editor: SceneEditor | null = null;
 let panels: EditorPanels | null = null;
@@ -31,11 +31,13 @@ let picker: CopyPicker | null = null;
 let lastSaved = '';
 let autosaveTimer = 0;
 
-/** The scene library screen (spec 3.1): the saved scenes, New scene, import and export. */
-export function showScenes(openedStorage: AsyncStorageApi, openedStats: StorageStats, explore: () => void): void {
+/**
+ * The scene library on the landing page (spec 3.1, src/ui/specs/landing-page.md): the saved
+ * scenes as cards under New scene and Import scene, or the empty state inviting the first one.
+ */
+export function showScenes(openedStorage: AsyncStorageApi, openedStats: StorageStats): void {
 	storage = openedStorage;
 	stats = openedStats;
-	onExplore = explore;
 	// The ground effect scan (spec 3.1) starts in the background; editing does not wait for it.
 	scan = groundEffectScan(storage, stats.buildName);
 	scan.onStatus = (text, paused) => {
@@ -45,7 +47,7 @@ export function showScenes(openedStorage: AsyncStorageApi, openedStats: StorageS
 		if (paused) element.textContent += ' — click to resume';
 	};
 	wireOnce();
-	$('scenes-build').textContent = `${stats.product} ${stats.version}`;
+	$('landing').hidden = false;
 	$('scenes').hidden = false;
 	void refreshList();
 }
@@ -55,12 +57,16 @@ function wireOnce(): void {
 	if (wired) return;
 	wired = true;
 
-	$('scenes-explore').addEventListener('click', () => {
-		$('scenes').hidden = true;
-		onExplore();
-	});
-
 	$('status-scan').addEventListener('click', () => scan?.setPaused(!scan.paused));
+
+	// New scene and Import scene, over the cards and again in the empty state.
+	const importInput = $<HTMLInputElement>('scene-import-input');
+	const actions = () => [
+		button({ label: 'New scene', variant: 'primary', icon: 'plus', onClick: openCreate }),
+		button({ label: 'Import scene', variant: 'outline', icon: 'download', onClick: () => importInput.click() }),
+	];
+	$('scenes-actions').append(...actions());
+	$('scenes-empty-actions').append(...actions());
 
 	// New scene: a name, then blank tiles or a copied area (spec 3.2).
 	const sizes = (select: HTMLSelectElement) => {
@@ -78,12 +84,12 @@ function wireOnce(): void {
 		if (copy) void picker!.open();
 	};
 	$('scene-start').addEventListener('change', syncStart);
-	$('scene-new').addEventListener('click', () => {
+	function openCreate(): void {
 		$('scene-create').hidden = false;
 		$<HTMLInputElement>('scene-name').value = '';
 		$<HTMLInputElement>('scene-name').focus();
 		syncStart();
-	});
+	}
 	$('scene-create-cancel').addEventListener('click', () => ($('scene-create').hidden = true));
 	$('scene-create-form').addEventListener('submit', (e) => {
 		e.preventDefault();
@@ -108,8 +114,7 @@ function wireOnce(): void {
 		void openEditor(model, true);
 	});
 
-	$('scene-import').addEventListener('click', () => $<HTMLInputElement>('scene-import-input').click());
-	$('scene-import-input').addEventListener('change', async (e) => {
+	importInput.addEventListener('change', async (e) => {
 		const input = e.target as HTMLInputElement;
 		const file = input.files?.[0];
 		input.value = '';
@@ -265,6 +270,7 @@ function wireEditorBar(): void {
 	$('editor-back').addEventListener('click', () => void closeEditor());
 }
 
+/** Lists the saved scenes as cards, or shows the empty state when there are none. */
 async function refreshList(): Promise<void> {
 	let scenes: SceneSummary[] = [];
 	try {
@@ -272,40 +278,87 @@ async function refreshList(): Promise<void> {
 	} catch (e) {
 		notice(`The scene library can't be read: ${e instanceof Error ? e.message : e}`);
 	}
-	const list = $('scene-list');
-	list.replaceChildren(
-		...scenes.map((s) => {
-			const row = document.createElement('div');
-			row.className = 'scene-row';
-			const thumb = document.createElement(s.thumbnail ? 'img' : 'div');
-			thumb.className = 'scene-thumb';
-			if (s.thumbnail && thumb instanceof HTMLImageElement) thumb.src = URL.createObjectURL(s.thumbnail);
-			const label = document.createElement('div');
-			label.className = 'scene-label';
-			const name = document.createElement('div');
-			name.textContent = s.name;
-			const details = document.createElement('div');
-			details.className = 'muted small';
-			details.textContent = `${s.size.tilesX}×${s.size.tilesY} tiles · ${s.kind} · ${new Date(s.modified).toLocaleString()}`;
-			label.append(name, details);
-			const open = button('Open', 'primary', () => void openSavedScene(s.id));
-			const exportButton = button('Export', '', () => void library.bytes(s.id).then((bytes) => download(`${s.name}.wscene`, bytes)));
-			const remove = button('Delete', '', () => {
-				if (confirm(`Delete "${s.name}"? This can't be undone.`)) void library.delete(s.id).then(refreshList);
-			});
-			row.append(thumb, label, open, exportButton, remove);
-			return row;
-		}),
-	);
-	$('scene-list-empty').hidden = scenes.length > 0;
+	$('scene-list').replaceChildren(...scenes.map(sceneCard));
+	$('scenes-empty').hidden = scenes.length > 0;
+	$('scenes-filled').hidden = scenes.length === 0;
 }
 
-function button(label: string, className: string, onClick: () => void): HTMLButtonElement {
-	const b = document.createElement('button');
-	b.textContent = label;
-	if (className) b.className = className;
-	b.addEventListener('click', onClick);
-	return b;
+/**
+ * A scene card (Figma "Dashboard Card - Scene"): the thumbnail over the name, when it was last
+ * edited and its size, and a "…" menu of Scene settings, Duplicate, Export and Delete. The name
+ * is the button that opens the scene, stretched over the whole card by its CSS.
+ */
+function sceneCard(s: SceneSummary): HTMLElement {
+	let picture: HTMLElement;
+	if (s.thumbnail) {
+		const img = el('img', { class: 'scene-card-thumb', alt: '' });
+		img.src = URL.createObjectURL(s.thumbnail);
+		picture = img;
+	} else {
+		picture = el('div', { class: 'scene-card-placeholder' }, art('landscape'));
+	}
+	const open = el('button', { class: 'scene-card-open', type: 'button', title: `Open ${s.name}` }, s.name);
+	open.addEventListener('click', () => void openSavedScene(s.id));
+	const more = iconButton({ icon: 'more', label: `More for ${s.name}`, variant: 'ghost', size: 'sm' });
+	more.classList.add('scene-card-more');
+	menu(more, [
+		{ label: 'Scene settings', onSelect: () => void sceneSettings(s) },
+		{ label: 'Duplicate', onSelect: () => void duplicateScene(s) },
+		{ label: 'Export', onSelect: () => void library.bytes(s.id).then((bytes) => download(`${s.name}.wscene`, bytes)) },
+		{ label: 'Delete', destructive: true, onSelect: () => void deleteScene(s) },
+	]);
+	return el(
+		'article',
+		{ class: 'scene-card' },
+		picture,
+		el(
+			'div',
+			{ class: 'scene-card-lower' },
+			el(
+				'div',
+				{ class: 'scene-card-text' },
+				open,
+				el('p', { class: 'scene-card-meta' }, `Last edited ${new Date(s.modified).toLocaleDateString()}`),
+				el('p', { class: 'scene-card-meta' }, `${s.size.tilesX}x${s.size.tilesY} tiles`),
+			),
+			more,
+		),
+	);
+}
+
+/** A stand-in until scene settings are designed: says so, and no more. */
+async function sceneSettings(s: SceneSummary): Promise<void> {
+	await confirmDialog({
+		title: 'Scene settings',
+		message: `Settings for "${s.name}" aren’t here yet. Renaming and other options are coming in a later update.`,
+		confirm: { label: 'OK' },
+		cancel: { label: 'Close' },
+	});
+}
+
+async function duplicateScene(s: SceneSummary): Promise<void> {
+	try {
+		await library.duplicate(s.id);
+		await refreshList();
+	} catch (e) {
+		notice(`The scene couldn't be duplicated: ${e instanceof Error ? e.message : e}`);
+	}
+}
+
+async function deleteScene(s: SceneSummary): Promise<void> {
+	const yes = await confirmDialog({
+		title: `Delete "${s.name}"?`,
+		message: 'This can’t be undone. Export the scene first if you might want it back.',
+		cancel: { label: 'Keep it' },
+		confirm: { label: 'Delete', destructive: true },
+	});
+	if (!yes) return;
+	try {
+		await library.delete(s.id);
+	} catch (e) {
+		notice(`The scene couldn't be deleted: ${e instanceof Error ? e.message : e}`);
+	}
+	await refreshList();
 }
 
 function download(name: string, bytes: Uint8Array): void {
@@ -328,7 +381,7 @@ function notice(text: string): void {
 }
 
 async function openEditor(model: SceneModel, isNew = false): Promise<void> {
-	$('scenes').hidden = true;
+	$('landing').hidden = true;
 	$('editor-bar').hidden = false;
 	$('editor-name').textContent = model.meta.name;
 	setSaveState('');
@@ -386,6 +439,7 @@ async function closeEditor(): Promise<void> {
 	editor = null;
 	delete (window as { editor?: SceneEditor }).editor;
 	$('editor-bar').hidden = true;
+	$('landing').hidden = false;
 	$('scenes').hidden = false;
 	await refreshList();
 }

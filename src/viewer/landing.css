@@ -1,0 +1,483 @@
+/*
+ * The landing page (src/ui/specs/landing-page.md): the logo and tagline, then the folder card
+ * until a World of Warcraft folder is open, then the scene library (the empty state, or the
+ * actions over a grid of scene cards). src/editor/landing.ts wires the markup in index.html,
+ * src/viewer/main.ts drives the folder card and src/editor/scenesUi.ts the library. The
+ * controls are molecules; every colour, size and space here is a token, and the few numbers
+ * the drawings fix (column widths, the logo's size) are this screen's own variables.
+ */
+#landing {
+	--landing-top: 80px; /* the frame's top padding in Figma */
+	--landing-column: 920px; /* the content column */
+	--landing-logo-width: 112px;
+	--landing-card-width: 480px; /* the folder card */
+	--landing-features-width: 720px; /* the feature cards' grid */
+	--landing-feature-min: 200px; /* a feature card before the grid drops a column */
+	--landing-feature-wide: 560px; /* the last, full-row feature card */
+	--landing-feature-icon: 42px; /* the ring around a feature's icon */
+	--landing-art-width: 240px; /* the empty state's landscape */
+	--landing-scene-min: 260px; /* a scene card before the grid drops a column */
+	--landing-thumb-ratio: 16 / 9; /* the scene thumbnail (512 × 288) */
+
+	position: fixed;
+	inset: 0;
+	z-index: 10; /* over the canvas and the menus */
+	overflow: auto;
+	padding: var(--landing-top) var(--space-6) var(--space-4);
+	background: var(--color-bg-screen);
+	color: var(--color-text);
+	font: var(--type-body-secondary);
+}
+
+@media (max-width: 600px) {
+	#landing {
+		padding: var(--space-8) var(--space-4) var(--space-4);
+	}
+}
+
+.landing-page {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-6);
+	max-inline-size: var(--landing-column);
+	margin: 0 auto;
+}
+
+/* ---- The logo and tagline ---- */
+.landing-brand {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-3);
+}
+
+.landing-logo {
+	inline-size: var(--landing-logo-width);
+}
+
+.landing-tagline {
+	margin: 0;
+	font: var(--type-label);
+}
+
+/* ---- The folder card ---- */
+#start {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-6);
+	inline-size: 100%;
+}
+
+.landing-connect {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	inline-size: 100%;
+	max-inline-size: var(--landing-card-width);
+	padding-block-start: var(--space-4);
+	border: var(--border-width) solid var(--color-bg-surface);
+	border-radius: var(--radius-lg);
+	background: var(--color-bg-screen);
+	overflow: hidden;
+	transition: border-color var(--duration-fast) var(--easing-out);
+}
+
+/* The lost-connection banner sits flush at the top of the card. */
+.landing-connect:has(.landing-banner:not([hidden])) {
+	padding-block-start: 0;
+}
+
+/* A folder held over the page: the whole card is the target. */
+.landing-connect:has(#drop.dragging) {
+	border-color: var(--color-accent);
+}
+
+.landing-banner,
+.landing-note {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2-5);
+	padding: var(--space-3);
+	background: var(--color-bg-selected);
+}
+
+.landing-banner p,
+.landing-note p {
+	margin: 0;
+}
+
+.landing-banner .ds-icon,
+.landing-note .ds-icon {
+	flex: none;
+}
+
+.landing-connect-text {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	padding-inline: var(--space-4);
+	text-align: center;
+}
+
+.landing-connect-text h2 {
+	margin: 0;
+	font: var(--type-heading-2);
+}
+
+.landing-connect-text p {
+	margin: 0;
+}
+
+/* The folder button and the loading bar share one cell: the button sets its size, the bar sits over it while loading. */
+.landing-connect-step {
+	display: grid;
+	padding: var(--space-3) var(--space-6);
+}
+
+.landing-connect-step > * {
+	grid-area: 1 / 1;
+}
+
+#start.loading #drop {
+	visibility: hidden;
+}
+
+#drop .ds-button {
+	inline-size: 100%;
+}
+
+#loading {
+	display: grid;
+	align-self: center;
+	gap: var(--space-2-5);
+}
+
+#loading-text {
+	font: var(--type-body-secondary-bold);
+	text-align: center;
+}
+
+.loading-bar {
+	block-size: var(--space-1);
+	border-radius: var(--radius-full);
+	background: var(--color-bg-surface);
+	overflow: hidden;
+}
+
+#loading-fill {
+	position: relative;
+	inline-size: 0%;
+	block-size: 100%;
+	border-radius: inherit;
+	background: var(--color-accent);
+	transition: width 0.4s var(--easing-out);
+}
+
+/* A glint keeps passing along the fill, so long steps never look stuck. */
+#loading-fill::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(90deg, transparent, var(--color-bg-inverse), transparent) -60% 0 / 40% 100% no-repeat;
+	animation: landing-glint 1.6s ease-in-out infinite;
+}
+
+@keyframes landing-glint {
+	to {
+		background-position: 160% 0;
+	}
+}
+
+/* Several game versions and none of them Classic: a choice under the button. */
+.landing-product {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	padding: 0 var(--space-6) var(--space-3);
+}
+
+.landing-product label {
+	font: var(--type-label);
+	color: var(--color-text-muted);
+}
+
+#landing .landing-product select {
+	flex: 1;
+	min-inline-size: 160px;
+	block-size: 38px;
+	padding: 0 var(--space-3);
+	border: var(--border-width) solid var(--color-border);
+	border-radius: var(--radius-md);
+	background: var(--color-bg-control);
+	color: var(--color-text);
+	font: var(--type-body-secondary);
+}
+
+#landing .landing-product select:focus-visible {
+	border-color: var(--color-focus);
+	outline: none;
+}
+
+/* The note at the foot of the card: the upload reassurance, or what went wrong reading the folder. */
+.landing-note [data-icon='alert'] {
+	display: none;
+}
+
+.landing-note:has(#status.bad) [data-icon='info'] {
+	display: none;
+}
+
+.landing-note:has(#status.bad) [data-icon='alert'] {
+	display: block;
+	color: var(--color-danger);
+}
+
+.landing-note:has(#status:not(:empty)) .landing-note-text {
+	display: none;
+}
+
+#landing #status {
+	margin: 0;
+	font: inherit;
+}
+
+#landing #status.bad {
+	color: var(--color-danger);
+}
+
+#landing #status.muted {
+	color: var(--color-text);
+}
+
+/* Nothing to choose until it's known whether the launcher found the game on its own. */
+#start.finding :is(.landing-connect-step, .landing-product, .landing-note) {
+	visibility: hidden;
+}
+
+/* ---- What ForeverForge is ---- */
+.landing-about {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-3);
+	inline-size: 100%;
+	text-align: center;
+}
+
+.landing-about h2 {
+	margin: 0;
+	font: var(--type-heading-2);
+}
+
+.landing-about > p {
+	margin: 0;
+}
+
+.landing-features {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(var(--landing-feature-min), 1fr));
+	gap: var(--space-6);
+	inline-size: 100%;
+	max-inline-size: var(--landing-features-width);
+	margin-block-start: var(--space-3);
+}
+
+.landing-feature {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-1);
+	padding: var(--space-3);
+	border: var(--border-width) solid var(--color-bg-surface);
+	border-radius: var(--radius-lg);
+	background: var(--color-bg-screen);
+	text-align: center;
+}
+
+.landing-feature[data-wide] {
+	grid-column: 1 / -1;
+	inline-size: 100%;
+	max-inline-size: var(--landing-feature-wide);
+	justify-self: center;
+}
+
+.landing-feature-icon {
+	display: grid;
+	place-items: center;
+	inline-size: var(--landing-feature-icon);
+	block-size: var(--landing-feature-icon);
+	margin-block-end: var(--space-1);
+	border: var(--border-width) solid var(--color-accent);
+	border-radius: var(--radius-full);
+	color: var(--color-accent);
+}
+
+.landing-feature h3 {
+	margin: 0;
+	font: var(--type-body-bold);
+}
+
+.landing-feature p {
+	margin: 0;
+	font: var(--type-label);
+}
+
+/* ---- The scene library ---- */
+#scenes,
+#scenes-filled,
+.landing-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-6);
+	inline-size: 100%;
+}
+
+.landing-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: var(--space-2);
+}
+
+.landing-empty {
+	text-align: center;
+}
+
+.landing-landscape {
+	inline-size: var(--landing-art-width);
+	max-inline-size: 100%;
+}
+
+.landing-empty p {
+	margin: 0;
+	font: var(--type-body);
+}
+
+.landing-progress {
+	font: var(--type-label);
+	color: var(--color-text-muted);
+}
+
+.scene-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(var(--landing-scene-min), 1fr));
+	gap: var(--space-6);
+	inline-size: 100%;
+}
+
+/* A scene card: the thumbnail over the name and details, with a "…" menu. The name is the
+   button that opens the scene, stretched over the whole card; the menu button sits above it. */
+.scene-card {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	border: var(--border-width) solid var(--color-bg-surface);
+	border-radius: var(--radius-lg);
+	background: var(--color-bg-panel);
+	overflow: hidden;
+	transition: border-color var(--duration-fast) var(--easing-out);
+}
+
+.scene-card-thumb,
+.scene-card-placeholder {
+	display: block;
+	inline-size: 100%;
+	aspect-ratio: var(--landing-thumb-ratio);
+	background: var(--color-bg-surface);
+}
+
+.scene-card-thumb {
+	object-fit: cover;
+}
+
+/* No thumbnail yet: the landscape, small and quiet, in its place. */
+.scene-card-placeholder {
+	display: grid;
+	place-items: center;
+}
+
+.scene-card-placeholder .ds-art {
+	inline-size: 50%;
+	opacity: var(--opacity-disabled);
+}
+
+.scene-card-lower {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-1);
+	padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+}
+
+.scene-card-text {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-inline-size: 0;
+}
+
+.scene-card-open {
+	display: block;
+	inline-size: 100%;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--color-text);
+	font: var(--type-heading-2);
+	text-align: left;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	cursor: pointer;
+	outline: none;
+	appearance: none;
+	-webkit-appearance: none;
+}
+
+.scene-card-open::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+}
+
+.scene-card-meta {
+	margin: 0;
+	font: var(--type-label);
+}
+
+.scene-card-more {
+	position: relative;
+	z-index: 1;
+	flex: none;
+}
+
+@media (hover: hover) {
+	.scene-card:has(.scene-card-open:hover) {
+		background-image: linear-gradient(var(--color-bg-hover), var(--color-bg-hover));
+	}
+}
+
+.scene-card:has(.scene-card-open:focus-visible) {
+	border-color: var(--color-focus);
+	background-image: linear-gradient(var(--color-bg-hover), var(--color-bg-hover));
+}
+
+.scene-card:has(.scene-card-open:active) {
+	background-image: linear-gradient(var(--color-bg-pressed), var(--color-bg-pressed));
+}
+
+@media (prefers-reduced-motion: reduce) {
+	#loading-fill::after {
+		animation: none;
+	}
+
+	.landing-connect,
+	.scene-card {
+		transition: none;
+	}
+}

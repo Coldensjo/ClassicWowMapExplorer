@@ -3,64 +3,82 @@
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>WoW Dungeon Builder</title>
+	<title>ForeverForge</title>
 	<link rel="icon" href="/icon.svg" type="image/svg+xml">
 	<link rel="stylesheet" href="/src/ui/index.css">
 	<link rel="stylesheet" href="/src/viewer/viewer.css">
+	<link rel="stylesheet" href="/src/viewer/landing.css">
 </head>
 <body>
 	<canvas id="view"></canvas>
 
-	<!-- The start screen: choosing the folder and game version, then the loading bar, in one look
-	     from the first click to the world. "finding" until the page knows whether World of Warcraft
-	     was found for it. -->
-	<div id="start" class="finding">
-		<div class="card">
-			<header>
-				<img class="logo" src="/icon.svg" alt="" width="32" height="32">
-				<div>
-					<h1>WoW Dungeon Builder</h1>
-					<p class="tagline">Build small WoW-style areas from the game files on your computer.</p>
-				</div>
+	<!-- The landing page (src/ui/specs/landing-page.md): the logo, then the folder card until a
+	     World of Warcraft folder is open, then the scene library. src/editor/landing.ts fills in the
+	     art, icons and feature cards; landing.css lays it out. -->
+	<div id="landing">
+		<div class="landing-page">
+			<header class="landing-brand">
+				<div id="landing-logo" class="landing-logo"></div>
+				<p class="landing-tagline">Build your ideas on Azeroth.</p>
 			</header>
-			<!-- The loading bar takes the folder row's place, over it, so the card keeps its size. -->
-			<div class="step">
-				<div id="drop">
-					<button id="pick" class="primary">Choose your World of Warcraft folder</button>
-					<div class="hint">or drop the folder on this page · usually <code>C:\Program Files (x86)\World of Warcraft</code></div>
-				</div>
-				<div id="loading" hidden aria-live="polite">
-					<div id="loading-text"></div>
-					<div class="loading-bar"><div id="loading-fill"></div></div>
-				</div>
-			</div>
-			<input id="pick-input" type="file" webkitdirectory hidden>
-			<div id="product-step" hidden>
-				<label>Game version <select id="product"></select></label>
-				<button id="explore" class="primary">Open</button>
-			</div>
-			<p id="status"></p>
-			<p class="note">The browser calls it an upload, but nothing leaves your computer: the files are only read here.</p>
-		</div>
-	</div>
 
-	<!-- The scene library: the saved scenes, New scene, import and export (spec 3.1). -->
-	<div id="scenes" hidden>
-		<div class="scenes-frame help-card" role="dialog" aria-labelledby="scenes-title">
-			<header>
-				<h2 id="scenes-title">Your scenes</h2>
-				<span id="scenes-build" class="muted small"></span>
-				<button id="scenes-explore" class="small" title="Fly over the world instead of editing a scene">Explore the world</button>
-			</header>
-			<div class="scenes-actions">
-				<button id="scene-new" class="primary">New scene</button>
-				<button id="scene-import">Import a .wscene…</button>
+			<!-- Choosing the folder: "finding" until the page knows whether the launcher found the game
+			     for it; "loading" while the folder is read, with the bar in the button's place. -->
+			<section id="start" class="finding" aria-labelledby="connect-title">
+				<div class="landing-connect" id="connect-card">
+					<div id="connect-lost" class="landing-banner" role="alert" hidden>
+						<span data-icon-slot="alert"></span>
+						<p>We lost connection to your WoW folder -- reconnect to continue your creations!</p>
+					</div>
+					<div class="landing-connect-text">
+						<h2 id="connect-title">Connect your WoW folder</h2>
+						<p>ForeverForge references your game files to access textures, NPCs, and other objects.</p>
+					</div>
+					<div class="landing-connect-step">
+						<div id="drop">
+							<button id="pick" class="ds-button" data-variant="primary" data-size="lg" type="button"><span class="ds-button-label">Choose folder</span></button>
+						</div>
+						<div id="loading" hidden aria-live="polite">
+							<div id="loading-text"></div>
+							<div class="loading-bar"><div id="loading-fill"></div></div>
+						</div>
+					</div>
+					<input id="pick-input" type="file" webkitdirectory hidden>
+					<!-- Several game versions and none of them Classic: which to open. -->
+					<div id="product-step" class="landing-product" hidden>
+						<label for="product">Game version</label>
+						<select id="product"></select>
+						<button id="explore" class="ds-button" data-variant="secondary" data-size="md" type="button"><span class="ds-button-label">Open</span></button>
+					</div>
+					<div class="landing-note">
+						<span data-icon-slot="info"></span>
+						<span data-icon-slot="alert"></span>
+						<p class="landing-note-text">Your browser may ask you to confirm an upload, but nothing leaves your computer -- ForeverForge only reads your game files.</p>
+						<p id="status"></p>
+					</div>
+				</div>
+				<section class="landing-about" aria-labelledby="about-title">
+					<h2 id="about-title">What is ForeverForge?</h2>
+					<p>A free, browser-based map editor for World of Warcraft.</p>
+					<div id="landing-features" class="landing-features"></div>
+				</section>
+			</section>
+
+			<!-- The scene library (spec 3.1): the saved scenes, New scene and import; the buttons and
+			     cards are built by src/editor/scenesUi.ts. -->
+			<section id="scenes" aria-label="Your scenes" hidden>
+				<div id="scenes-empty" class="landing-empty" hidden>
+					<div id="landing-landscape" class="landing-landscape"></div>
+					<p>No scenes created yet - how do you want to start?</p>
+					<div id="scenes-empty-actions" class="landing-actions"></div>
+				</div>
+				<div id="scenes-filled" hidden>
+					<div id="scenes-actions" class="landing-actions"></div>
+					<div id="scenes-progress" class="landing-progress" hidden aria-live="polite"></div>
+					<div id="scene-list" class="scene-grid"></div>
+				</div>
 				<input id="scene-import-input" type="file" accept=".wscene" hidden>
-			</div>
-			<div id="scenes-progress" class="muted small" hidden aria-live="polite"></div>
-			<div id="scene-list" class="scene-list"></div>
-			<p id="scene-list-empty" class="muted">No scenes yet. Make one with New scene.</p>
-			<p class="muted small">Scenes are kept in this browser and hold only your edits plus references to game files; export a .wscene to share or back one up.</p>
+			</section>
 		</div>
 	</div>
 
@@ -325,7 +343,7 @@
 	<div id="shot-status" hidden aria-live="polite"></div>
 
 	<div id="game-updated" hidden role="alert">
-		The game was updated while Map Explorer was open, so its files can't be read any more.
+		The game was updated while ForeverForge was open, so its files can't be read any more.
 		<button id="game-updated-reload" class="primary">Reload</button>
 	</div>
 

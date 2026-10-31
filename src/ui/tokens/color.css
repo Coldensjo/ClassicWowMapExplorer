@@ -28,6 +28,7 @@
 	--color-bg-page: var(--palette-ink-950); /* the page itself, where nothing else is drawn; no Figma variable */
 	--color-bg-panel: color-mix(in srgb, var(--palette-ink-900) 85%, transparent); /* translucent panel over the 3D view (surface-transparent-primary) */
 	--color-bg-surface: var(--palette-ink-800); /* opaque surface (surface-primary) */
+	--color-bg-screen: var(--palette-ink-900); /* a whole screen's own background, such as the landing page, and the cards laid on it (screen) */
 	--color-bg-inverse: color-mix(in srgb, var(--palette-ink-100) 40%, transparent); /* light translucent surface on a dark one (surface-transparent-inverse) */
 	--color-bg-control: var(--palette-ink-900); /* an outline button or other control's fill (button-bg-outline) */
 	--color-bg-hover: color-mix(in srgb, var(--palette-ink-100) 10%, transparent); /* wash laid over anything hovered (interaction-hover) */

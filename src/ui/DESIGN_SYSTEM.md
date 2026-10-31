@@ -13,7 +13,8 @@ them all (§8). The game theme's overrides are not written yet. The editor's too
 migrated: the Paint tool's texture browser, the Objects tool's object browser and the NPCs
 tool's NPC library are floating windows built from molecules, and every tool's settings live in
 the side panel controls, the mode column beside a resizable tool panel of modules down the right
-(§7.1); the scene library, the top bar and the status bar still use their own markup.
+(§7.1); the landing page (the folder card and the scene library) is built from molecules and the
+art (§6.4) with its own page stylesheet; the top bar and the status bar still use their own markup.
 
 ## 1. Layout
 
@@ -73,7 +74,7 @@ Rules of the layout:
 4. **Molecules** read tokens and style their own class, and the bare element where the static
    markup in `index.html` should look the same (see §5).
 
-Page CSS (`viewer.css` and any future per-screen stylesheet) comes after, so a screen can
+Page CSS (`viewer.css`, and a per-screen stylesheet such as `landing.css`) comes after, so a screen can
 override a molecule for its own layout with an ordinary selector. Page CSS takes tokens with
 `var(--…)` and never restates a value a token holds.
 
@@ -386,6 +387,8 @@ module and keeping only its layout rules in page CSS, written with tokens. The p
 | The Place tool's object browser (2026-10-30): the same window with a Doodads / Buildings segmented control, the model grid and a selection toast, shown only in Place mode | `src/editor/modelBrowser.ts` | the same `.asset-browser-*` rules | `specs/object-browser.md` |
 | The NPCs tool's NPC library (2026-10-30): the same window with a main view of three interactive tiles (Local, Favorites, Existing) and a Create new NPC button, each opening a browser of NPC tiles with a "…" menu, a variants pill and the selection toast, shown only in NPCs mode | `src/editor/npcLibrary.ts` | the same rules plus `.npc-library-*` | `specs/npc-library.md` |
 | The side panel controls (2026-10-30; first built the same day as the bottom controls, which docked the same modules across the bottom): the vertical mode controller beside a grab bar beside the tool panel, down the right of the viewport; the panel's width is dragged and remembered (narrower than 120px collapses it), and each tool fills it with a title and a column of modules built from radios, sliders, switches, steppers, selects, text inputs and hotkey lists. It replaced the tool rail and the properties panel. | `src/editor/sideControls.ts` (the frame and the module shell) and `src/editor/editorPanels.ts` (each tool's modules) | `viewer.css`, "The side panel controls" (`#side-controls`, `.dock-*`) | `specs/side-panel-controls.md` (modules: `specs/bottom-controls.md` §2) |
+
+| The landing page (2026-10-31, from the Figma page "-> Main Screen"): the logo and tagline over the folder card (choose, loading, errors, the lost-connection banner, the game version choice) and the "What is ForeverForge?" feature cards, or over the scene library (New scene and Import scene over a grid of scene cards with a "…" menu, or the empty state) | `index.html` (markup), `src/editor/landing.ts` (art, icons, cards, the lost-folder flag), `src/viewer/main.ts` (the folder card), `src/editor/scenesUi.ts` (the library) | `src/viewer/landing.css`, all of it | `specs/landing-page.md` |
 
 Their markup left `index.html` and their old rules left `viewer.css`.
 

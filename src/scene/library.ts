@@ -1,7 +1,7 @@
 import { dbOp, SCENE_STORE } from './db';
 import type { SceneModel } from './sceneModel';
 import type { Scene } from './types';
-import { decodeFile, encodeScene, readSceneFile } from './wscene';
+import { copySceneFile, decodeFile, encodeScene, readSceneFile } from './wscene';
 
 /**
  * The local scene library (spec 7.11): OPFS holds one .wscene per scene, and an IndexedDB index
@@ -104,6 +104,15 @@ export class SceneLibrary {
 		};
 		await indexOp('readwrite', (store) => store.put(summary));
 		return scene;
+	}
+
+	/** Stores a copy of a saved scene as a new scene named after it; returns the copy's summary. */
+	async duplicate(id: string): Promise<SceneSummary> {
+		const original = await this.summary(id);
+		if (!original) throw new Error('That scene is no longer in the library');
+		const file = readSceneFile(await this.bytes(id));
+		const scene = await this.import(copySceneFile(file, `${original.name} copy`));
+		return (await this.summary(scene.id))!;
 	}
 
 	async delete(id: string): Promise<void> {

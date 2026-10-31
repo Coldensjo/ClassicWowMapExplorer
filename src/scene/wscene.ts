@@ -219,6 +219,16 @@ export function readSceneFile(bytes: Uint8Array): SceneFile {
 }
 
 /**
+ * The same container under a fresh id, name and dates, for duplicating a saved scene without
+ * decoding it (a copied scene would need its source map for that).
+ */
+export function copySceneFile(file: SceneFile, name: string): Uint8Array {
+	const now = new Date().toISOString();
+	const scene: Scene = { ...file.scene, id: crypto.randomUUID(), name, created: now, modified: now };
+	return zipSync({ ...file.files, 'scene.json': strToU8(JSON.stringify(scene)) });
+}
+
+/**
  * Reads .wscene bytes back into a SceneModel, refusing anything but a valid container. A copied
  * scene needs its source tiles loaded first (readSceneFile says whether scene.base is set), passed
  * here row-major over the base rectangle.

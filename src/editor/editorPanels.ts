@@ -83,7 +83,7 @@ const OBJECT_KEYS: HotkeyRow[] = [
 	{ label: 'Rotate gizmo', keys: ['E'] },
 	{ label: 'Scale gizmo', keys: ['R'] },
 	{ label: 'Add to selection', keys: ['Shift'], tail: 'click' },
-	{ label: 'Box select', keys: ['Shift'], tail: 'drag' },
+	{ label: 'Box select', keys: [], tail: 'drag' },
 	{ label: 'Drop to ground', keys: [MOD, 'Space'] },
 	{ label: 'Duplicate', keys: [MOD, 'D'] },
 	{ label: 'Delete', keys: ['Del'] },

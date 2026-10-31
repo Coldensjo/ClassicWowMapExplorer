@@ -62,8 +62,8 @@ const FOG_FAR_DEFAULT = 9000;
 /** Thumbnails for the scene library (and later galleries), spec 6.2. */
 const THUMBNAIL_WIDTH = 512;
 const THUMBNAIL_HEIGHT = 288;
-/** Pixels a plain left press moves before it looks around instead of clicking. */
-const LOOK_DRAG_THRESHOLD = 4;
+/** Pixels a plain left press may move and still count as a click (the Paint tool's chunk sample). */
+const CLICK_THRESHOLD = 4;
 /** How far the cursor ray is marched looking for ground (yards). */
 const CURSOR_REACH = 6000;
 /** Outer lattice spacing in yards. */
@@ -291,8 +291,8 @@ export class SceneEditor {
 	private readonly strokeTiles = new Set<number>();
 	/** The ramp's first clicked point, waiting for the second. */
 	private rampStart: { x: number; z: number; h: number } | null = null;
-	/** A plain left press in edit mode: a click if let go where it went down, else a drag that looks around. */
-	private press: { x: number; y: number; event: MouseEvent } | null = null;
+	/** A plain left press with a terrain tool: a chunk click if let go where it went down. */
+	private press: { x: number; y: number } | null = null;
 	private readonly ring = makeRing(64);
 	private readonly rampRing = makeRing(32);
 	/** Frames since the FPS readout last updated. */
@@ -393,8 +393,8 @@ export class SceneEditor {
 		// The explorer's sea mask tints terrain below sea level; a scene has no sea.
 		seaMask.uSeaBounds.value.set(1e9, 1e9, 1, 1);
 
-		// Left drag: look around. Left click: select or place with the Place and NPCs tools.
-		// Shift / Cmd + left: the terrain tools (Shift raises, Cmd lowers).
+		// Right button held: look around. Left button: select, box-select or place with the Place
+		// and NPCs tools; Shift / Cmd + left runs the terrain tools (Shift raises, Cmd lowers).
 		canvas.addEventListener('mousedown', this.onMouseDown);
 		canvas.addEventListener('mousemove', this.onMouseMove);
 		canvas.addEventListener('mouseleave', this.onMouseLeave);
@@ -1599,21 +1599,26 @@ export class SceneEditor {
 			this.pressedPlaying = e.button === 0;
 			return;
 		}
+		// The right button held looks around, with the mouse captured until it is let go.
+		if (e.button === 2) {
+			this.endStroke();
+			this.press = null;
+			this.controls.lock();
+			return;
+		}
 		if (e.button !== 0 || this.controls.locked) return;
-		const modified = e.shiftKey || e.metaKey || e.ctrlKey;
 		if (this.objectTool) {
-			// A press on the gizmo belongs to it; Shift selects at once (toggling, or a box on nothing).
+			// A press on the gizmo belongs to it; otherwise it selects, starts a box or places.
 			if (Number.isNaN(this.mouse.x) || this.objects.gizmoBusy) return;
-			if (e.shiftKey) {
-				this.raycaster.setFromCamera(this.mouse, this.camera);
-				this.objects.selectClick(this.raycaster, e);
-				return;
-			}
-		} else if (modified) {
+			this.raycaster.setFromCamera(this.mouse, this.camera);
+			this.objects.press(this.raycaster, this.cursor, e, this.tool === 'npcs');
+			return;
+		}
+		if (e.shiftKey || e.metaKey || e.ctrlKey) {
 			this.beginStroke(e.metaKey || e.ctrlKey);
 			return;
 		}
-		this.press = { x: e.clientX, y: e.clientY, event: e };
+		this.press = { x: e.clientX, y: e.clientY };
 	};
 
 	private readonly onMouseUp = (e: MouseEvent): void => {
@@ -1622,27 +1627,22 @@ export class SceneEditor {
 			// A press that turned the camera isn't a click (see WalkControls.wasDrag).
 			if (this.walker.active && !this.walker.wasDrag) this.targetClick();
 		}
+		if (e.button === 2) {
+			if (this.controls.locked) document.exitPointerLock();
+			return;
+		}
 		if (e.button !== 0) return;
 		const press = this.press;
 		this.press = null;
-		if (press && this.objectTool && !this.walker.active && !Number.isNaN(this.mouse.x)) {
-			this.raycaster.setFromCamera(this.mouse, this.camera);
-			this.objects.click(this.raycaster, this.cursor, press.event, this.tool === 'npcs');
-		} else if (press && !this.objectTool && !this.walker.active && this.onChunkClick) {
-			this.onChunkClick(this.chunkUnderCursor());
-		}
+		if (press && !this.objectTool && !this.walker.active && this.onChunkClick) this.onChunkClick(this.chunkUnderCursor());
 		this.endStroke();
-		if (this.controls.locked) document.exitPointerLock();
 	};
 
 	private readonly onMouseMove = (e: MouseEvent): void => {
 		const rect = this.canvas.getBoundingClientRect();
 		this.mouse.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
-		// A plain left press that moves turns into looking around, with the mouse captured.
-		if (this.press && Math.abs(e.clientX - this.press.x) + Math.abs(e.clientY - this.press.y) > LOOK_DRAG_THRESHOLD) {
-			this.press = null;
-			this.controls.lock();
-		}
+		// A press that moves on is no click.
+		if (this.press && Math.abs(e.clientX - this.press.x) + Math.abs(e.clientY - this.press.y) > CLICK_THRESHOLD) this.press = null;
 	};
 
 	private readonly onMouseLeave = (): void => {

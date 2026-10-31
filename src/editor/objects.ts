@@ -133,7 +133,7 @@ export class SceneObjects {
 	private dragStart: { pivot: THREE.Matrix4; entities: Map<string, { matrix: THREE.Matrix4; was: Snapshot }> } | null = null;
 	/** Copied entities, shared across scenes in the session (spec 7.8 copy/paste). */
 	private static clipboard: Snapshot[] = [];
-	private boxSelect: { startX: number; startY: number; element: HTMLDivElement; add: boolean } | null = null;
+	private boxSelect: { startX: number; startY: number; element: HTMLDivElement; add: boolean; onClick: () => void } | null = null;
 
 	constructor(
 		scene: THREE.Scene,
@@ -440,28 +440,37 @@ export class SceneObjects {
 	// ---- Selecting (spec 7.8) ----
 
 	/**
-	 * A left click (not a drag, which turns the camera) with the Place or NPCs tool: selects the
-	 * entity under the cursor; elsewhere, drops the armed asset on the ground in place mode, or
-	 * clears the selection in select mode.
+	 * A left press with the Place or NPCs tool: on an entity, selects it (selectClick); on nothing,
+	 * starts a box select, which, let go without dragging, drops the armed asset where the press
+	 * was in place mode, or clears the selection (Shift keeps it).
 	 */
-	click(raycaster: THREE.Raycaster, terrain: { x: number; z: number; height: number } | null, event: MouseEvent, npcTool: boolean): void {
+	press(raycaster: THREE.Raycaster, terrain: { x: number; z: number; height: number } | null, event: MouseEvent, npcTool: boolean): void {
 		if (this.pickId(raycaster)) return this.selectClick(raycaster, event);
-		const placing = npcTool ? this.npcPlace.mode === 'place' : this.place.mode === 'place';
-		if (!placing) this.clearSelection();
-		else if (!terrain) return;
-		else if (npcTool) this.placeNpcClick(raycaster, terrain);
-		else this.placeClick(raycaster, terrain);
+		// The ray as it was at the press: the shared raycaster moves on with the mouse.
+		const ray = new THREE.Raycaster(raycaster.ray.origin.clone(), raycaster.ray.direction.clone(), raycaster.near, raycaster.far);
+		ray.camera = raycaster.camera;
+		this.beginBoxSelect(event, () => {
+			const placing = npcTool ? this.npcPlace.mode === 'place' : this.place.mode === 'place';
+			if (!placing || event.shiftKey) {
+				if (!event.shiftKey) this.clearSelection();
+				return;
+			}
+			if (!terrain) return;
+			if (npcTool) this.placeNpcClick(ray, terrain);
+			else this.placeClick(ray, terrain);
+		});
 	}
 
 	/**
-	 * A press with Shift in select mode: picks the entity under the cursor (its whole group with it,
-	 * unless Shift narrows to one), Shift toggles, and a press on empty ground starts a box select
-	 * (a plain drag turns the camera, so only Shift gets here on nothing).
+	 * A press on an entity: picks it (its whole group with it, unless Shift narrows to one), or
+	 * with Shift toggles it in the selection; on nothing, starts a box select.
 	 */
 	selectClick(raycaster: THREE.Raycaster, event: MouseEvent): void {
 		const id = this.pickId(raycaster);
 		if (!id) {
-			this.beginBoxSelect(event);
+			this.beginBoxSelect(event, () => {
+				if (!event.shiftKey) this.clearSelection();
+			});
 			return;
 		}
 		const e = this.entity(id)!;
@@ -520,14 +529,17 @@ export class SceneObjects {
 		return this.selectedEntities().flatMap((e) => (e.kind === 'npc' ? [e.n] : []));
 	}
 
-	/** A drag on empty ground: a screen rectangle that selects the entities whose centre it covers. */
-	private beginBoxSelect(event: MouseEvent): void {
+	/**
+	 * A drag on empty ground: a screen rectangle that selects the entities whose centre it covers
+	 * (Shift adds them). Let go without dragging, it is a click on nothing: `onClick` runs instead.
+	 */
+	private beginBoxSelect(event: MouseEvent, onClick: () => void): void {
 		this.cancelBoxSelect();
 		const element = document.createElement('div');
 		element.className = 'select-box';
 		element.style.display = 'none';
 		this.canvas.parentElement?.appendChild(element);
-		this.boxSelect = { startX: event.clientX, startY: event.clientY, element, add: event.shiftKey };
+		this.boxSelect = { startX: event.clientX, startY: event.clientY, element, add: event.shiftKey, onClick };
 		window.addEventListener('mousemove', this.onBoxMove);
 		window.addEventListener('mouseup', this.onBoxUp);
 	}
@@ -552,8 +564,7 @@ export class SceneObjects {
 		this.cancelBoxSelect();
 		const dragged = Math.abs(e.clientX - box.startX) + Math.abs(e.clientY - box.startY) > DRAG_THRESHOLD;
 		if (!dragged) {
-			// A plain click on nothing clears the selection.
-			if (!box.add) this.clearSelection();
+			box.onClick();
 			return;
 		}
 		const rect = this.canvas.getBoundingClientRect();

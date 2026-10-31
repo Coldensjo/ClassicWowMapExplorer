@@ -15,7 +15,7 @@ export interface HotkeyRow {
 	label: string;
 	/** The keys pressed together, e.g. ["Shift"] or ["Cmd", "D"]. */
 	keys: string[];
-	/** What follows the keys, e.g. "click" or "drag", shown as "+ click". */
+	/** What follows the keys, e.g. "click" or "drag", shown as "+ click" (alone when there are no keys). */
 	tail?: string;
 }
 
@@ -35,7 +35,7 @@ function row(spec: HotkeyRow): HTMLLIElement {
 		if (i > 0) keys.append(el('span', { class: 'ds-hotkey-plus', 'aria-hidden': 'true' }, '+'));
 		keys.append(kbd(key));
 	});
-	if (spec.tail) keys.append(el('span', { class: 'ds-hotkey-tail' }, `+ ${spec.tail}`));
+	if (spec.tail) keys.append(el('span', { class: 'ds-hotkey-tail' }, spec.keys.length ? `+ ${spec.tail}` : spec.tail));
 	return el('li', { class: 'ds-hotkey-row' }, el('span', { class: 'ds-hotkey-label' }, spec.label), keys);
 }
 

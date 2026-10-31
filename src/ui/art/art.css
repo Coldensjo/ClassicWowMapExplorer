@@ -1,0 +1,24 @@
+/*
+ * The art: the logo and the illustrations (art/index.ts). See DESIGN_SYSTEM.md §6.4.
+ *
+ * .ds-art is an inline <svg> that fills its container's width and keeps its own aspect. The
+ * light parts of a drawing are currentColor, so the parent's `color` sets them; the accent
+ * parts are classed and coloured here, so a theme recolours a drawing through the tokens.
+ */
+.ds-art {
+	--art-fg: var(--color-text);
+	--art-accent: var(--color-accent);
+
+	display: block;
+	inline-size: 100%;
+	block-size: auto;
+	color: var(--art-fg);
+}
+
+.ds-art .ds-art-accent {
+	fill: var(--art-accent);
+}
+
+.ds-art .ds-art-accent-line {
+	stroke: var(--art-accent);
+}

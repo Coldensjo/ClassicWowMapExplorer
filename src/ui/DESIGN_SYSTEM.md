@@ -1,6 +1,6 @@
 # Design system
 
-How the UI of WoW Dungeon Builder is styled and built, and how to extend it. Read this before
+How the UI of ForeverForge is styled and built, and how to extend it. Read this before
 adding a colour, a font size or a control anywhere in the app. The system is plain CSS custom
 properties and plain TypeScript factories, with no framework, because that is how the rest of
 the app is built (DOM made by hand in `src/editor` and `src/viewer`, one stylesheet in
@@ -37,6 +37,10 @@ src/ui/
 │   ├── <name>.svg        one 24×24 line icon per file, from Figma, drawn in currentColor
 │   ├── index.ts          icon(name, options) and the IconName type
 │   └── icon.css          .ds-icon: size and line width from tokens
+├── art/
+│   ├── <name>.svg        the logo and the illustrations, from Figma, coloured by classes
+│   ├── index.ts          art(name, options) and the ArtName type
+│   └── art.css           .ds-art: fills its container; the accent parts from tokens
 └── molecules/
     ├── index.ts          one export line per molecule
     ├── base.css          rules every molecule shares (.ds-visually-hidden)
@@ -337,6 +341,21 @@ closeButton.append(icon('close', { label: 'Close' }));   // the button's only co
 The files are inlined into the bundle at build time and parsed once each on first use (with
 `DOMParser`, since they are the folder's own files, never user input); each `icon()` call
 clones the parsed element.
+
+### 6.4 The art
+
+The logo and the illustrations live in `art/`, one SVG each, exported from the Figma file like
+the icons but at their drawn size: `logo` (Logo - Vertical, 112 × 61) and `landscape` (the
+empty state's mountains, 560 × 258). `art(name, { label? })` returns `<svg class="ds-art">`,
+which fills its container's width and keeps its aspect, so the container sets the size.
+
+A drawing carries no colour of its own: its light parts are `currentColor` (the parent's
+`color`, `--color-text` by default) and its accent parts carry the classes `ds-art-accent`
+(fills) and `ds-art-accent-line` (strokes), which `art.css` colours from `--color-accent`, so a
+theme recolours the art through the tokens. To add one, export it from Figma as SVG, drop the
+root's `width`/`height`, replace `#E7E7E7` with `currentColor` and `#006FB4` with the two
+classes, and add one `?raw` import and one entry to `sources` in `art/index.ts`. The favicon
+(`public/icon.svg`) is the logo's mark cut from the same export.
 
 ## 7. Migrating what exists
 

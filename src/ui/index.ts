@@ -3,5 +3,6 @@
  * their own files. Styles are in index.css, linked from index.html. See DESIGN_SYSTEM.md.
  */
 export * from './icons';
+export * from './art';
 export * from './molecules';
 export { el, append, uid } from './dom';

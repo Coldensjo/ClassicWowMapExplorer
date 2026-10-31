@@ -393,8 +393,10 @@ async function openEditor(model: SceneModel, isNew = false): Promise<void> {
 	// A console handle on the open editor, for poking at the model and managers while testing.
 	(window as { editor?: SceneEditor }).editor = editor;
 	editor.onNotice = notice;
-	// Newly painted layers take the effect their texture usually carries (spec 7.7.2).
+	// Newly painted layers take the effect their texture usually carries (spec 7.7.2); layers
+	// painted before the scan finished get theirs once it has.
 	editor.effectFor = (fdid) => scan?.effectFor(fdid) ?? 0;
+	if (scan) scan.onComplete = () => void editor?.applyGroundEffects();
 	panels = new EditorPanels(editor, storage, controls);
 	try {
 		await editor.load();

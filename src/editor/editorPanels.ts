@@ -362,11 +362,14 @@ export class EditorPanels {
 		const weatherModule = dockModule({ title: 'Weather effects', children: [weather.root, fog.root, shadows.root] });
 
 		const settings = editor.clutterSettings;
+		// Switching clutter on also gives layers painted before the ground effect scan finished
+		// the effect their texture usually carries (spec 7.7.2), so they grow clutter too.
 		const clutterOn = toggleSwitch({
 			label: 'Show clutter',
 			checked: settings.enabled,
 			onChange: (on) => {
 				settings.enabled = on;
+				if (on) editor.applyGroundEffects();
 				editor.refreshClutter();
 			},
 		});
@@ -382,18 +385,10 @@ export class EditorPanels {
 				editor.refreshClutter();
 			},
 		});
-		const apply = button({
-			label: 'Apply ground effects to scene',
-			title: 'Give layers painted before the scan finished the clutter their texture usually carries',
-			onClick: () => {
-				const changed = editor.applyGroundEffects();
-				editor.onNotice(changed ? `Ground effects applied to ${changed} chunk${changed === 1 ? '' : 's'}` : 'Every painted layer already has its ground effect');
-			},
-		});
 		const clutterModule = dockModule({
 			title: 'Ground clutter',
 			help: { text: 'Small shrubs or weeds that populate dynamically based on the textures you paint.' },
-			children: [clutterOn.root, density.root, apply],
+			children: [clutterOn.root, density.root],
 		});
 
 		// The slider is in minutes, on quarter hours; the scene keeps half-minutes. Dragging

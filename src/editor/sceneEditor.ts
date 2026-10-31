@@ -841,8 +841,9 @@ export class SceneEditor {
 	}
 
 	/**
-	 * Gives layers painted before the scan finished their texture's usual effect (spec 7.7.2
-	 * "Apply ground effects to scene"), as one undoable command; returns how many chunks changed.
+	 * Gives layers painted before the scan finished their texture's usual effect (spec 7.7.2), as
+	 * one undoable command; returns how many chunks changed. Run when the scan completes and when
+	 * Show clutter is switched on, so no layer stays bare for want of a button.
 	 */
 	applyGroundEffects(): number {
 		const model = this.model;

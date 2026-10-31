@@ -30,6 +30,8 @@ export class GroundEffectScan {
 	private pauseAsked = false;
 	/** Shown in the status bar; empty once done. */
 	onStatus: (text: string, paused: boolean) => void = () => {};
+	/** The whole scan has finished (the table is final), so layers painted meanwhile can be given their effects. */
+	onComplete: () => void = () => {};
 
 	constructor(
 		private readonly storage: AsyncStorageApi,
@@ -96,6 +98,7 @@ export class GroundEffectScan {
 			this.state.complete = true;
 			await this.save();
 			this.status('');
+			this.onComplete();
 		} catch (e) {
 			this.status(`Ground effect scan stalled: ${e instanceof Error ? e.message : e}`);
 		} finally {

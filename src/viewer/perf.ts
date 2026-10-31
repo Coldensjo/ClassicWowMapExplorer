@@ -178,7 +178,7 @@ class Perf {
 			this.tail.push(entry);
 			if (this.tail.length > LOG_TAIL + 1000) this.tail.splice(0, this.tail.length - LOG_TAIL);
 		}
-		if (this.verboseOn) console.debug(`[MapExplorer] ${(entry.t / 1000).toFixed(2)} s ${cat}: ${msg}`);
+		if (this.verboseOn) console.debug(`[ForeverForge] ${(entry.t / 1000).toFixed(2)} s ${cat}: ${msg}`);
 	}
 
 	/** Adds to one of the counts a hitch reports (bytes uploaded, say), for the frame under way. */
@@ -310,7 +310,7 @@ class Perf {
 			this.hitchList.push(hitch);
 			if (this.hitchList.length > MAX_HITCHES) this.hitchList.shift();
 			this.log('hitch', summarize(hitch));
-			if (ms >= WARN_MS) console.warn(`[MapExplorer] ${summarize(hitch)}`, hitch);
+			if (ms >= WARN_MS) console.warn(`[ForeverForge] ${summarize(hitch)}`, hitch);
 		}
 		this.lastFrame = now;
 		this.lastShaders = shaders;

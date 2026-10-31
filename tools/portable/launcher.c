@@ -1,4 +1,4 @@
-// Map Explorer's portable launcher: serves the built app (the "app" folder next to this exe)
+// ForeverForge's portable launcher: serves the built app (the "app" folder next to this exe)
 // on 127.0.0.1 and shows it in a window of its own (Edge's or Chrome's app mode), with no
 // console. The app needs a web server: module workers and fetch don't work from file:// pages.
 // It also finds World of Warcraft and serves its files to the page, so there's no folder to
@@ -28,7 +28,7 @@
 #define PORT_TRIES 20
 // Answered by a running launcher, so a second one just opens the page instead of another server.
 #define HELLO_PATH "/__mapexplorer"
-#define HELLO_BODY "Map Explorer"
+#define HELLO_BODY "ForeverForge"
 // The World of Warcraft install, served to the page here so it opens without asking for the folder.
 #define WOW_PATH "/__wow/"
 
@@ -381,7 +381,7 @@ static void findInstall(void) {
 	}
 }
 
-// Whether a Map Explorer launcher already answers on this port.
+// Whether a ForeverForge launcher already answers on this port.
 static int alreadyRunning(int port) {
 	SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (s == INVALID_SOCKET) return 0;
@@ -403,7 +403,7 @@ static int alreadyRunning(int port) {
 }
 
 static void fail(const wchar_t *message) {
-	MessageBoxW(NULL, message, L"Map Explorer", MB_OK | MB_ICONERROR);
+	MessageBoxW(NULL, message, L"ForeverForge", MB_OK | MB_ICONERROR);
 }
 
 // A browser that can show a page as an app window (--app): Edge, which every Windows 10 and 11
@@ -451,7 +451,7 @@ static void profileDir(const wchar_t *exeDir, wchar_t *out, size_t size) {
 	if (writable(out)) return;
 	wchar_t local[MAX_PATH];
 	GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH);
-	swprintf(out, size, L"%ls\\MapExplorer", local);
+	swprintf(out, size, L"%ls\\ForeverForge", local);
 	CreateDirectoryW(out, NULL);
 	wcsncat(out, L"\\browser", size - wcslen(out) - 1);
 	CreateDirectoryW(out, NULL);
@@ -520,7 +520,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR arguments, int
 	wchar_t index[MAX_PATH * 2];
 	swprintf(index, sizeof index / sizeof index[0], L"%ls\\index.html", appDir);
 	if (GetFileAttributesW(index) == INVALID_FILE_ATTRIBUTES) {
-		fail(L"The \"app\" folder is missing: keep MapExplorer.exe together with it.");
+		fail(L"The \"app\" folder is missing: keep ForeverForge.exe together with it.");
 		return 1;
 	}
 	wchar_t profile[MAX_PATH * 2];
@@ -573,7 +573,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR arguments, int
 	HANDLE window = openWindow(port, profile);
 	if (!window) {
 		// No app window to watch: the page is in the default browser instead.
-		MessageBoxW(NULL, L"Map Explorer is open in your browser.\n\nPress OK when you're done, to stop it.", L"Map Explorer", MB_OK | MB_ICONINFORMATION);
+		MessageBoxW(NULL, L"ForeverForge is open in your browser.\n\nPress OK when you're done, to stop it.", L"ForeverForge", MB_OK | MB_ICONINFORMATION);
 		return 0;
 	}
 	// Serve until the window closes: its browser process ends, and no other window (a second

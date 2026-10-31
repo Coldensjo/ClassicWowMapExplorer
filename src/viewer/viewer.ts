@@ -1469,7 +1469,7 @@ export class Viewer {
 		const pos = this.camera.position;
 		const place = this.zoneNames().zone ?? this.terrain.locate(pos.x, pos.z)?.continent.name ?? 'Open sea';
 		const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '.');
-		const name = `MapExplorer ${place.replace(/[\\/:*?"<>|]/g, '')} ${stamp}.png`;
+		const name = `ForeverForge ${place.replace(/[\\/:*?"<>|]/g, '')} ${stamp}.png`;
 		// The canvas is copied now, before it's resized back (which clears it); only the encoding waits.
 		this.canvas.toBlob((blob) => {
 			if (!blob) return;

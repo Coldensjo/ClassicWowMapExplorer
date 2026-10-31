@@ -1,13 +1,13 @@
-// Builds the portable version: release/MapExplorer/ (MapExplorer.exe next to the built app)
-// and release/MapExplorer-portable.zip. The exe serves the app on 127.0.0.1 and opens it in
+// Builds the portable version: release/ForeverForge/ (ForeverForge.exe next to the built app)
+// and release/ForeverForge-portable.zip. The exe serves the app on 127.0.0.1 and opens it in
 // the browser, so nothing needs installing to run it.
 // Usage: bun run portable (needs gcc and windres from mingw-w64, ImageMagick and 7-Zip on PATH).
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const OUT = 'release/MapExplorer';
-const ZIP = 'release/MapExplorer-portable.zip';
+const OUT = 'release/ForeverForge';
+const ZIP = 'release/ForeverForge-portable.zip';
 const WORK = '.cache/portable';
 /** Sizes in the exe's icon, for everything from the title bar to large Explorer views. */
 const ICON_SIZES = [16, 20, 24, 32, 40, 48, 64, 256];
@@ -39,15 +39,15 @@ run('magick', [...pngs, join(WORK, 'icon.ico')]);
 // static, so it needs no DLLs.
 const resource = join(WORK, 'launcher.res');
 run('windres', ['--include-dir', WORK, 'tools/portable/launcher.rc', '-O', 'coff', '-o', resource]);
-run('gcc', ['-O2', '-s', '-static', '-municode', '-mwindows', '-Wall', 'tools/portable/launcher.c', resource, '-lws2_32', '-lshell32', '-ladvapi32', '-luser32', '-o', join(OUT, 'MapExplorer.exe')]);
+run('gcc', ['-O2', '-s', '-static', '-municode', '-mwindows', '-Wall', 'tools/portable/launcher.c', resource, '-lws2_32', '-lshell32', '-ladvapi32', '-luser32', '-o', join(OUT, 'ForeverForge.exe')]);
 
-writeFileSync(join(OUT, 'README.txt'), `Map Explorer (portable)
+writeFileSync(join(OUT, 'README.txt'), `ForeverForge (portable)
 
-Double-click MapExplorer.exe. Map Explorer opens in a window of its own, finds World of
+Double-click ForeverForge.exe. ForeverForge opens in a window of its own, finds World of
 Warcraft by itself (or asks for its folder if it can't), and you fly. Close the window when
 you're done.
 
-Keep MapExplorer.exe next to the "app" folder. The window is Microsoft Edge (or Chrome) showing
+Keep ForeverForge.exe next to the "app" folder. The window is Microsoft Edge (or Chrome) showing
 the app, served from the "app" folder to this computer only; nothing is sent anywhere. Its
 settings are kept in the "data" folder, apart from your own browser.
 `.replace(/\n/g, '\r\n'));

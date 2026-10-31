@@ -50,7 +50,7 @@ export function hostViewers(): void {
 	function addFrame(request?: SwitchRequest): Frame {
 		const element = document.createElement('iframe');
 		element.className = 'viewer-frame';
-		element.title = 'Map Explorer';
+		element.title = 'ForeverForge';
 		element.allow = 'autoplay; fullscreen';
 		const url = new URL(location.href);
 		url.searchParams.set('viewer', '1');

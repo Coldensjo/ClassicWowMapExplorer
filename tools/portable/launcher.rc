@@ -13,11 +13,11 @@ BEGIN
 	BEGIN
 		BLOCK "040904B0"
 		BEGIN
-			VALUE "FileDescription", "Map Explorer"
-			VALUE "ProductName", "Map Explorer"
+			VALUE "FileDescription", "ForeverForge"
+			VALUE "ProductName", "ForeverForge"
 			VALUE "FileVersion", "0.4.0"
 			VALUE "ProductVersion", "0.4.0"
-			VALUE "OriginalFilename", "MapExplorer.exe"
+			VALUE "OriginalFilename", "ForeverForge.exe"
 		END
 	END
 	BLOCK "VarFileInfo"

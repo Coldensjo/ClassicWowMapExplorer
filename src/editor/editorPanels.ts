@@ -897,7 +897,8 @@ export class EditorPanels {
 		const keysModule = dockModule({ title: 'Hotkeys', children: [this.keys({ rows: OBJECT_KEYS }).root] });
 		const transform = this.buildTransform();
 
-		// Attributes (spec 7.9.1): name, title, pose, idle, the look, then the common rows.
+		// Attributes (spec 7.9.1): name, title, pose, idle, the look, then the common rows. (Changing
+		// the look to the library's pick comes back with a place of its own in a later phase.)
 		const names = () => objects.setNpcName(name.input.value, title.input.value);
 		const name = textInput({ label: 'Name', placeholder: 'unnamed', title: 'Shown on the nameplate in play mode', onChange: names });
 		const title = textInput({ label: 'Title', placeholder: 'e.g. <Innkeeper>', onChange: names });
@@ -921,20 +922,12 @@ export class EditorPanels {
 				objects.setNpcIdle(id, id ? animationName(id) : 'Stand');
 			},
 		});
-		const appearance = button({
-			label: 'Change appearance to the picked one',
-			title: 'Give the selected NPCs the creature or custom NPC picked in the NPC library',
-			onClick: () => {
-				const picked = settings.asset;
-				if (picked) objects.setNpcAppearance(picked.appearance, picked.label);
-			},
-		});
 		const look = dockNote('');
 		const common = this.commonAttributes();
 		const attributes = dockModule({
 			title: 'Attributes',
 			emptyText: 'Make a selection to edit attributes.',
-			children: [name.root, title.root, pose.root, idle.root, appearance, look, ...common.rows],
+			children: [name.root, title.root, pose.root, idle.root, look, ...common.rows],
 		});
 
 		// The play-mode avatar (spec 7.10): the picked appearance, or the default.
@@ -960,9 +953,6 @@ export class EditorPanels {
 				if (active !== name.input) setTextValue(name.root, npcs.every((n) => n.name === npc.name) ? (npc.name ?? '') : '');
 				if (active !== title.input) setTextValue(title.root, npcs.every((n) => n.subName === npc.subName) ? (npc.subName ?? '') : '');
 				this.syncNpcIdle(pose, idle, npcs);
-				const asset = settings.asset;
-				setDisabled(appearance, !asset);
-				appearance.title = asset ? `Give the selected NPC${npcs.length === 1 ? '' : 's'} the look picked in the NPC library: ${asset.label}` : 'Pick an NPC in the NPC library first';
 				look.textContent = this.npcLibrary?.describe(npc.appearance) ?? (npc.appearance.kind === 'creature' ? `Creature display ${npc.appearance.displayId}` : 'Custom NPC');
 			}
 			common.sync(npcs.map((n): Entity => ({ kind: 'npc', n })));

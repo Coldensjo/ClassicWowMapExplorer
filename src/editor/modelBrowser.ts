@@ -40,7 +40,7 @@ interface Item {
 /** How many matches are put in the grid at once; search narrows the rest. */
 const MAX_SHOWN = 200;
 const STORAGE_KEY = 'wdb.window.object-browser.2'; // .2: the default moved to the bottom left on 2026-10-30
-const SCALE_KEY = 'wdb.object-browser.scale';
+const SCALE_KEY = 'wdb.object-browser.scale.2'; // .2: the default moved to the middle stop on 2026-10-30
 const VIEW_KEY = 'wdb.object-browser.view';
 /** How long the "click in the scene" toast stays after a pick. */
 const TOAST_MS = 4000;

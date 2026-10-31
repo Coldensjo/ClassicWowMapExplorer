@@ -57,7 +57,7 @@ const THUMB = 128;
 /** Thumbnails decoded per worker batch. */
 const BATCH = 16;
 const STORAGE_KEY = 'wdb.window.texture-browser.2'; // .2: the default moved to the bottom left on 2026-10-30
-const SCALE_KEY = 'wdb.texture-browser.scale';
+const SCALE_KEY = 'wdb.texture-browser.scale.2'; // .2: the default moved to the middle stop on 2026-10-30
 const VIEW_KEY = 'wdb.texture-browser.view';
 
 /** Decoded thumbnails, kept across scenes for the session. */

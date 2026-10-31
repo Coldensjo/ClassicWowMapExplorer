@@ -13,7 +13,7 @@ export type BrowserView = 'grid' | 'list';
 export const COLUMNS_BY_SCALE = [5, 4, 3];
 /** …or, as a list, the rows get their picture size. */
 export const PICTURE_BY_SCALE: AssetTilePictureSize[] = ['sm', 'md', 'lg'];
-export const DEFAULT_SCALE = 3;
+export const DEFAULT_SCALE = 2; // the middle stop (4 columns, 80px rows) since 2026-10-30
 
 /** The tile size kept from last time under `key`, 1 (smallest) to 3. */
 export function loadScale(key: string): number {

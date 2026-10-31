@@ -112,8 +112,8 @@ panel until the whole panel migrates.
 ## 5. Not built
 
 The Transform and Attributes bottom panels and the NPC Studio drawn in the flows are their own
-components; the delete confirmation (flow 2.3.4) is not drawn, so Delete uses the browser's
-confirm for now.
+components; the delete confirmation (flow 2.3.4) is not drawn, so Delete uses the
+[dialog](dialog.md) in its destructive shape ("Delete "<name>"?" / Keep it · Delete).
 
 ### Acceptance checks
 

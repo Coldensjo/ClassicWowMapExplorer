@@ -17,11 +17,18 @@ import { SideControls, dockModule, dockNote, dockRow, setModuleEmpty, type DockM
 import {
 	attachTooltip,
 	button,
-	el,
+	confirmDialog,
 	fieldShell,
 	hotkeyList,
+	type HotkeyRow,
+	el,
+	type ModeId,
+	toggleSwitch,
 	radioGroup,
+	type RadioGroupHandle,
 	select,
+	type SelectHandle,
+	type SelectOption,
 	setChecked,
 	setDisabled,
 	setHotkeyRows,
@@ -34,12 +41,6 @@ import {
 	slider,
 	stepper,
 	textInput,
-	toggleSwitch,
-	type HotkeyRow,
-	type ModeId,
-	type RadioGroupHandle,
-	type SelectHandle,
-	type SelectOption,
 } from '../ui';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -1057,9 +1058,16 @@ export class EditorPanels {
 			onEdit: (preset) => void this.openNpcEditor(preset),
 			// Remix: a new NPC that starts as this one (the studio gives it a fresh id).
 			onRemixPreset: (preset) => void this.openNpcEditor(null, { race: preset.race, sex: preset.sex, customization: { ...preset.customization }, equipment: { ...preset.equipment } }, `${preset.name || 'Custom NPC'} (remix)`),
+			// Flow 2.3.4 draws no confirmation; the dialog's destructive shape asks (npc-library.md §5).
 			onDelete: (preset) => {
-				if (!confirm(`Delete "${preset.name}" from your NPC library? Scenes that use it keep their own copy.`)) return;
-				void this.presets.delete(preset.id).then(refreshPresets, (e) => editor.onNotice(`Deleting failed: ${e instanceof Error ? e.message : e}`));
+				void confirmDialog({
+					title: `Delete "${preset.name || 'Custom NPC'}"?`,
+					message: 'Scenes that use it keep their own copy.',
+					cancel: { label: 'Keep it' },
+					confirm: { label: 'Delete', destructive: true },
+				}).then((yes) => {
+					if (yes) return this.presets.delete(preset.id).then(refreshPresets, (e) => editor.onNotice(`Deleting failed: ${e instanceof Error ? e.message : e}`));
+				});
 			},
 			onExport: (preset) => download(`${preset.name || 'npc'}.wnpc`, PresetLibrary.export(preset), 'application/json'),
 			onImport: (file) => {

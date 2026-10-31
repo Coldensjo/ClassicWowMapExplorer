@@ -452,7 +452,7 @@ export class SceneObjects {
 	/**
 	 * A left press with the Place or NPCs tool: on an entity, selects it (selectClick); on nothing,
 	 * starts a box select, which, let go without dragging, drops the armed asset where the press
-	 * was in place mode, or clears the selection (Shift keeps it).
+	 * was, or, with nothing armed, clears the selection (Shift keeps it).
 	 */
 	press(raycaster: THREE.Raycaster, terrain: { x: number; z: number; height: number } | null, event: MouseEvent, npcTool: boolean): void {
 		if (this.pickId(raycaster)) return this.selectClick(raycaster, event);
@@ -460,7 +460,7 @@ export class SceneObjects {
 		const ray = new THREE.Raycaster(raycaster.ray.origin.clone(), raycaster.ray.direction.clone(), raycaster.near, raycaster.far);
 		ray.camera = raycaster.camera;
 		this.beginBoxSelect(event, () => {
-			const placing = npcTool ? this.npcPlace.mode === 'place' : this.place.mode === 'place';
+			const placing = npcTool ? this.npcPlace.mode === 'place' && this.npcPlace.asset !== null : this.place.mode === 'place' && this.place.asset !== null;
 			if (!placing || event.shiftKey) {
 				if (!event.shiftKey) this.clearSelection();
 				return;

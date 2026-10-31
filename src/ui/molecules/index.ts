@@ -23,3 +23,4 @@ export * from './tile';
 export * from './mode-controller';
 export * from './asset-tile';
 export * from './floating-window';
+export * from './dialog';

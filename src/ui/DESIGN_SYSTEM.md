@@ -258,6 +258,7 @@ was drawn, what was decided and what is proposed. File names follow the specs (s
 | `loading` | `loading()` | the turning ring, in place of the Figma GIF |
 | `asset-tile` | `assetTile()`, `setAssetTileSelected()`, `setAssetTileLayout()`, `assetGrid()`, `setAssetGridColumns()`, `setAssetGridLayout()` | a square picture with a caption, an optional badge and corner action, or the same as a row (`layout: 'row'`, picture at three sizes), and the grid or list of them the browsers scroll |
 | `floating-window` | `floatingWindow()` | the movable, resizable, collapsible panel the texture, object and NPC browsers share |
+| `dialog` | `dialog()`, `confirmDialog()` | a modal question on the native `<dialog>`: title, message, two buttons sharing the width |
 
 The Level Indicator spec is not a molecule: it belongs inside the outline tree when that is
 built. Floating panels (menu, select list, tooltip, toast) are appended to `<body>` and

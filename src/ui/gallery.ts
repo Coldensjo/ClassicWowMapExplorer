@@ -8,6 +8,7 @@ import {
 	attachTooltip,
 	bindModeShortcuts,
 	button,
+	confirmDialog,
 	floatingWindow,
 	grabBar,
 	hotkeyList,
@@ -410,6 +411,25 @@ const status = () => el('div', { class: 'status' }, '—');
 		},
 	});
 	section('Floating window', 'floating-window.md', 'The frame the texture, object and NPC browsers share. It floats over the page, so open it and look to the right.', row(open), s);
+}
+
+// Dialog
+{
+	const s = status();
+	const ask = (destructive: boolean) =>
+		void confirmDialog({
+			title: destructive ? 'Delete "Stormwind Guard"?' : 'Exit NPC studio?',
+			message: destructive ? 'Scenes that use it keep their own copy.' : 'Any changes you’ve made will be lost.',
+			cancel: { label: destructive ? 'Keep it' : 'Go back' },
+			confirm: { label: destructive ? 'Delete' : 'Exit', destructive },
+		}).then((yes) => (s.textContent = yes ? 'Confirmed' : 'Cancelled'));
+	section(
+		'Dialog',
+		'dialog.md',
+		'A modal question on the native <dialog>: the scrim behind, Escape and the close button cancel, the safe choice has focus first. The second opens the destructive shape.',
+		row(button({ label: 'Exit NPC studio?', onClick: () => ask(false) }), button({ label: 'Delete a preset', variant: 'outline', onClick: () => ask(true) })),
+		s,
+	);
 }
 
 // Icons

@@ -33,6 +33,7 @@
 	--color-bg-hover: color-mix(in srgb, var(--palette-ink-100) 10%, transparent); /* wash laid over anything hovered (interaction-hover) */
 	--color-bg-selected: color-mix(in srgb, var(--palette-blue-600) 20%, transparent); /* wash laid over a selection (selection-overlay) */
 	--color-bg-pressed: color-mix(in srgb, var(--palette-ink-100) 20%, transparent); /* wash while a control is pressed: the hover wash doubled; proposed, no Figma variable (buttons.md §8) */
+	--color-scrim: color-mix(in srgb, var(--palette-ink-950) 60%, transparent); /* the veil over the page behind a modal (the NPC studio, a dialog); proposed: Figma draws it as an unbound rectangle */
 
 	/* Tier 2, lines */
 	--color-border: var(--palette-ink-600); /* a control's or panel's outline (button-border-outline) */

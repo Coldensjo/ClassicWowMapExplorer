@@ -1,0 +1,101 @@
+/*
+ * Dialog. Spec: specs/dialog.md.
+ *
+ * .ds-dialog is a native <dialog> opened modally: a 400px opaque card with a title row (the
+ * title and a ghost close button), a divider, the message, a divider, and a footer of two
+ * buttons sharing the width (the safe choice as secondary, the committing one as outline, or
+ * primary / destructive when the caller says so). Its ::backdrop is the page scrim. The
+ * browser gives it the top layer, focus containment and Escape.
+ */
+.ds-dialog {
+	--dialog-bg: var(--color-bg-control);
+	--dialog-border: var(--color-bg-surface);
+	--dialog-fg: var(--color-text);
+	--dialog-width: 400px;
+	--dialog-radius: var(--radius-lg);
+	--dialog-scrim: var(--color-scrim);
+
+	box-sizing: border-box;
+	inline-size: min(var(--dialog-width), calc(100vw - 2 * var(--space-4)));
+	max-block-size: calc(100vh - 2 * var(--space-4));
+	margin: auto;
+	padding: 0;
+	border: var(--border-width) solid var(--dialog-border);
+	border-radius: var(--dialog-radius);
+	background-color: var(--dialog-bg);
+	color: var(--dialog-fg);
+	overflow: hidden;
+}
+
+.ds-dialog::backdrop {
+	background-color: var(--color-scrim, rgb(0 0 0 / 0.6));
+}
+
+/* 16px above the 24px title row; the divider sits 16px under it. */
+.ds-dialog-header {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2-5);
+	min-block-size: 24px;
+	padding: var(--space-4) var(--space-4) 0;
+	margin-block-end: var(--space-4);
+}
+
+.ds-dialog-title {
+	flex: 1 1 auto;
+	min-inline-size: 0;
+	margin: 0;
+	font: var(--type-heading-1);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ds-dialog-header .ds-icon-button {
+	flex: none;
+}
+
+.ds-dialog-body {
+	padding: var(--space-4);
+	border-block: var(--border-width) solid var(--dialog-border);
+	font: var(--type-body);
+}
+
+.ds-dialog-message {
+	margin: 0;
+	text-wrap: pretty;
+}
+
+.ds-dialog-message + .ds-dialog-message {
+	margin-block-start: var(--space-4);
+}
+
+/* The two buttons share the width, 16px apart. */
+.ds-dialog-footer {
+	display: flex;
+	gap: var(--space-4);
+	padding: var(--space-4);
+}
+
+.ds-dialog-footer .ds-button {
+	flex: 1 1 0;
+	min-inline-size: 0;
+}
+
+/* A confirm that deletes: the danger colour, as the menu draws its destructive items (proposed, dialog.md §3). */
+.ds-dialog-footer .ds-button[data-destructive='true'] {
+	--button-fg: var(--color-danger);
+	--button-border: var(--color-danger);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.ds-dialog[open] {
+		animation: ds-dialog-in var(--duration-slow) var(--easing-out);
+	}
+
+	@keyframes ds-dialog-in {
+		from {
+			opacity: 0;
+		}
+	}
+}

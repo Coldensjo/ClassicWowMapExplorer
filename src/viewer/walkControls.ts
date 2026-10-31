@@ -64,6 +64,8 @@ const ZOOM_STEP = 1.2;
 const CAMERA_GAP = 0.6;
 /** How quickly the camera eases back out once nothing's in the way (1/e of the way per 1/rate s). */
 const CAMERA_EASE_OUT = 3;
+/** How quickly the camera swings back behind a moving character (1/e of the turn left per 1/rate s). */
+const CAMERA_FOLLOW_RATE = 4;
 /** The camera looks at this share of the height above the feet: about the top of the head. */
 const EYE = 0.9;
 /** How long a newly placed character waits for its ground to load before falling anyway (s). */
@@ -446,7 +448,14 @@ export class WalkControls {
 		this.facing += turned;
 		// The camera keeps behind the character as it turns, except while the left button holds it
 		// where it's been put: then only the character turns.
-		if (this.dragging && this.buttons & 1 && !this.steering) this.orbit -= turned;
+		const held = this.dragging && (this.buttons & 1) !== 0 && !this.steering;
+		if (held) this.orbit -= turned;
+		// Moving or turning with the keys swings the camera back behind the character, as in the
+		// game, unless the left button holds it; the short way round.
+		if (!held && !this.steering && this.orbit !== 0 && (this.intent.x !== 0 || this.intent.y !== 0 || this.turning !== 0)) {
+			this.orbit = angleDelta(0, this.orbit) * Math.exp(-dt * CAMERA_FOLLOW_RATE);
+			if (Math.abs(this.orbit) < 1e-3) this.orbit = 0;
+		}
 	}
 
 	/** Horizontal velocity for the keys: forward, back and sideways at their speeds, for running, walking or swimming. */

@@ -82,7 +82,7 @@ export class SceneControls {
 	setPlaying(playing: boolean): void {
 		this.play.querySelector('.ds-icon')?.replaceWith(icon(playing ? 'scene' : 'play', { size: 'sm' }));
 		this.play.querySelector('.ds-button-label')!.textContent = playing ? 'Edit' : 'Play';
-		this.play.title = playing ? 'Back to editing, with the camera where the player stands' : 'Walk the scene as your character';
+		this.play.title = playing ? 'Back to editing, with the camera where the player stands (Alt+Z hides the interface)' : 'Walk the scene as your character (Alt+Z hides the interface while playing)';
 	}
 
 	/** Disables Save while a save is running. */

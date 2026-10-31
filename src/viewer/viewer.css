@@ -483,6 +483,12 @@ body.playing #side-controls {
 	display: none;
 }
 
+/* Alt+Z while playing (spec 7.10): the whole interface goes until pressed again. */
+
+body.playing.ui-hidden :is(#scene-controls, #target-frame, #notice, .ds-toast) {
+	display: none;
+}
+
 /* The target frame: the targeted NPC's name at the top, out of the mouse's way. */
 
 #target-frame {

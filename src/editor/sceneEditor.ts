@@ -999,6 +999,15 @@ export class SceneEditor {
 	/** Called whenever play mode starts or ends, for the top bar's Edit/Play button. */
 	onPlayChange: (playing: boolean) => void = () => {};
 
+	/** Alt+Z while playing (spec 7.10): the interface is hidden, nameplates with it. */
+	private uiHidden = false;
+
+	/** Hides or shows the interface while playing: body.ui-hidden hides the panels, and the nameplates go with them. */
+	setUiHidden(hidden: boolean): void {
+		this.uiHidden = hidden;
+		document.body.classList.toggle('ui-hidden', hidden);
+	}
+
 	/**
 	 * Play mode (spec 7.10): drops the player to the ground under the camera and walks; off, the
 	 * editor camera is put at the player's position, looking its way. Returns false when there is
@@ -1008,6 +1017,7 @@ export class SceneEditor {
 		if (on === this.walker.active) return true;
 		if (!on) {
 			this.setTarget(null);
+			this.setUiHidden(false);
 			this.walker.stop();
 			this.controls.enabled = true;
 			const eye = this.walker.position.clone();
@@ -1057,12 +1067,12 @@ export class SceneEditor {
 	/** Names over NPCs within range of the player, and the selection circle under the target; each frame while playing. */
 	private updatePlay(): void {
 		const playing = this.walker.active;
-		this.nameplates.group.visible = playing;
+		this.nameplates.group.visible = playing && !this.uiHidden;
 		if (!playing) return;
 		if (this.target && !this.model.npc(this.target)) this.setTarget(null);
 		const plates: Plate[] = [];
 		const feet = this.walker.position;
-		for (const n of this.model.npcs) {
+		for (const n of this.uiHidden ? [] : this.model.npcs) {
 			const name = n.name?.trim();
 			if (!name || !this.objects.npcs.isSpawned(n.id)) continue;
 			const distance = Math.hypot(n.position[0] - feet.x, n.position[2] - feet.z);
@@ -1643,8 +1653,16 @@ export class SceneEditor {
 	};
 
 	private readonly onKeyDown = (e: KeyboardEvent): void => {
-		if (this.disposed || e.altKey) return;
+		if (this.disposed) return;
 		if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+		// Alt+Z (Option+Z) while playing hides and shows the interface, as in the game.
+		if (e.altKey) {
+			if (e.code === 'KeyZ' && !e.ctrlKey && !e.metaKey && this.walker.active && !e.repeat) {
+				e.preventDefault();
+				this.setUiHidden(!this.uiHidden);
+			}
+			return;
+		}
 		if (this.walker.active && e.code === 'Escape') return this.setTarget(null);
 		if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
 			e.preventDefault();

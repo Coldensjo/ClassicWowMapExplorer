@@ -6,7 +6,7 @@
 	--muted: #9aa1ac;
 	--accent: #d9a441;
 	--bad: #e58080;
-	/* The menu bar's height: what sits at the top of the screen goes under it. */
+	/* The editor bar's height: what sits at the top of the screen goes under it. */
 	--bar: 34px;
 	--status-bar-height: 22px; /* the editor's status bar; the bottom controls sit above it */
 	font: 14px/1.45 system-ui, sans-serif;
@@ -78,111 +78,8 @@ button:disabled {
 	cursor: default;
 }
 
-/* Along the top: the menus, each dropping its panel below its name, one open at a time. */
-#menu {
-	position: fixed;
-	top: 0;
-	left: 0;
-	right: 0;
-	height: var(--bar);
-	display: flex;
-	align-items: center;
-	gap: 2px;
-	padding: 0 8px;
-	background: var(--panel);
-	border-bottom: 1px solid var(--line);
-}
-
-#menu details {
-	position: relative;
-}
-
-#menu summary {
-	list-style: none;
-	cursor: pointer;
-	user-select: none;
-	font-size: 13px;
-	font-weight: 600;
-	border-radius: 4px;
-	padding: 4px 12px;
-}
-
-#menu summary::-webkit-details-marker {
-	display: none;
-}
-
-#menu summary:hover, #menu details[open] > summary {
-	color: var(--accent);
-	background: rgba(255, 255, 255, 0.07);
-}
-
-#menu .menu-body {
-	position: absolute;
-	left: 0;
-	top: calc(100% + 5px);
-	width: 300px;
-	max-height: calc(100vh - var(--bar) - 16px);
-	overflow-y: auto;
-	scrollbar-width: thin;
-}
-
-/* Under the menu bar: the camera's whereabouts. */
-#top-left {
-	position: fixed;
-	top: calc(var(--bar) + 8px);
-	left: 12px;
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-	gap: 8px;
-	pointer-events: none;
-}
-
-/* The HUD steps aside while a menu is open over it. */
-body:has(#menu details[open]) #hud {
-	visibility: hidden;
-}
-
-#hud {
-	background: var(--panel);
-	border-radius: 6px;
-	padding: 8px 12px;
-	font-size: 13px;
-	pointer-events: none;
-	min-width: 230px;
-}
-
-#hud-location {
-	font-weight: 600;
-}
-
-/* Clicking the coordinates copies a link to the view. */
-#hud-coords {
-	pointer-events: auto;
-	display: block;
-	text-align: left;
-	font-variant-numeric: tabular-nums;
-}
-
-#hud-coords:hover {
-	color: var(--text);
-	text-decoration: underline dotted;
-}
-
-#hud-stats {
-	padding-top: 4px;
-	margin-top: 6px !important;
-	border-top: 1px solid var(--line);
-}
-
-/* With the area info off, the stats stand alone. */
-#hud-area[hidden] + #hud-stats {
-	padding-top: 0;
-	margin-top: 0 !important;
-	border-top: none;
-}
-
 /* A button that looks like text. */
+
 button.plain {
 	background: none;
 	border: none;
@@ -190,43 +87,6 @@ button.plain {
 	font: inherit;
 	color: inherit;
 	cursor: pointer;
-}
-
-#hud dl {
-	display: grid;
-	grid-template-columns: auto 1fr;
-	gap: 0 12px;
-	margin: 6px 0 0;
-	font-variant-numeric: tabular-nums;
-}
-
-#hud dt {
-	color: var(--muted);
-}
-
-#hud dd {
-	margin: 0;
-}
-
-/* "? Controls", at the right end of the menu bar; the list itself opens over the middle. */
-#help-hint {
-	border-radius: 4px;
-	padding: 4px 10px;
-	font-size: 12px;
-	color: var(--muted);
-}
-
-#help-hint:hover {
-	color: var(--text);
-}
-
-#help {
-	position: fixed;
-	inset: 0;
-	display: grid;
-	place-items: center;
-	padding: 16px;
-	background: rgba(0, 0, 0, 0.35);
 }
 
 .help-card {
@@ -254,32 +114,12 @@ button.plain {
 	color: var(--accent);
 }
 
-.help-groups {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-	gap: 14px 24px;
-}
-
-.help-groups section {
-	display: grid;
-	gap: 3px;
-	align-content: start;
-}
-
 .help-card p {
 	margin: 12px 0 0;
 }
 
-#help-close {
-	position: absolute;
-	top: 8px;
-	right: 12px;
-	font-size: 20px;
-	line-height: 1;
-	color: var(--muted);
-}
-
 /* What a key just changed: a line low in the middle that fades out. */
+
 #notice {
 	position: fixed;
 	left: 50%;
@@ -313,8 +153,8 @@ kbd {
 	margin-right: 2px;
 }
 
-/* Zone text, like the game's: large gold zone name, smaller subzone below. */
-/* The game updated under the open storage: shown even with the interface hidden, until reloaded. */
+/* The game updated under the open storage: shown until reloaded. */
+
 #game-updated {
 	position: fixed;
 	top: calc(var(--bar) + 12px);
@@ -335,1764 +175,8 @@ kbd {
 	display: none;
 }
 
-/* Screenshot progress (P): shown even with the interface hidden. */
-#shot-status {
-	position: fixed;
-	top: calc(var(--bar) + 12px);
-	left: 50%;
-	transform: translateX(-50%);
-	max-width: calc(100% - 32px);
-	padding: 8px 14px;
-	background: var(--panel);
-	border: 1px solid var(--line);
-	border-radius: 6px;
-	font-size: 13px;
-	pointer-events: none;
-}
-
-/*
- * Zone text as the game's ZoneText.xml draws it, on its 768-unit-high screen: ZoneTextFont
- * (Friz Quadrata 32, thick outline) centred 192 units from the top, SubZoneTextFont (26)
- * right under it, both in (1.0, 0.9294, 0.7607). Each fades on its own: in 0.5 s, held 1 s,
- * out 2 s. The zone line keeps its place while only the subzone shows.
- */
-#zone-banner {
-	--ui-unit: calc(100vh / 768);
-	position: fixed;
-	top: calc(192 * var(--ui-unit) - 0.6 * 32 * var(--ui-unit));
-	left: 0;
-	right: 0;
-	text-align: center;
-	pointer-events: none;
-	font-family: 'Friz Quadrata', 'Trebuchet MS', system-ui, sans-serif;
-	line-height: 1.2;
-	color: rgb(255, 237, 194);
-}
-
-#zone-name, #subzone-name {
-	opacity: 0;
-	white-space: nowrap;
-	/* The thick outline: a ring of black round each letter. */
-	text-shadow:
-		0.06em 0 0 #000, -0.06em 0 0 #000, 0 0.06em 0 #000, 0 -0.06em 0 #000,
-		0.045em 0.045em 0 #000, -0.045em 0.045em 0 #000, 0.045em -0.045em 0 #000, -0.045em -0.045em 0 #000;
-}
-
-#zone-name {
-	font-size: calc(32 * var(--ui-unit));
-}
-
-#subzone-name {
-	font-size: calc(26 * var(--ui-unit));
-}
-
-#zone-name.show, #subzone-name.show {
-	animation: zone-fade 3.5s linear forwards;
-}
-
-@keyframes zone-fade {
-	0% { opacity: 0; }
-	14.3% { opacity: 1; }
-	42.9% { opacity: 1; }
-	100% { opacity: 0; }
-}
-
-#crosshair {
-	position: fixed;
-	left: 50%;
-	top: 50%;
-	width: 6px;
-	height: 6px;
-	margin: -3px 0 0 -3px;
-	border-radius: 50%;
-	background: rgba(255, 255, 255, 0.85);
-	box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
-	pointer-events: none;
-}
-
-/*
- * The right column: the minimap at the top, and the info for what was clicked under
- * it, scrolling rather than covering anything.
- */
-#side {
-	position: fixed;
-	top: calc(var(--bar) + 8px);
-	right: 12px;
-	bottom: 12px;
-	width: min(280px, calc(100vw - 24px));
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-	pointer-events: none;
-	overflow-y: auto;
-	scrollbar-width: thin;
-}
-
-#side > * {
-	pointer-events: auto;
-	flex: none;
-}
-
-#minimap-wrap {
-	position: relative;
-	align-self: flex-end;
-	width: 180px;
-	height: 180px;
-}
-
-#minimap-wrap[hidden] {
-	display: none;
-}
-
-#minimap {
-	display: block;
-	width: 100%;
-	height: 100%;
-	border-radius: 50%;
-	border: 2px solid #4a4134;
-	box-shadow: 0 0 0 1px #000, 0 2px 10px rgba(0, 0, 0, 0.5);
-	cursor: crosshair;
-}
-
-#minimap-wrap .north {
-	position: absolute;
-	top: -2px;
-	left: 50%;
-	transform: translateX(-50%);
-	font: 700 12px/1 'Trebuchet MS', system-ui, sans-serif;
-	color: #ffd35a;
-	background: #1a1712;
-	border: 1px solid #4a4134;
-	border-radius: 50%;
-	width: 18px;
-	height: 18px;
-	display: grid;
-	place-items: center;
-	pointer-events: none;
-}
-
-/* The game's ring and zone bar; only with its interface pictures (.wow-ui, below). */
-#minimap-wrap .ring, #minimap-zone {
-	display: none;
-}
-
-#minimap-wrap .zoom {
-	position: absolute;
-	right: -2px;
-	bottom: 4px;
-	display: grid;
-	gap: 2px;
-}
-
-#minimap-wrap .zoom button {
-	width: 24px;
-	height: 24px;
-	padding: 0;
-	border-radius: 50%;
-	line-height: 1;
-	background: #1a1712;
-	border-color: #4a4134;
-}
-
-#minimap-wrap .zoom button:hover {
-	border-color: var(--accent);
-}
-
-/*
- * The Game version menu: a row per installed version, a handle at the left to move it and the
- * rest choosing it; the open one marked and lit. After evaera's design in #8.
- */
-/*
- * As wide as the longest row, between these: a name too long even then is cut short with an
- * ellipsis, never the shortcut beside it. The notes don't widen it, only wrap to it.
- */
-#version .menu-body {
-	width: max-content;
-	min-width: 300px;
-	max-width: min(460px, calc(100vw - 32px));
-}
-
-#version .menu-body > p {
-	width: 0;
-	min-width: 100%;
-}
-
-.quick-keep {
-	display: block;
-	margin-top: 6px;
-}
-
-#version-list {
-	display: grid;
-	gap: 2px;
-	max-height: min(60vh, 560px);
-	overflow: hidden auto;
-}
-
-.version-row {
-	display: flex;
-	align-items: stretch;
-	gap: 4px;
-	border-block: 2px solid transparent;
-}
-
-.version-row.drop-before {
-	border-top-color: var(--accent);
-}
-
-.version-row.drop-after {
-	border-bottom-color: var(--accent);
-}
-
-.version-row.dragging {
-	opacity: 0.5;
-}
-
-:is(.wow-ui, body) #version-list :is(.version-handle, .version-choice) {
-	border-image: none;
-	box-shadow: none;
-}
-
-:is(.wow-ui, body) #version-list .version-handle {
-	flex: 0 0 26px;
-	padding: 4px;
-	cursor: grab;
-	color: #aaa;
-	background: transparent;
-	border: 0;
-}
-
-:is(.wow-ui, body) #version-list .version-handle {
-	touch-action: none;
-}
-
-/* While a row is dragged by its handle, wherever the pointer is. */
-:is(.wow-ui, body) #version-list .version-handle:active,
-body.reordering,
-body.reordering * {
-	cursor: grabbing !important;
-}
-
-:is(.wow-ui, body) #version-list .version-choice {
-	flex: 1;
-	min-width: 0;
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	padding: 6px 8px;
-	text-align: left;
-	background: #17130f;
-	border: 1px solid #544631;
-}
-
-:is(.wow-ui, body) #version-list .version-choice:hover {
-	background: #30271b;
-}
-
-:is(.wow-ui, body) #version-list .version-choice.active {
-	color: #ffe19b;
-	background: #3c2d13;
-	border-color: #d6ac49;
-}
-
-.version-mark {
-	width: 12px;
-	color: #ffd100;
-}
-
-.version-name {
-	flex: 1;
-	min-width: 0;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-/* The build on a line of its own, so names don't wrap or get cut off. */
-.version-name small {
-	display: block;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	margin-top: 2px;
-	font-size: 10px;
-	color: #b8afa1;
-}
-
-#version-list kbd {
-	flex-shrink: 0;
-	white-space: nowrap;
-}
-
-.quick-switch {
-	display: block;
-	margin-top: 8px;
-}
-
-/*
- * Quick switching: the page holding the viewers (see switchHost.ts). Each viewer frame stays laid
- * out at full size, out of sight, so showing it again doesn't resize or rebuild its renderer.
- */
-.viewer-frame {
-	position: fixed;
-	inset: 0;
-	width: 100%;
-	height: 100%;
-	border: 0;
-	visibility: hidden;
-}
-
-.viewer-frame.shown {
-	visibility: visible;
-	z-index: 1;
-}
-
-#switch-status {
-	position: fixed;
-	z-index: 2;
-	left: 50%;
-	bottom: 24px;
-	transform: translateX(-50%);
-	max-width: 90%;
-	padding: 10px 16px;
-	color: #e8e0cc;
-	background: #15191f;
-	border: 1px solid var(--accent);
-	border-radius: 5px;
-}
-
-#switch-status button {
-	margin-left: 12px;
-}
-
-/* What's still loading, at the top in the middle, under the menus; gone once all has. */
-#loading-status {
-	position: fixed;
-	z-index: 5;
-	top: 40px;
-	left: 50%;
-	transform: translateX(-50%);
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	padding: 4px 12px;
-	font-size: 12px;
-	color: var(--text);
-	background: var(--panel);
-	border-radius: 12px;
-	pointer-events: none;
-}
-
-#loading-status[hidden] {
-	display: none;
-}
-
-#loading-status::before {
-	content: '';
-	width: 10px;
-	height: 10px;
-	border: 2px solid var(--accent);
-	border-right-color: transparent;
-	border-radius: 50%;
-	animation: loading-spin 0.8s linear infinite;
-}
-
-@keyframes loading-spin {
-	to { transform: rotate(360deg); }
-}
-
-/* Go to: the last menu, at the right, its panel a search box with the matches under it. */
-#goto {
-	margin-left: auto;
-}
-
-#goto .menu-body {
-	left: auto;
-	right: 0;
-	width: 320px;
-	padding: 8px;
-}
-
-#goto-query {
-	width: 100%;
-	font: inherit;
-	font-size: 13px;
-	color: var(--text);
-	background: #1b1f25;
-	border: 1px solid var(--line);
-	border-radius: 4px;
-	padding: 4px 8px;
-}
-
-#goto-query:focus {
-	outline: none;
-	border-color: var(--accent);
-}
-
-#goto-results {
-	list-style: none;
-	margin: 6px 0 0;
-	padding: 0;
-	max-height: min(360px, 45vh);
-	overflow-y: auto;
-	font-size: 13px;
-}
-
-#goto-results li {
-	display: flex;
-	justify-content: space-between;
-	gap: 8px;
-	padding: 3px 6px;
-	border-radius: 3px;
-	cursor: pointer;
-}
-
-#goto-results li[aria-selected='true'] {
-	background: #d9a44133;
-}
-
-#goto-results li .sub {
-	color: var(--muted);
-	font-size: 12px;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-#goto-results li.group {
-	cursor: default;
-	padding-top: 6px;
-	font-size: 11px;
-	text-transform: uppercase;
-	letter-spacing: 0.06em;
-	color: var(--accent);
-}
-
-#goto-results li.empty {
-	cursor: default;
-	color: var(--muted);
-}
-
-/* Info for a clicked creature or object. */
-#info {
-	position: relative;
-	flex: 0 1 auto !important;
-	min-height: 180px;
-	overflow: auto;
-	background: var(--panel);
-	border: 1px solid var(--line);
-	border-radius: 6px;
-	padding: 12px 14px;
-	font-size: 13px;
-}
-
-#info h2 {
-	margin: 2px 24px 2px 0;
-	font-size: 18px;
-	color: var(--accent);
-}
-
-#info-close {
-	position: absolute;
-	top: 6px;
-	right: 6px;
-	padding: 0 8px;
-	font-size: 18px;
-	line-height: 1.4;
-	background: none;
-	border: none;
-	color: var(--muted);
-}
-
-#info dl {
-	display: grid;
-	grid-template-columns: auto 1fr;
-	gap: 0 12px;
-	margin: 8px 0;
-}
-
-#info dt {
-	color: var(--muted);
-}
-
-#info dd {
-	margin: 0;
-}
-
-#info-pages {
-	white-space: pre-wrap;
-	font-family: Georgia, 'Times New Roman', serif;
-	line-height: 1.5;
-	background: #e9dcc0;
-	color: #2b2115;
-	border-radius: 4px;
-	padding: 10px 12px;
-	margin: 8px 0;
-	max-height: 40vh;
-	overflow: auto;
-}
-
-#info-pages:empty {
-	display: none;
-}
-
-#info-pages hr {
-	border: none;
-	border-top: 1px solid #b9a67f;
-	margin: 12px 0;
-}
-
-#info-actions {
-	margin: 8px 0;
-}
-
-#info-actions:empty {
-	display: none;
-}
-
-#info-links {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 10px;
-	margin: 8px 0;
-}
-
-/* Names over the maps laid out in the sea. */
-.map-label {
-	position: absolute;
-	left: 0;
-	top: 0;
-	text-align: center;
-	white-space: nowrap;
-	font: 400 15px/1.2 'Friz Quadrata', 'Trebuchet MS', system-ui, sans-serif;
-	color: #ffd100;
-	text-shadow: 1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000, 0 0 6px #000;
-	will-change: transform;
-}
-
-.map-label-kind {
-	font-size: 11px;
-	font-weight: 400;
-	color: var(--text);
-}
-
-/* Alt+Z or U: only the world. */
-.ui-hidden :is(#menu, #top-left, #help, #side, #zone-banner, #crosshair, #nameplates, #loading-status) {
-	display: none !important;
-}
-
-/* The menu's panels. */
-.panel {
-	background: var(--panel);
-	border-radius: 6px;
-	padding: 6px 12px 10px;
-	font-size: 13px;
-}
-
-.panel input[type='checkbox'], .panel input[type='range'] {
-	accent-color: var(--accent);
-}
-
-.panel kbd {
-	margin-left: 2px;
-}
-
-.settings label {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	margin-top: 4px;
-	cursor: pointer;
-	user-select: none;
-}
-
-.settings select {
-	padding: 1px 4px;
-	font-size: 12px;
-}
-
-/* A width and height of one's own for the resolution, on a line under it. */
-.resolution-custom {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	margin-top: 4px;
-}
-
-.resolution-custom input {
-	width: 72px;
-	font-variant-numeric: tabular-nums;
-}
-
-.resolution-custom button {
-	padding: 1px 8px;
-	font-size: 12px;
-}
-
-.time-row {
-	display: grid;
-	grid-template-columns: auto 1fr auto auto;
-	align-items: center;
-	gap: 6px;
-	margin-top: 6px;
-}
-
-.time-row input {
-	width: 100%;
-	min-width: 0;
-}
-
-#time-out, #fly-speed-out, #clutter-range-out, #detail-range-out {
-	font-variant-numeric: tabular-nums;
-}
-
-#fly-speed-out, #clutter-range-out, #detail-range-out {
-	min-width: 64px;
-	text-align: right;
-}
-
-#time-out.shifted, #fly-speed-out.shifted, #clutter-range-out.shifted, #detail-range-out.shifted {
-	color: var(--accent);
-}
-
-#time-now, #fly-speed-reset, #clutter-range-reset, #detail-range-reset {
-	padding: 1px 8px;
-	font-size: 12px;
-}
-
-#sound label {
-	display: grid;
-	grid-template-columns: 76px 1fr 34px;
-	align-items: center;
-	gap: 6px;
-	margin-top: 4px;
-}
-
-#sound label.check {
-	display: flex;
-	cursor: pointer;
-	user-select: none;
-}
-
-#sound input[type='range'] {
-	width: 100%;
-}
-
-#sound output {
-	text-align: right;
-	color: var(--muted);
-	font-variant-numeric: tabular-nums;
-}
-
-/* What to highlight on the ground. */
-#highlight .menu-body {
-	padding: 8px 12px;
-	display: grid;
-	gap: 6px;
-}
-
-#highlight label {
-	cursor: pointer;
-	user-select: none;
-}
-
-.highlight-on {
-	font-weight: 600;
-}
-
-#highlight-groups {
-	display: grid;
-	grid-template-columns: 1fr 1fr;
-	gap: 2px 8px;
-}
-
-#highlight.off #highlight-groups,
-#highlight.off #highlight-query,
-#highlight.off #walkable-key,
-#highlight.off #walls-key {
-	opacity: 0.5;
-}
-
-#highlight-query {
-	width: 100%;
-	font: inherit;
-	color: var(--text);
-	background: #1b1f25;
-	border: 1px solid var(--line);
-	border-radius: 4px;
-	padding: 3px 6px;
-}
-
-/* The walkable slope tints' key (see walkable.ts), shown while they're on. */
-#walkable-key {
-	display: none;
-	gap: 10px;
-}
-
-/* And the invisible walls' (see invisibleWalls.ts). */
-#walls-key {
-	display: none;
-	--slope: #b44dff;
-}
-
-#highlight.walkable #walkable-key,
-#highlight.walls #walls-key {
-	display: flex;
-}
-
-#walkable-key span::before,
-#walls-key span::before {
-	content: '';
-	display: inline-block;
-	width: 8px;
-	height: 8px;
-	margin-right: 4px;
-	border-radius: 2px;
-	background: var(--slope);
-}
-
-#walkable-key [data-slope='flat'] {
-	--slope: #40e64d;
-}
-
-#walkable-key [data-slope='near'] {
-	--slope: #ffbf26;
-}
-
-#walkable-key [data-slope='steep'] {
-	--slope: #f23326;
-}
-
-#highlight-status:empty {
-	display: none;
-}
-
-#highlight-status {
-	white-space: pre-line;
-}
-
-/* The colours of the markers: gold treasure, green herbs, copper ore, blue fishing pools, violet meeting stones. */
-#highlight-groups [data-group='chest'], .beacon[data-group='chest'] {
-	--beacon: #ffd100;
-}
-
-#highlight-groups [data-group='herb'], .beacon[data-group='herb'] {
-	--beacon: #5ee35e;
-}
-
-#highlight-groups [data-group='ore'], .beacon[data-group='ore'] {
-	--beacon: #e39a5a;
-}
-
-#highlight-groups [data-group='fishing'], .beacon[data-group='fishing'] {
-	--beacon: #5ac8fa;
-}
-
-#highlight-groups [data-group='stone'], .beacon[data-group='stone'] {
-	--beacon: #a98bff;
-}
-
-.beacon[data-group='named'] {
-	--beacon: #ff7ae0;
-}
-
-#highlight-groups input {
-	accent-color: var(--beacon);
-}
-
-/* A diamond on the spot, with the name and distance beside it for the nearest. */
-.beacon {
-	position: absolute;
-	left: 0;
-	top: 0;
-	white-space: nowrap;
-	font: 400 12px/1.2 'Friz Quadrata', 'Trebuchet MS', system-ui, sans-serif;
-	color: var(--beacon);
-	text-shadow: 1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000;
-	will-change: transform;
-}
-
-.beacon::before {
-	content: '';
-	position: absolute;
-	left: -5px;
-	top: -5px;
-	width: 8px;
-	height: 8px;
-	transform: rotate(45deg);
-	background: var(--beacon);
-	border: 1px solid #000;
-	box-shadow: 0 0 6px var(--beacon);
-}
-
-/* The spirit healer the ground under the camera sends you to. */
-.beacon.graveyard.current {
-	font-size: 14px;
-	z-index: 1;
-}
-
-.beacon.graveyard.current::before {
-	width: 12px;
-	height: 12px;
-	left: -7px;
-	top: -7px;
-}
-
-.beacon-name {
-	margin-left: 9px;
-	position: relative;
-	top: -7px;
-}
-
-.beacon-distance {
-	margin-left: 5px;
-	position: relative;
-	top: -7px;
-	font-weight: 400;
-	color: var(--text);
-}
-
-.beacon-distance:empty {
-	display: none;
-}
-
-/*
- * What's laid over the 3D view at places in the world (map labels, flight paths, highlighted
- * spawns); positioned by transform each frame; never catches the mouse. (NPC names are drawn
- * in the view itself, by nameplates.ts.)
- */
-#nameplates {
-	position: fixed;
-	inset: 0;
-	pointer-events: none;
-	overflow: hidden;
-}
-
-/* The interface stays above the names, which can grow large up close. */
-:is(#menu, #top-left, #side, #help, #notice, #shot-status, #game-updated, #zone-banner) {
-	z-index: 1;
-}
-
-/* The menus' panels drop over the right column too. */
-#menu {
-	z-index: 2;
-}
-
-/*
- * The game's own look, once uiAssets.ts has read its interface pictures from the install and
- * set them as --wow-* variables: Friz Quadrata throughout, gold labels (GameFontNormal), panels
- * in the tooltip's backdrop, dialogs in the dialog box's, and the red buttons, checkboxes,
- * sliders and input boxes of the default interface.
- */
-body.wow-ui {
-	--accent: #ffd100;
-	--text: #ffffff;
-	--muted: #b4b4b4;
-	--line: #5c5c5c;
-	--tooltip: rgba(9, 9, 24, 0.86);
-	font-family: 'Friz Quadrata', 'Trebuchet MS', system-ui, sans-serif;
-}
-
-/* Tooltip backdrop: 16-unit edges, the dark blue fill inset under them. */
-.wow-ui :is(#menu, #hud, #info, .panel, #notice, #shot-status, #game-updated) {
-	border: 5px solid transparent;
-	border-radius: 6px;
-	border-image: var(--wow-tooltip-border) 16 / 16px / 0 round;
-	background: var(--tooltip);
-}
-
-/* Dialog box backdrop: 32-unit edges over the dark tiled fill, inset 11. */
-.wow-ui .help-card {
-	border: 11px solid transparent;
-	border-radius: 14px;
-	border-image: var(--wow-dialog-border) 32 / 32px / 0 round;
-	background: var(--wow-dialog-background) repeat, rgba(0, 0, 0, 0.6);
-}
-
-.wow-ui :is(h2, h3, #hud-location) {
-	color: var(--accent);
-	font-weight: 400;
-}
-
-.wow-ui .help-card h2 {
-	text-align: center;
-	text-shadow: 1px 1px 0 #000;
-}
-
-.wow-ui .help-card h3 {
-	text-transform: none;
-	letter-spacing: 0;
-	font-size: 13px;
-}
-
-.wow-ui #info-pages {
-	font: 15px/1.45 Morpheus, Georgia, serif;
-}
-
-/* The ring picture reaches past the column's edge; its scroll bar in the interface's greys. */
-.wow-ui #side {
-	overflow-x: hidden;
-	scrollbar-color: #5c5c5c transparent;
-}
-
-.wow-ui #menu .menu-body {
-	scrollbar-color: #5c5c5c transparent;
-}
-
-.wow-ui kbd {
-	font-family: 'Arial Narrow', ui-monospace, monospace;
-	font-size: 12px;
-	color: var(--text);
-	background: rgba(0, 0, 0, 0.6);
-	border-color: #5c5c5c;
-}
-
-/* UIPanelButtonTemplate: the red button, gold text, its pressed picture while held. The start screen keeps its own. */
-.wow-ui button:not(.plain, #minimap-in, #minimap-out, #info-close, #start *) {
-	border-style: solid;
-	border-width: 0 10px;
-	border-radius: 0;
-	border-image: var(--wow-button-up) 0 12 fill / 0 10px stretch;
-	background: none;
-	color: var(--accent);
-	text-shadow: 1px 1px 0 #000;
-	padding: 3px 2px;
-	min-height: 22px;
-}
-
-.wow-ui button:not(.plain, #minimap-in, #minimap-out, #info-close, #start *):hover:not(:disabled) {
-	color: #fff;
-	filter: brightness(1.25);
-}
-
-.wow-ui button:not(.plain, #minimap-in, #minimap-out, #info-close, #start *):active:not(:disabled) {
-	border-image-source: var(--wow-button-down);
-	padding: 4px 1px 2px 3px;
-}
-
-.wow-ui button:not(.plain, #minimap-in, #minimap-out, #info-close, #start *):disabled {
-	color: #808080;
-	filter: grayscale(0.8);
-}
-
-/* The menu's tabs as the same buttons, held down while open. */
-.wow-ui #menu summary {
-	border-style: solid;
-	border-width: 0 10px;
-	border-radius: 0;
-	border-image: var(--wow-button-up) 0 12 fill / 0 10px stretch;
-	background: none;
-	color: var(--accent);
-	font-weight: 400;
-	text-shadow: 1px 1px 0 #000;
-	padding: 4px 6px;
-}
-
-.wow-ui #menu summary:hover {
-	color: #fff;
-	filter: brightness(1.25);
-}
-
-.wow-ui #menu details[open] > summary {
-	border-image-source: var(--wow-button-down);
-	color: #fff;
-	padding: 5px 5px 3px 7px;
-}
-
-.wow-ui button.primary {
-	font-weight: 400;
-}
-
-.wow-ui button.big {
-	padding: 8px 6px;
-}
-
-/* UICheckButtonTemplate: the box, its tick, and the glow under the mouse. */
-.wow-ui input[type='checkbox'] {
-	appearance: none;
-	flex: none;
-	width: 26px;
-	height: 26px;
-	margin: -4px -2px -4px -4px;
-	background: var(--wow-checkbox-up) center / 100% no-repeat;
-	cursor: pointer;
-}
-
-.wow-ui input[type='checkbox']:checked {
-	background-image: var(--wow-checkbox-check), var(--wow-checkbox-up);
-}
-
-.wow-ui input[type='checkbox']:hover {
-	background-image: var(--wow-checkbox-highlight), var(--wow-checkbox-up);
-}
-
-.wow-ui input[type='checkbox']:checked:hover {
-	background-image: var(--wow-checkbox-check), var(--wow-checkbox-highlight), var(--wow-checkbox-up);
-}
-
-/* OptionsSliderTemplate: an 8-unit edged groove and the gold-capped thumb. */
-.wow-ui input[type='range'] {
-	appearance: none;
-	height: 17px;
-	background: none;
-	cursor: pointer;
-}
-
-.wow-ui input[type='range']::-webkit-slider-runnable-track {
-	height: 17px;
-	border-style: solid;
-	border-width: 6px 3px;
-	border-image: var(--wow-slider-border) 8 / 8px round;
-	background: var(--wow-slider-background) repeat;
-}
-
-.wow-ui input[type='range']::-webkit-slider-thumb {
-	appearance: none;
-	width: 32px;
-	height: 32px;
-	margin-top: -13.5px;
-	background: var(--wow-slider-thumb) center / 100% no-repeat;
-}
-
-.wow-ui input[type='range']::-moz-range-track {
-	height: 5px;
-	border-style: solid;
-	border-width: 6px 3px;
-	border-image: var(--wow-slider-border) 8 / 8px round;
-	background: var(--wow-slider-background) repeat;
-}
-
-.wow-ui input[type='range']::-moz-range-thumb {
-	width: 32px;
-	height: 32px;
-	border: none;
-	background: var(--wow-slider-thumb) center / 100% no-repeat;
-}
-
-/* InputBoxTemplate: the framed text box. */
-.wow-ui :is(#goto-query, #highlight-query) {
-	border-style: solid;
-	border-width: 0 8px;
-	border-radius: 0;
-	border-image: var(--wow-input-border) 0 8 fill / 0 8px stretch;
-	background: none;
-	font-family: 'Arial Narrow', 'Friz Quadrata', sans-serif;
-	font-size: 14px;
-	padding-left: 2px;
-}
-
-.wow-ui select {
-	background: rgba(0, 0, 0, 0.7);
-	border-color: #5c5c5c;
-	color: var(--accent);
-}
-
-.wow-ui #goto-results li[aria-selected='true'] {
-	background: linear-gradient(90deg, rgba(255, 209, 0, 0.28), rgba(255, 209, 0, 0.05));
-}
-
-.wow-ui :is(#info-close, #help-close) {
-	color: var(--accent);
-}
-
-/*
- * The minimap as MinimapCluster draws it: UI-Minimap-Border holds both the ring (centre
- * 168.5, 106.5, inner radius 65 in its 256 units) and the zone bar above it (84–254, 2–26).
- * --mm-s scales those units so the ring's inside covers the map's edge; the box is the bar's
- * width by bar top to ring bottom, and everything is placed in those units.
- */
-.wow-ui #minimap-wrap {
-	--mm-s: 1.27;
-	--mm-d: calc(134px * var(--mm-s));
-	--mm-cx: calc(84.5px * var(--mm-s));
-	--mm-cy: calc(104.5px * var(--mm-s));
-	width: calc(170px * var(--mm-s));
-	height: calc(178px * var(--mm-s));
-}
-
-.wow-ui #minimap {
-	position: absolute;
-	left: calc(var(--mm-cx) - var(--mm-d) / 2);
-	top: calc(var(--mm-cy) - var(--mm-d) / 2);
-	width: var(--mm-d);
-	height: var(--mm-d);
-	border: none;
-	box-shadow: none;
-}
-
-.wow-ui #minimap-wrap .ring {
-	display: block;
-	position: absolute;
-	left: calc(-84px * var(--mm-s));
-	top: calc(-2px * var(--mm-s));
-	width: calc(256px * var(--mm-s));
-	height: calc(256px * var(--mm-s));
-	background: var(--wow-minimap-border) 0 0 / 100% no-repeat;
-	pointer-events: none;
-}
-
-/* MinimapZoneText: GameFontNormal in the bar. */
-.wow-ui #minimap-zone {
-	display: block;
-	position: absolute;
-	left: calc(8px * var(--mm-s));
-	right: calc(8px * var(--mm-s));
-	top: 0;
-	height: calc(24px * var(--mm-s));
-	line-height: calc(24px * var(--mm-s));
-	text-align: center;
-	font-size: 12px;
-	color: var(--accent);
-	text-shadow: 1px 1px 0 #000;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	pointer-events: none;
-}
-
-/* MinimapNorthTag on the top of the ring. */
-.wow-ui #minimap-wrap .north {
-	top: calc(var(--mm-cy) - 79px * var(--mm-s));
-	left: var(--mm-cx);
-	width: calc(16px * var(--mm-s));
-	height: calc(16px * var(--mm-s));
-	border: none;
-	border-radius: 0;
-	background: var(--wow-minimap-north) center / 100% no-repeat;
-	font-size: 0;
-}
-
-/* MinimapZoomIn and MinimapZoomOut, on the ring at the lower right. */
-.wow-ui #minimap-wrap .zoom {
-	display: contents;
-}
-
-.wow-ui #minimap-wrap .zoom button {
-	position: absolute;
-	width: calc(30px * var(--mm-s));
-	height: calc(30px * var(--mm-s));
-	margin: calc(-15px * var(--mm-s)) 0 0 calc(-15px * var(--mm-s));
-	border: none;
-	border-radius: 50%;
-	background: var(--zoom-up) center / 107% no-repeat;
-	font-size: 0;
-}
-
-.wow-ui #minimap-in {
-	--zoom-up: var(--wow-zoom-in-up);
-	--zoom-down: var(--wow-zoom-in-down);
-	left: calc(var(--mm-cx) + 67px * var(--mm-s));
-	top: calc(var(--mm-cy) + 22px * var(--mm-s));
-}
-
-.wow-ui #minimap-out {
-	--zoom-up: var(--wow-zoom-out-up);
-	--zoom-down: var(--wow-zoom-out-down);
-	left: calc(var(--mm-cx) + 46px * var(--mm-s));
-	top: calc(var(--mm-cy) + 52px * var(--mm-s));
-}
-
-.wow-ui #minimap-wrap .zoom button:hover {
-	background-image: var(--wow-zoom-highlight), var(--zoom-up);
-}
-
-.wow-ui #minimap-wrap .zoom button:active {
-	background-image: var(--zoom-down);
-}
-
-/* The ground tint's key, and the level its creature colours are for (only with that tint). */
-#tint-key {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 2px 10px;
-}
-
-#tint-key:empty {
-	display: none;
-}
-
-#tint-key span::before {
-	content: '';
-	display: inline-block;
-	width: 8px;
-	height: 8px;
-	margin-right: 4px;
-	border-radius: 2px;
-	background: var(--key);
-}
-
-#tint-level-row {
-	display: none;
-	align-items: center;
-	gap: 6px;
-	font-variant-numeric: tabular-nums;
-}
-
-#highlight[data-tint='levels'] #tint-level-row {
-	display: flex;
-}
-
-#tint-level-row input {
-	flex: 1;
-}
-
-#highlight.off #tint-key,
-#highlight.off #tint-level-row {
-	opacity: 0.5;
-}
-
-/* Area names over the tinted ground: a dot rather than a diamond, the detail in white. */
-.beacon.region::before {
-	width: 6px;
-	height: 6px;
-	left: -4px;
-	top: -4px;
-	border-radius: 50%;
-	transform: none;
-}
-
-.beacon.region .beacon-distance {
-	color: #fff;
-}
-
-/* Inns and flight masters. */
-.beacon.rested {
-	--beacon: #ffd060;
-}
-
-.beacon.rested.current {
-	font-size: 14px;
-}
-
-/* The Travel menu: flight paths and the world map. */
-#travel .menu-body {
-	padding: 8px 12px;
-	display: grid;
-	/* The menu's width, however long a flight master's name. */
-	grid-template-columns: minmax(0, 1fr);
-	gap: 6px;
-}
-
-#travel label {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	cursor: pointer;
-	user-select: none;
-}
-
-/* Label, choice, and Nearest beside From; the other choices take the last two columns. */
-.flight-grid {
-	display: grid;
-	grid-template-columns: auto minmax(0, 1fr) auto;
-	align-items: center;
-	gap: 6px;
-}
-
-.flight-grid select {
-	width: 100%;
-	min-width: 0;
-	padding: 1px 4px;
-	font-size: 12px;
-	text-overflow: ellipsis;
-}
-
-.flight-grid .span {
-	grid-column: span 2;
-}
-
-#flight-nearest {
-	padding: 1px 8px;
-	font-size: 12px;
-}
-
-.flight-buttons {
-	display: flex;
-	gap: 6px;
-}
-
-.flight-buttons button {
-	flex: 1;
-}
-
-#flight-status:empty,
-#transport-status:empty,
-#dock-status:empty {
-	display: none;
-}
-
-#travel .travel-heading {
-	margin: 6px 0 0;
-	font-size: 12px;
-	font-weight: 600;
-}
-
-/* The Emotes menu: the number keys' emotes, then every emote as a button with its key. */
-#emotes .menu-body {
-	padding: 8px 12px;
-	display: grid;
-	grid-template-columns: minmax(0, 1fr);
-	gap: 6px;
-}
-
-#emotes p {
-	margin: 0;
-}
-
-#emotes label {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	cursor: pointer;
-	user-select: none;
-}
-
-#emotes .travel-heading {
-	margin: 6px 0 0;
-	font-size: 12px;
-	font-weight: 600;
-}
-
-.emote-slots {
-	display: grid;
-	grid-template-columns: auto minmax(0, 1fr) auto;
-	align-items: center;
-	gap: 4px 6px;
-}
-
-.emote-slots kbd {
-	justify-self: center;
-	margin: 0;
-}
-
-.emote-slots select {
-	width: 100%;
-	min-width: 0;
-	padding: 1px 4px;
-	font-size: 12px;
-}
-
-.emote-slots button,
-.emote-list button {
-	padding: 1px 8px;
-	font-size: 12px;
-}
-
-.emote-list {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 4px;
-}
-
-.emote-list kbd {
-	margin-left: 2px;
-	font-size: 10px;
-}
-
-#transport {
-	width: 100%;
-	min-width: 0;
-	padding: 1px 4px;
-	font-size: 12px;
-	text-overflow: ellipsis;
-}
-
-/* Each departure on its own line. */
-#dock-status {
-	white-space: pre-line;
-}
-
-/* The world map, over everything but the menus, its picture as big as fits. */
-#worldmap {
-	position: fixed;
-	inset: 0;
-	display: grid;
-	place-items: center;
-	padding: 16px;
-	background: rgba(0, 0, 0, 0.35);
-	z-index: 5;
-}
-
-#worldmap[hidden] {
-	display: none;
-}
-
-.worldmap-frame {
-	width: min(1040px, 100%);
-	max-height: calc(100vh - 32px);
-	display: grid;
-	gap: 6px;
-	overflow: hidden;
-}
-
-.worldmap-frame header {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	flex-wrap: wrap;
-}
-
-.worldmap-frame h2 {
-	margin: 0;
-	flex: 1;
-}
-
-#worldmap-up {
-	color: var(--accent);
-}
-
-#worldmap-close {
-	font-size: 20px;
-	line-height: 1;
-	color: var(--muted);
-}
-
-#worldmap-canvas {
-	width: 100%;
-	height: auto;
-	max-height: calc(100vh - 120px);
-	object-fit: contain;
-	cursor: pointer;
-	image-rendering: auto;
-}
-
-#worldmap-hover {
-	min-height: 1.3em;
-}
-
-/* The travel form picker: a grid of pictures as wide as the zoom, under sticky race headings. */
-#forms {
-	position: fixed;
-	inset: 0;
-	display: grid;
-	place-items: center;
-	padding: 16px;
-	/* Dark enough that the world's banners don't show through the dialog. */
-	background: rgba(0, 0, 0, 0.7);
-	z-index: 5;
-}
-
-.forms-frame {
-	width: min(1160px, 100%);
-	height: calc(100vh - 32px);
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-	overflow: hidden;
-}
-
-.forms-frame header, .forms-filters {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	flex-wrap: wrap;
-}
-
-.forms-frame h2 {
-	margin: 0;
-	flex: 1;
-}
-
-.forms-filters select {
-	padding: 2px 6px;
-	font-size: 12px;
-}
-
-.forms-filters input[type="range"] {
-	width: 140px;
-	vertical-align: middle;
-}
-
-#forms-close {
-	font-size: 20px;
-	line-height: 1;
-	color: var(--muted);
-}
-
-.forms-body {
-	position: relative;
-	flex: 1;
-	min-height: 0;
-	display: flex;
-	gap: 6px;
-}
-
-#forms-grid {
-	position: relative;
-	flex: 1;
-	min-width: 0;
-	overflow-y: auto;
-	outline: none;
-}
-
-/* Only the rows near the view are in the page, each placed where it falls in the whole. */
-.forms-sizer {
-	position: relative;
-}
-
-.forms-row {
-	position: absolute;
-	left: 0;
-	right: 0;
-}
-
-.forms-heading {
-	display: flex;
-	align-items: center;
-	gap: 4px;
-	height: 30px;
-	margin: 0;
-	font-size: 13px;
-	font-weight: 600;
-	color: var(--accent);
-	background: rgba(14, 16, 20, 0.95);
-}
-
-/* The section at the top, named over the grid as a sticky heading would be. */
-#forms-heading {
-	position: absolute;
-	top: 0;
-	left: 0;
-	right: 30px;
-	z-index: 1;
-	pointer-events: none;
-}
-
-.forms-tiles {
-	display: grid;
-	gap: 6px;
-}
-
-.form-tile {
-	position: relative;
-	display: flex;
-	flex-direction: column;
-	align-items: stretch;
-	min-width: 0;
-	border: 1px solid var(--line);
-	border-radius: 4px;
-	background: radial-gradient(ellipse 70% 60% at 50% 45%, rgba(255, 255, 255, 0.09), rgba(0, 0, 0, 0.3));
-	overflow: hidden;
-}
-
-.form-tile:hover, .form-tile:focus-visible {
-	border-color: var(--text);
-}
-
-.form-tile.chosen {
-	border-color: var(--accent);
-	box-shadow: inset 0 0 0 1px var(--accent);
-}
-
-.form-tile img {
-	display: block;
-	flex: 1;
-	min-height: 0;
-	width: 100%;
-	object-fit: contain;
-}
-
-.form-tile:not(.drawn) img {
-	visibility: hidden;
-}
-
-/* Not drawn yet: a faint shape where the picture will be. */
-.form-tile:not(.drawn, .missing)::before {
-	content: '';
-	position: absolute;
-	inset: 25% 35% 35%;
-	border-radius: 40% 40% 10% 10%;
-	background: rgba(255, 255, 255, 0.07);
-}
-
-.form-tile.missing::before {
-	content: '?';
-	position: absolute;
-	inset: 0 0 18px;
-	display: grid;
-	place-items: center;
-	font-size: 24px;
-	color: var(--muted);
-}
-
-.form-tile span {
-	flex: none;
-	height: 16px;
-	padding: 0 4px;
-	font-size: 11px;
-	line-height: 16px;
-	color: var(--muted);
-	text-align: center;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.form-tile.chosen span {
-	color: var(--accent);
-}
-
-.forms-none {
-	margin: 12px 0;
-}
-
-/*
- * A scroll bar in the game's look (scrollbar.ts): arrow buttons at the ends, a knob sliding
- * between them on a dark track. Plain shapes here; the game's pictures under .wow-ui.
- */
-.game-scrolled {
-	scrollbar-width: none;
-}
-
-.game-scrolled::-webkit-scrollbar {
-	display: none;
-}
-
-.game-scrollbar {
-	flex: none;
-	width: 22px;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: 2px;
-	user-select: none;
-	touch-action: none;
-}
-
-.game-scrollbar.idle {
-	visibility: hidden;
-}
-
-.game-scrollbar button {
-	flex: none;
-	width: 20px;
-	height: 18px;
-	padding: 0;
-	border: 1px solid var(--line);
-	border-radius: 3px;
-	background: #262a31;
-	color: var(--muted);
-	font-size: 10px;
-	line-height: 1;
-}
-
-.game-scroll-up::before {
-	content: '▲';
-}
-
-.game-scroll-down::before {
-	content: '▼';
-}
-
-.game-scrollbar button:hover:not(:disabled) {
-	color: var(--text);
-}
-
-.game-scrollbar button:disabled {
-	opacity: 0.4;
-}
-
-.game-scroll-track {
-	position: relative;
-	flex: 1;
-	width: 12px;
-	border-radius: 6px;
-	background: rgba(0, 0, 0, 0.45);
-	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-}
-
-.game-scroll-knob {
-	position: absolute;
-	top: 0;
-	left: -4px;
-	width: 20px;
-	height: 24px;
-	border-radius: 4px;
-	background: linear-gradient(#8a8f98, #4d525b);
-	box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.6);
-	cursor: grab;
-}
-
-.game-scroll-knob.dragging {
-	cursor: grabbing;
-}
-
-/* The game's own (when the install has them, see uiAssets.ts): gold-trimmed arrow buttons and a stone knob in the character sheet's groove. */
-.wow-scroll .game-scrollbar {
-	width: 24px;
-	gap: 0;
-}
-
-.wow-scroll .game-scrollbar button {
-	width: 24px;
-	height: 21px;
-	border: none;
-	border-radius: 0;
-	background: var(--wow-scroll-up-up) center / 100% 100% no-repeat;
-}
-
-.wow-scroll .game-scrollbar button::before {
-	content: none;
-}
-
-.wow-scroll .game-scroll-up:active:not(:disabled) {
-	background-image: var(--wow-scroll-up-down);
-}
-
-.wow-scroll .game-scroll-up:disabled {
-	background-image: var(--wow-scroll-up-disabled);
-	opacity: 1;
-}
-
-.wow-scroll .game-scroll-down {
-	background-image: var(--wow-scroll-down-up);
-}
-
-.wow-scroll .game-scroll-down:active:not(:disabled) {
-	background-image: var(--wow-scroll-down-down);
-}
-
-.wow-scroll .game-scroll-down:disabled {
-	background-image: var(--wow-scroll-down-disabled);
-	opacity: 1;
-}
-
-.wow-scroll .game-scrollbar button:hover:not(:disabled) {
-	filter: brightness(1.3);
-}
-
-.wow-scroll .game-scroll-track {
-	width: 24px;
-	border-radius: 0;
-	background: var(--wow-scroll-groove) center top / 24px auto repeat-y;
-	box-shadow: none;
-}
-
-.wow-scroll .game-scroll-knob {
-	left: 0;
-	width: 24px;
-	height: 22px;
-	border-radius: 0;
-	background: var(--wow-scroll-knob) center / 100% 100% no-repeat;
-	box-shadow: none;
-}
-
-/* Who walks: the look's number between its buttons. */
-#walk-look {
-	font-size: 12px;
-	white-space: nowrap;
-}
-
-.walk-look-buttons {
-	display: flex;
-	gap: 4px;
-}
-
-.walk-look-buttons button {
-	padding: 1px 8px;
-	font-size: 12px;
-}
-
 /* Load errors carry a multi-line diagnostics report to paste into an issue. */
+
 #status.bad {
 	white-space: pre-line;
 	overflow-wrap: anywhere;
@@ -2114,6 +198,7 @@ body.wow-ui {
    The vertical mode controller beside a grab bar beside the tool panel, docked down the right
    of the viewport by src/editor/sideControls.ts, holding the active tool's modules from
    src/editor/editorPanels.ts. Controls are molecules; tokens only. */
+
 #side-controls {
 	--dock-panel-width: 320px;
 	--dock-panel-min-height: 180px;
@@ -2138,6 +223,7 @@ body.wow-ui {
 }
 
 /* The mode column and the grab bar, which is as tall as the column, as drawn. */
+
 .side-controls-rail {
 	flex: none;
 	display: flex;
@@ -2150,11 +236,13 @@ body.wow-ui {
 }
 
 /* A 10px hit area keeps the drawn 4px gaps either side of the 2px bar. */
+
 .side-controls-grab .ds-grab-bar {
 	--grab-bar-hit: 10px;
 }
 
 /* 16px above the title, 8px under the last module; hugs its modules up to the room it has. */
+
 .side-controls-panel {
 	flex: none;
 	display: flex;
@@ -2192,6 +280,7 @@ body.wow-ui {
 }
 
 /* Pinned under the title; the modules scroll beneath it. */
+
 .side-controls-description {
 	flex: none;
 	margin: 0;
@@ -2214,6 +303,7 @@ body.wow-ui {
 }
 
 /* 12px above the title and below the body, 12px between them; a divider under all but the last. */
+
 .dock-module {
 	flex: none;
 	display: flex;
@@ -2229,6 +319,7 @@ body.wow-ui {
 }
 
 /* The help button is taller than the title's line and overhangs it rather than growing the row. */
+
 .dock-module-header {
 	flex: none;
 	display: flex;
@@ -2308,6 +399,7 @@ body.wow-ui {
 }
 
 /* Settings nested under a radio option: the option's hotkeys, Flatten's target height. */
+
 .dock-nested {
 	display: flex;
 	flex-direction: column;
@@ -2319,6 +411,7 @@ body.wow-ui {
 }
 
 /* The terms a module's help tooltip explains (Falloff, Full chunk). */
+
 .dock-tip-terms {
 	display: flex;
 	flex-direction: column;
@@ -2371,6 +464,7 @@ body.wow-ui {
 }
 
 /* The Copy from world picker (spec 7.2): the form widens to fit the map overview. */
+
 #scene-create-form.copy {
 	width: min(600px, 100%);
 }
@@ -2422,11 +516,13 @@ body.wow-ui {
 /* ---- Scene editing panels (spec 8) ---- */
 
 /* Playing (spec 7.10): the bottom controls go; the top bar and its Edit button stay put. */
+
 body.playing #side-controls {
 	display: none;
 }
 
 /* The target frame: the targeted NPC's name under the top bar, out of the mouse's way. */
+
 #target-frame {
 	position: fixed;
 	top: calc(var(--bar) + 10px);
@@ -2483,6 +579,7 @@ body.playing #side-controls {
    own and the .npc-library-* rules the library's. Controls are molecules; tokens only. */
 
 /* Playing (spec 7.10): the windows go with the other panels (the editor hides them too). */
+
 body.playing :is(#texture-browser, #object-browser, #npc-library) {
 	display: none;
 }
@@ -2549,6 +646,7 @@ body.playing :is(#texture-browser, #object-browser, #npc-library) {
 
 /* Molecules with overflow hidden (the segmented control) would shrink in the column: only
    the grid gives way. */
+
 .asset-browser-main > * {
 	flex: none;
 }
@@ -2598,6 +696,7 @@ body.playing :is(#texture-browser, #object-browser, #npc-library) {
 /* The footer keeps what the design dropped: the count with the listfile refresh on one line,
    the picked texture on the next. Padded on the right so the window's resize grip does not sit
    on the button. */
+
 .asset-browser-footer {
 	flex: none;
 	display: flex;
@@ -2630,12 +729,14 @@ body.playing :is(#texture-browser, #object-browser, #npc-library) {
 }
 
 /* A view that is put away (the NPC library shows one of its pages at a time). */
+
 .asset-browser-main[hidden] {
 	display: none;
 }
 
 /* The selection toast the design draws inside the Object browser and NPC library, over the
    grid's bottom. */
+
 .asset-browser-toast {
 	position: absolute;
 	left: 50%;
@@ -2652,6 +753,7 @@ body.playing :is(#texture-browser, #object-browser, #npc-library) {
 }
 
 /* The NPC library's main view: three doors, then Create new NPC 12px lower. */
+
 .npc-library-main {
 	flex: 1 1 auto;
 	display: flex;
@@ -2676,6 +778,7 @@ body.playing :is(#texture-browser, #object-browser, #npc-library) {
 }
 
 /* A sub-view's heading row: back, the heading, and in Local the create button. */
+
 .npc-library-head {
 	display: flex;
 	align-items: center;
@@ -2694,6 +797,7 @@ body.playing :is(#texture-browser, #object-browser, #npc-library) {
 }
 
 /* NPC thumbnails are cut out, so the tile's picture has no fill. */
+
 .npc-library-grid .ds-asset-tile {
 	--asset-tile-bg: transparent;
 }
@@ -2703,6 +807,7 @@ body.playing :is(#texture-browser, #object-browser, #npc-library) {
 }
 
 /* The empty states: the alert icon, a line, and in Local a Create NPC button. */
+
 .npc-library-empty {
 	display: flex;
 	flex-direction: column;
@@ -2906,6 +1011,7 @@ body.playing :is(#texture-browser, #object-browser, #npc-library) {
 }
 
 /* The slot browser, in the form's place while the preview stays (spec 7.9.3). */
+
 .npc-editor-browse {
 	display: flex;
 	flex-direction: column;

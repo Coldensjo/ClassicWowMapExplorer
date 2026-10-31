@@ -57,7 +57,7 @@ const LOG_TAIL = 20000;
 const SLOW_GL_MS = 8;
 /** How often the main-thread monitor's timer runs (ms). */
 const TICK_MS = 10;
-const VERBOSE_KEY = 'mapExplorer.debug';
+const VERBOSE_KEY = 'foreverForge.debug';
 
 /**
  * WebGL calls that can wait on the GPU process (queries that need an answer, uploads that copy
@@ -79,10 +79,10 @@ const GL_PARAMS: Record<number, string> = {
 
 /**
  * Cheap timing of named main-thread sections and a debug log of what the app is doing, exposed
- * as window.mapExplorerPerf so frame hitches can be traced from the console or a test harness:
- * mapExplorerPerf.hitches() lists the recent ones, mapExplorerPerf.log() what happened, and
- * mapExplorerPerf.save() (F9 in the viewer) saves it all to a file. Hitches of 100 ms or more
- * are written to the console as they happen; mapExplorerPerf.verbose = true (or ?debug in the
+ * as window.foreverForgePerf so frame hitches can be traced from the console or a test harness:
+ * foreverForgePerf.hitches() lists the recent ones, foreverForgePerf.log() what happened, and
+ * foreverForgePerf.save() (F9) saves it all to a file. Hitches of 100 ms or more
+ * are written to the console as they happen; foreverForgePerf.verbose = true (or ?debug in the
  * address) writes every log entry too.
  */
 class Perf {
@@ -356,7 +356,7 @@ class Perf {
 		try {
 			for (let i = 0; i < localStorage.length; i++) {
 				const key = localStorage.key(i)!;
-				if (key.startsWith('mapExplorer.')) settings[key] = localStorage.getItem(key)!.slice(0, 2000);
+				if (key.startsWith('foreverForge.') || key.startsWith('wdb.')) settings[key] = localStorage.getItem(key)!.slice(0, 2000);
 			}
 		} catch {
 			// Not readable.
@@ -454,4 +454,4 @@ function heapMB(): number {
 }
 
 export const perf = new Perf();
-(globalThis as unknown as { mapExplorerPerf: Perf }).mapExplorerPerf = perf;
+(globalThis as unknown as { foreverForgePerf: Perf }).foreverForgePerf = perf;

@@ -32,8 +32,7 @@ src/ui/
 │   ├── color.css         palette (tier 1) and semantic colours (tier 2)
 │   ├── type.css          families, sizes, weights, line heights, and the type roles
 │   └── layout.css        spacing, radii, line widths, motion, z-index
-├── themes/
-│   └── wow.css           the game's look: semantic tokens overridden under body.wow-ui
+├── themes/               one file per theme, none yet (§4)
 ├── icons/
 │   ├── <name>.svg        one 24×24 line icon per file, from Figma, drawn in currentColor
 │   ├── index.ts          icon(name, options) and the IconName type
@@ -179,8 +178,7 @@ the values are the ones the specs collected from the drawings.
 
 A variable that only one component or screen reads, and that no theme would change, is not a
 token: it stays in that component's CSS, named for the component (`viewer.css` already has
-`--bar`, `--ui-unit`, `--mm-*`, `--slope`, `--beacon`; `uiAssets.ts` sets the `--wow-*`
-picture variables at runtime). Promote one to `tokens/` when a second place needs it.
+`--bar` and `--status-bar-height`). Promote one to `tokens/` when a second place needs it.
 
 ## 4. Themes
 
@@ -188,17 +186,15 @@ A theme is one file in `themes/`, one scope selector, and inside it only semanti
 type tokens. It never selects a component, never sets a palette value directly if a palette
 token exists, and never changes layout tokens.
 
-- The default look is the tokens themselves on `:root`; it has no theme file.
-- `themes/wow.css` is the game's look, scoped to `body.wow-ui`. The class is set by
-  `src/viewer/uiAssets.ts` once the game's interface pictures are read. The rules that depend
-  on those pictures (border images for buttons, panels, sliders, the minimap) stay in
-  `viewer.css` under `.wow-ui`, because they are tied to the art rather than to tokens.
+- The default look is the tokens themselves on `:root`; it has no theme file, and no other
+  theme exists yet (the game's own look, which the map explorer this app was forked from read
+  from the install's interface pictures, went with the explorer).
 - A theme that sets a font family on its scope must also restate `font-family` there, since
   `:root`'s `font` is computed above the scope.
 
-To add a theme: copy the shape of `wow.css`, pick a scope (`[data-theme='name']` on `<body>`
-is the convention for a user-chosen theme; a class is fine for one set by code), override only
-the roles that differ, and import it in `index.css` after the tokens.
+To add a theme: make one file in `themes/` holding one scope selector (`[data-theme='name']`
+on `<body>` is the convention for a user-chosen theme; a class is fine for one set by code),
+override only the roles that differ inside it, and import it in `index.css` after the tokens.
 
 ## 5. Molecules
 
@@ -361,11 +357,11 @@ classes, and add one `?raw` import and one entry to `sources` in `art/index.ts`.
 ## 7. Migrating what exists
 
 `viewer.css` predates the system. It defines six colour variables on `:root` (`--panel`,
-`--line`, `--text`, `--muted`, `--accent`, `--bad`), re-declares them under `#start` and
-`body.wow-ui`, and hardcodes most other colours and sizes. The plan:
+`--line`, `--text`, `--muted`, `--accent`, `--bad`) and hardcodes most other colours and
+sizes. The plan:
 
 1. When the colour tokens land, point those six names at semantic tokens or rename their uses
-   with a project-wide replace, and move the `body.wow-ui` block's values into `themes/wow.css`.
+   with a project-wide replace.
 2. Move the base element rules (`button, select`, `button.primary`, `button.plain`, `.muted`,
    `.small`, `.bad`, `a`, `code`) into the molecule and type files as those are written.
 3. Leave the remaining hardcoded values in place; replace each with a token when its rule is

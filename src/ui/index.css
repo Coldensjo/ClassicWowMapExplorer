@@ -11,7 +11,6 @@
 @import './tokens/color.css';
 @import './tokens/type.css';
 @import './tokens/layout.css';
-@import './themes/wow.css';
 @import './icons/icon.css';
 @import './art/art.css';
 /* Molecules, one line each, in dependency order. */

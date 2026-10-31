@@ -44,6 +44,9 @@ const REBUILD_DELAY = 250;
 const MODEL_BASIS = new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, -1), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 1, 0));
 const FOV = 28;
 const MARGIN = 1.1;
+/** The preview's zoom: each wheel notch this many times nearer, up to this close. */
+const ZOOM_STEP = 1.15;
+const MAX_ZOOM = 6;
 
 type StudioTab = 'appearance' | 'gear';
 
@@ -506,7 +509,9 @@ function snapshot(preset: NpcPreset): string {
 
 /**
  * The studio's preview: the built model on a renderer of its own, lit from the front, playing
- * its Stand loop, turned by dragging, framed afresh whenever the pane is resized.
+ * its Stand loop, turned by dragging, framed afresh whenever the pane is resized. The wheel
+ * zooms in on what is under the cursor (the face, a shoulder); zoomed in, dragging up and down
+ * looks along the model.
  */
 class NpcPreview {
 	private readonly renderer: THREE.WebGLRenderer;
@@ -519,7 +524,12 @@ class NpcPreview {
 	private shown: { mesh: THREE.Mesh; textures: number[]; boneTexture: THREE.DataTexture | null; skin: SkinUniforms | null; clip: { row: number; frames: number; duration: number } | null; time: number } | null = null;
 	/** The shown model's standing height and width, for framing it again after a resize. */
 	private extent: { height: number; width: number } | null = null;
-	private dragging: { x: number; yaw: number } | null = null;
+	private dragging: { x: number; y: number; yaw: number; focus: number } | null = null;
+	/** How far in the wheel has zoomed (1 frames the whole model) and where the view looks, as a height off the model's middle. */
+	private zoom = 1;
+	private focus = 0;
+	/** How far back the camera sits at zoom 1, from the last framing. */
+	private fit = 1;
 
 	constructor(private readonly canvas: HTMLCanvasElement, storage: AsyncStorageApi) {
 		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -534,23 +544,56 @@ class NpcPreview {
 		rim.position.set(2, 1.5, -2);
 		this.scene.add(key, rim);
 		canvas.addEventListener('mousedown', this.onDown);
+		canvas.addEventListener('wheel', this.onWheel, { passive: false });
 		window.addEventListener('mousemove', this.onMove);
 		window.addEventListener('mouseup', this.onUp);
 	}
 
 	private readonly onDown = (e: MouseEvent) => {
 		if (e.button !== 0) return;
-		this.dragging = { x: e.clientX, yaw: this.yaw };
+		this.dragging = { x: e.clientX, y: e.clientY, yaw: this.yaw, focus: this.focus };
 		e.preventDefault();
 	};
 
 	private readonly onMove = (e: MouseEvent) => {
-		if (this.dragging) this.yaw = this.dragging.yaw + (e.clientX - this.dragging.x) * 0.012;
+		const drag = this.dragging;
+		if (!drag) return;
+		this.yaw = drag.yaw + (e.clientX - drag.x) * 0.012;
+		// Zoomed in, dragging up and down pans along the model (framed whole, there is nowhere to pan).
+		if (this.zoom > 1) {
+			const height = this.canvas.getBoundingClientRect().height || 1;
+			this.focus = this.clampFocus(drag.focus + ((e.clientY - drag.y) / height) * 2 * this.halfView());
+			this.frameModel();
+		}
 	};
 
 	private readonly onUp = () => {
 		this.dragging = null;
 	};
+
+	/** The wheel zooms in and out, keeping the point under the cursor where it is. */
+	private readonly onWheel = (e: WheelEvent) => {
+		e.preventDefault();
+		if (!this.shown) return;
+		const next = THREE.MathUtils.clamp(this.zoom * ZOOM_STEP ** -Math.sign(e.deltaY), 1, MAX_ZOOM);
+		if (next === this.zoom) return;
+		const rect = this.canvas.getBoundingClientRect();
+		const under = rect.height ? 1 - (2 * (e.clientY - rect.top)) / rect.height : 0;
+		this.focus = this.clampFocus(this.focus + under * this.halfView() * (1 - this.zoom / next));
+		this.zoom = next;
+		this.frameModel();
+	};
+
+	/** Half the height of the view at the model, in yards, at the current zoom. */
+	private halfView(): number {
+		return (this.fit / this.zoom) * Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+	}
+
+	/** Keeps the view on the model: its middle may go no further than its feet or head. */
+	private clampFocus(focus: number): number {
+		const half = (this.extent?.height ?? 2) / 2;
+		return THREE.MathUtils.clamp(focus, -half, half);
+	}
 
 	/** Fits the renderer to the pane (CSS pixels) and frames the model again. */
 	resize(width: number, height: number): void {
@@ -573,6 +616,8 @@ class NpcPreview {
 	stop(): void {
 		cancelAnimationFrame(this.frame);
 		this.frame = 0;
+		this.zoom = 1;
+		this.focus = 0;
 		void this.show(null);
 	}
 
@@ -636,14 +681,15 @@ class NpcPreview {
 
 	/**
 	 * Frames the model standing: back far enough for its height (model z) to fill the view, a
-	 * little further for a wide one or a narrow pane.
+	 * little further for a wide one or a narrow pane; nearer by the zoom, looking at the focus.
 	 */
 	private frameModel(): void {
 		const extent = this.extent ?? { height: 2, width: 1 };
 		const half = THREE.MathUtils.degToRad(FOV / 2);
-		const distance = Math.max((extent.height / 2) * MARGIN / Math.tan(half), (extent.width / 2) * MARGIN / Math.tan(half * this.camera.aspect)) + extent.width * 0.5;
-		this.camera.position.set(0, extent.height * 0.5, distance);
-		this.camera.lookAt(0, extent.height * 0.5, 0);
+		this.fit = Math.max((extent.height / 2) * MARGIN / Math.tan(half), (extent.width / 2) * MARGIN / Math.tan(half * this.camera.aspect)) + extent.width * 0.5;
+		const at = extent.height * 0.5 + this.clampFocus(this.focus);
+		this.camera.position.set(0, at, this.fit / this.zoom);
+		this.camera.lookAt(0, at, 0);
 		this.camera.updateProjectionMatrix();
 	}
 
@@ -666,6 +712,7 @@ class NpcPreview {
 	dispose(): void {
 		this.stop();
 		this.canvas.removeEventListener('mousedown', this.onDown);
+		this.canvas.removeEventListener('wheel', this.onWheel);
 		window.removeEventListener('mousemove', this.onMove);
 		window.removeEventListener('mouseup', this.onUp);
 		this.renderer.dispose();

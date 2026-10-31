@@ -365,6 +365,15 @@ button.plain {
 	min-inline-size: 0;
 }
 
+/* A lone control centred in the panel (the water height stepper). */
+.dock-row[data-align='center'] {
+	justify-content: center;
+}
+
+.dock-row[data-align='center'] > * {
+	flex: 0 0 auto;
+}
+
 .dock-note {
 	margin: 0;
 	color: var(--color-text-muted);

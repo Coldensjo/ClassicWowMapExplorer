@@ -667,7 +667,7 @@ export class EditorPanels {
 		});
 		const heightModule = dockModule({
 			title: 'Height',
-			children: [dockNote('(empty = just above the clicked ground)'), el('div', { class: 'dock-row' }, height.root), this.keys({ heading: 'Hotkeys', rows: HEIGHT_KEYS }).root],
+			children: [dockNote('(empty = just above the clicked ground)'), el('div', { class: 'dock-row', 'data-align': 'center' }, height.root), this.keys({ heading: 'Hotkeys', rows: HEIGHT_KEYS }).root],
 		});
 
 		const sync = () => {

@@ -392,9 +392,13 @@ export class SceneObjects {
 		}
 		const point = this.pointUnder(raycaster, terrain);
 		if (!point) return;
+		// A custom NPC starts with its preset's default name and title (the NPC studio's fields).
+		const preset = asset.appearance.kind === 'custom' ? this.model.preset(asset.appearance.presetId) : null;
 		const npc: PlacedNpc = {
 			id: crypto.randomUUID(),
 			appearance: structuredClone(asset.appearance),
+			...(preset?.name ? { name: preset.name } : {}),
+			...(preset?.title ? { subName: preset.title } : {}),
 			position: [point.x, point.y, point.z],
 			facing: facingToward(this.camera.position.x - point.x, this.camera.position.z - point.z),
 			scale: 1,

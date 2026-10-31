@@ -1080,6 +1080,8 @@ export class EditorPanels {
 		this.npcEditor = new NpcEditor(this.storage, editor.model.meta.client.build, {
 			handleOf: (preset) => editor.objects.npcs.handle(preset),
 			onNotice: (text) => editor.onNotice(text),
+			// The name placeholder counts the library: "Custom NPC 3" when two exist (npc-studio.md §2).
+			nextName: () => `Custom NPC ${library.length + 1}`,
 			onSave: (preset) => {
 				void this.presets.save(preset).catch((e) => editor.onNotice(`Saving the preset failed: ${e instanceof Error ? e.message : e}. It is still embedded in this scene.`));
 				browser.forgetThumb(presetThumbKey(preset));

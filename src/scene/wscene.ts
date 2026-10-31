@@ -432,7 +432,7 @@ export function validPresets(presets: NpcPreset[]): NpcPreset[] {
 			if (!Number.isInteger(display) || display <= 0) throw new Error(`${what} has a bad item display in ${slot}`);
 			equipment[slot as EquipSlot] = display;
 		}
-		return { id: p.id, name: typeof p.name === 'string' ? p.name : '', race: p.race, sex: p.sex, customization, equipment };
+		return { id: p.id, name: typeof p.name === 'string' ? p.name : '', ...(typeof p.title === 'string' && p.title ? { title: p.title } : {}), race: p.race, sex: p.sex, customization, equipment };
 	});
 }
 

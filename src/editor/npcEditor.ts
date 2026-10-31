@@ -2,6 +2,28 @@ import * as THREE from 'three';
 import type { ModelData } from '../explorer/objects';
 import type { CharacterModelInfo, CustomizationOption, HumanoidPreset } from '../explorer/npcs';
 import type { EquipSlot, NpcPreset } from '../scene/types';
+import {
+	append,
+	button,
+	confirmDialog,
+	el,
+	iconButton,
+	radioGroup,
+	segmentedControl,
+	select,
+	setRadioOptionDisabled,
+	setRadioValue,
+	setSegmentedValue,
+	setSelectOptions,
+	setSelectValue,
+	setTextValue,
+	swatchPicker,
+	textInput,
+	type RadioGroupHandle,
+	type SegmentedControlHandle,
+	type SelectHandle,
+	type TextInputHandle,
+} from '../ui';
 import { createModelMaterial, type SkinUniforms } from '../viewer/modelMaterials';
 import { TextureCache } from '../viewer/textureCache';
 import { supportsCompressedTextures } from '../viewer/textures';
@@ -9,13 +31,12 @@ import type { AsyncStorageApi } from '../worker/protocol';
 import { GearBrowser, type GearEntry } from './gearBrowser';
 import { listfile } from './listfile';
 
-/** The equipment slots in the editor's order, with their labels. */
+/** The equipment slots in the design's order (NPC Studio, View=Gear), with their labels. */
 const SLOTS: [EquipSlot, string][] = [
-	['head', 'Head'], ['shoulder', 'Shoulders'], ['back', 'Back'], ['chest', 'Chest'], ['shirt', 'Shirt'], ['tabard', 'Tabard'],
-	['wrist', 'Wrists'], ['hands', 'Hands'], ['waist', 'Waist'], ['legs', 'Legs'], ['feet', 'Feet'],
-	['mainHand', 'Main hand'], ['offHand', 'Off hand'], ['ranged', 'Ranged'],
+	['mainHand', 'Main hand'], ['offHand', 'Off-hand'], ['ranged', 'Ranged'], ['head', 'Head'], ['shoulder', 'Shoulders'], ['back', 'Back'],
+	['chest', 'Chest'], ['shirt', 'Shirt'], ['tabard', 'Tabard'], ['wrist', 'Wrists'], ['hands', 'Hands'], ['waist', 'Waist'], ['legs', 'Legs'], ['feet', 'Feet'],
 ];
-/** Results a slot's search shows at once. */
+/** Results a slot's type-ahead shows at once. */
 const MAX_RESULTS = 40;
 /** The preview rebuilds this long (ms) after the last change. */
 const REBUILD_DELAY = 250;
@@ -24,27 +45,49 @@ const MODEL_BASIS = new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, -1), n
 const FOV = 28;
 const MARGIN = 1.1;
 
-const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+type StudioTab = 'appearance' | 'gear';
 
 /**
- * The custom NPC editor (spec 7.9.3): a modal that builds an NpcPreset from a playable race and
- * sex, its customization options (from the modern ChrCustomization tables) and gear searched per
- * slot (named where the client names it, else by path, see Q8) or browsed with pictures, with a
- * live, rotatable preview playing the idle animation. Saving hands the preset back for the
- * library and the scene.
+ * The NPC studio (spec 7.9.3; design: NPC Studio `38:15826`, src/ui/specs/npc-studio.md): a
+ * modal over the scene that builds an NpcPreset. The left column is a live, rotatable preview
+ * playing the idle animation; the right rail holds two tabs, Appearance (name, title, race,
+ * gender and the customization options from the modern ChrCustomization tables) and Gear (a
+ * field per slot, searched by typing, browsed with pictures, or cleared), with the Browse Piece
+ * view taking the rail's place while a slot is browsed. Save to library hands the preset back
+ * for the library and the scene; Exit asks first when something changed.
  */
 export class NpcEditor {
+	private readonly root: HTMLDivElement;
+	private readonly frame: HTMLElement;
+	private readonly status: HTMLParagraphElement;
+	private readonly form: HTMLDivElement;
+	private readonly tabs: SegmentedControlHandle;
+	private readonly appearancePane: HTMLDivElement;
+	private readonly gearPane: HTMLDivElement;
+	private readonly nameField: TextInputHandle;
+	private readonly titleField: TextInputHandle;
+	private readonly raceSelect: SelectHandle;
+	private readonly gender: RadioGroupHandle;
+	private readonly optionsBox: HTMLDivElement;
+	private readonly gearBox: HTMLDivElement;
+	private readonly preview: NpcPreview;
+	private readonly browser: GearBrowser;
+	private readonly resizer: ResizeObserver;
+	private readonly cleanups: (() => void)[] = [];
+
 	private draft: NpcPreset | null = null;
+	/** The draft as opened (after its defaults were filled), to know whether anything changed. */
+	private opened = '';
+	private tab: StudioTab = 'appearance';
 	private models: CharacterModelInfo[] = [];
 	private options: CustomizationOption[] = [];
 	private gear: GearEntry[] | null = null;
 	private gearLoading: Promise<GearEntry[]> | null = null;
 	private rebuildTimer = 0;
-	private readonly cleanups: (() => void)[] = [];
-	private readonly preview: NpcPreview;
-	private readonly browser: GearBrowser;
 	/** Which build of the preview is current, so a slower earlier one doesn't replace it. */
 	private buildSerial = 0;
+	/** The exit dialog, while it asks. */
+	private asking = false;
 
 	constructor(
 		private readonly storage: AsyncStorageApi,
@@ -54,9 +97,24 @@ export class NpcEditor {
 			handleOf: (preset: NpcPreset) => number;
 			onSave: (preset: NpcPreset) => void;
 			onNotice: (text: string) => void;
+			/** The name a new NPC gets when none is typed, e.g. "Custom NPC 3". */
+			nextName?: () => string;
 		},
 	) {
-		this.preview = new NpcPreview($<HTMLCanvasElement>('npc-editor-preview'), storage);
+		// The frame: title row, the body (preview beside the rail), the footer.
+		const titleId = 'npc-studio-title';
+		const close = iconButton({ icon: 'close', label: 'Exit the NPC studio', variant: 'ghost', size: 'xs', onClick: () => void this.requestClose() });
+		const header = el('div', { class: 'npc-studio-header' }, el('h2', { class: 'npc-studio-title', id: titleId }, 'NPC studio'), close);
+		const canvas = el('canvas', { width: 371, height: 659, title: 'Drag to turn the model' });
+		this.status = el('p', { class: 'npc-studio-status', role: 'status' });
+		const previewPane = el('div', { class: 'npc-studio-preview' }, canvas, this.status);
+		this.preview = new NpcPreview(canvas, storage);
+		this.resizer = new ResizeObserver(([entry]) => {
+			const { width, height } = entry.contentRect;
+			if (width && height) this.preview.resize(width, height);
+		});
+		this.resizer.observe(previewPane);
+
 		this.browser = new GearBrowser(storage, build, {
 			handleOf: (preset) => hooks.handleOf(preset),
 			onPick: (slot, display) => {
@@ -66,111 +124,196 @@ export class NpcEditor {
 			},
 			onBack: () => this.showForm(),
 		});
-		const listen = <K extends keyof HTMLElementEventMap>(el: HTMLElement, type: K, fn: (e: HTMLElementEventMap[K]) => void) => {
-			el.addEventListener(type, fn as EventListener);
-			this.cleanups.push(() => el.removeEventListener(type, fn as EventListener));
-		};
-		listen($('npc-editor-close'), 'click', () => this.close());
-		listen($('npc-editor-cancel'), 'click', () => this.close());
-		listen($('npc-editor-save'), 'click', () => this.save());
-		listen($('npc-editor-name'), 'input', () => {
-			if (this.draft) this.draft.name = $<HTMLInputElement>('npc-editor-name').value;
+
+		// The Appearance tab: name and title, race and gender, then the model's options.
+		this.nameField = textInput({ label: 'Default name', placeholder: 'Custom NPC', maxLength: 60, autocomplete: 'off', onInput: (v) => this.draft && (this.draft.name = v) });
+		this.titleField = textInput({
+			label: 'Default title',
+			optional: true,
+			hint: 'i.e. <High Chieftain> or <King of Stormwind>',
+			maxLength: 60,
+			autocomplete: 'off',
+			onInput: (v) => {
+				if (!this.draft) return;
+				if (v.trim()) this.draft.title = v;
+				else delete this.draft.title;
+			},
 		});
-		listen($('npc-editor-race'), 'change', () => void this.setRaceSex(Number($<HTMLSelectElement>('npc-editor-race').value), this.draft?.sex ?? 0));
-		listen($('npc-editor-sex'), 'change', () => void this.setRaceSex(this.draft?.race ?? 1, Number($<HTMLSelectElement>('npc-editor-sex').value) as 0 | 1));
+		this.raceSelect = select({ label: 'Race', options: [], value: null, placeholder: 'Loading…', onChange: (v) => void this.setRaceSex(Number(v), this.draft?.sex ?? 0) });
+		this.gender = radioGroup({
+			name: 'npc-studio-sex',
+			legend: 'Gender',
+			options: [
+				{ value: '0', label: 'Male' },
+				{ value: '1', label: 'Female' },
+			],
+			value: '0',
+			onChange: (v) => void this.setRaceSex(this.draft?.race ?? 1, Number(v) as 0 | 1),
+		});
+		this.optionsBox = el('div', { class: 'npc-studio-options' });
+		this.appearancePane = el('div', { class: 'npc-studio-pane npc-studio-grid' }, this.nameField.root, this.titleField.root, this.raceSelect.root, this.gender.root, this.optionsBox);
+
+		// The Gear tab: a field per slot.
+		this.gearBox = el('div', { class: 'npc-studio-grid' });
+		this.gearPane = el('div', { class: 'npc-studio-pane', hidden: true }, this.gearBox);
+
+		this.tabs = segmentedControl({
+			name: 'npc-studio-view',
+			label: 'Studio view',
+			options: [
+				{ value: 'appearance', label: 'Appearance' },
+				{ value: 'gear', label: 'Gear' },
+			],
+			value: this.tab,
+			onChange: (v) => this.setTab(v === 'gear' ? 'gear' : 'appearance'),
+		});
+		this.form = el('div', { class: 'npc-studio-form' }, this.tabs.root, el('div', { class: 'npc-studio-panes ds-scroll' }, this.appearancePane, this.gearPane));
+		const rail = el('div', { class: 'npc-studio-rail' }, this.form, this.browser.root);
+		const body = el('div', { class: 'npc-studio-body' }, previewPane, rail);
+
+		const exit = button({ label: 'Exit', variant: 'outline', size: 'md', onClick: () => void this.requestClose() });
+		const save = button({ label: 'Save to library', variant: 'primary', size: 'md', onClick: () => this.save() });
+		const footer = el('div', { class: 'npc-studio-footer' }, exit, save);
+
+		this.frame = el('section', { class: 'npc-studio', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId }, header, body, footer);
+		this.root = el('div', { class: 'npc-studio-scrim', id: 'npc-studio', hidden: true }, this.frame);
+		// A click on the veil itself, outside the frame, is an Exit.
+		this.root.addEventListener('click', (e) => {
+			if (e.target === this.root) void this.requestClose();
+		});
+		document.body.append(this.root);
+
 		const onKey = (e: KeyboardEvent) => {
-			if (e.code === 'Escape' && !$('npc-editor').hidden) {
-				e.stopPropagation();
-				// Browsing a slot, Esc goes back to the form; from the form, it closes the editor.
-				if (this.browser.isOpen) this.showForm();
-				else this.close();
-			}
+			if (e.code !== 'Escape' || !this.isOpen || this.asking) return;
+			// A select's open list takes Escape first; a native dialog never lets it get here.
+			if (document.querySelector('.ds-menu:not([hidden])')) return;
+			e.stopPropagation();
+			// Browsing a slot, Esc goes back to the gear tab; from the form, it is an Exit.
+			if (this.browser.isOpen) this.showForm();
+			else void this.requestClose();
 		};
 		window.addEventListener('keydown', onKey, true);
 		this.cleanups.push(() => window.removeEventListener('keydown', onKey, true));
 	}
 
 	get isOpen(): boolean {
-		return !$('npc-editor').hidden;
+		return !this.root.hidden;
 	}
 
 	/**
-	 * Opens the editor on a preset (a copy is edited), or on a new one, optionally prefilled from
-	 * a humanoid display ("Customize as new", spec 7.9.2).
+	 * Opens the studio on a preset (a copy is edited), or on a new one, optionally prefilled
+	 * from a humanoid display or another preset (Remix, spec 7.9.2).
 	 */
 	async open(preset: NpcPreset | null, prefill: HumanoidPreset | null = null, name = ''): Promise<void> {
 		this.draft = preset ? structuredClone(preset) : { id: crypto.randomUUID(), name, race: prefill?.race ?? 1, sex: prefill?.sex ?? 0, customization: prefill ? { ...prefill.customization } : {}, equipment: prefill ? { ...prefill.equipment } : {} };
-		$('npc-editor-title').textContent = preset ? 'Edit custom NPC' : 'New custom NPC';
-		$<HTMLInputElement>('npc-editor-name').value = this.draft.name;
-		$('npc-editor').hidden = false;
+		this.opened = '';
+		setTextValue(this.nameField.root, this.draft.name);
+		this.nameField.input.placeholder = this.hooks.nextName?.() ?? 'Custom NPC';
+		setTextValue(this.titleField.root, this.draft.title ?? '');
+		this.setTab('appearance');
+		this.showForm();
+		this.root.hidden = false;
 		this.setStatus('Loading the character models…');
 		try {
 			if (!this.models.length) this.models = await this.storage.characterModels();
 		} catch (e) {
 			this.hooks.onNotice(`The character models couldn't be read: ${e instanceof Error ? e.message : e}`);
 		}
-		if (!this.draft) return;
-		const race = $<HTMLSelectElement>('npc-editor-race');
+		const draft = this.draft;
+		if (!draft) return;
 		const races = new Map<number, string>();
 		for (const m of this.models) races.set(m.race, m.name);
-		race.replaceChildren(...[...races].map(([id, label]) => new Option(label, String(id))));
-		if (!races.has(this.draft.race)) this.draft.race = races.keys().next().value ?? 1;
-		race.value = String(this.draft.race);
-		$<HTMLSelectElement>('npc-editor-sex').value = String(this.draft.sex);
-		const draft = this.draft;
+		setSelectOptions(this.raceSelect.root, [...races].map(([id, label]) => ({ value: String(id), label })));
+		if (!races.has(draft.race)) draft.race = races.keys().next().value ?? 1;
 		// Worn gear is labelled "display N" until the gear list arrives, then by name.
 		void this.loadGear().then(() => {
 			if (this.draft === draft) this.renderGear();
 		});
-		await this.setRaceSex(this.draft.race, this.draft.sex, true);
+		await this.setRaceSex(draft.race, draft.sex, true);
+		if (this.draft !== draft) return;
+		this.opened = snapshot(draft);
 		this.preview.start();
+		this.nameField.input.focus();
 	}
 
+	/** Closes without asking (the caller has decided). */
 	close(): void {
-		$('npc-editor').hidden = true;
+		this.root.hidden = true;
 		this.draft = null;
+		this.opened = '';
 		clearTimeout(this.rebuildTimer);
 		this.preview.stop();
 		this.showForm();
-		$('npc-editor-options').replaceChildren();
-		$('npc-editor-gear').replaceChildren();
+		this.optionsBox.replaceChildren();
+		this.gearBox.replaceChildren();
+		this.setStatus('');
 	}
 
-	/** Opens the slot browser in place of the form (spec 7.9.3). */
+	/** Exit: closes at once when nothing changed, otherwise asks first (decided 2026-10-30). */
+	private async requestClose(): Promise<void> {
+		if (!this.isOpen || this.asking) return;
+		if (!this.isDirty()) {
+			this.close();
+			return;
+		}
+		this.asking = true;
+		try {
+			const exit = await confirmDialog({
+				title: 'Exit NPC studio?',
+				message: 'Any changes you’ve made will be lost.',
+				cancel: { label: 'Go back' },
+				confirm: { label: 'Exit' },
+			});
+			if (exit) this.close();
+		} finally {
+			this.asking = false;
+		}
+	}
+
+	private isDirty(): boolean {
+		return this.draft !== null && this.opened !== '' && snapshot(this.draft) !== this.opened;
+	}
+
+	private setTab(tab: StudioTab): void {
+		this.tab = tab;
+		setSegmentedValue(this.tabs.root, tab);
+		this.appearancePane.hidden = tab !== 'appearance';
+		this.gearPane.hidden = tab !== 'gear';
+	}
+
+	/** Opens the Browse Piece view in the rail's place. */
 	private async browse(slot: EquipSlot, label: string): Promise<void> {
 		const draft = this.draft;
 		if (!draft) return;
 		const all = this.gear ?? (await this.loadGear());
 		if (this.draft !== draft || !this.isOpen) return;
-		$('npc-editor-form').hidden = true;
+		this.form.hidden = true;
 		this.browser.open(slot, label, all.filter((g) => g.slot === slot), draft.equipment[slot] ?? 0, { race: draft.race, sex: draft.sex });
 	}
 
-	/** Back from the slot browser: the form again, its slot rows showing what is worn now. */
+	/** Back from the Browse Piece view: the tabs again, the slot fields showing what is worn now. */
 	private showForm(): void {
 		const browsing = this.browser.isOpen;
 		this.browser.close();
-		$('npc-editor-form').hidden = false;
+		this.form.hidden = false;
 		if (browsing && this.draft) this.renderGear();
 	}
 
 	private setStatus(text: string): void {
-		$('npc-editor-status').textContent = text;
+		this.status.textContent = text;
 	}
 
 	/** A race or sex change: reloads the options (keeping choices that still apply) and the gear rows. */
 	private async setRaceSex(race: number, sex: 0 | 1, keep = false): Promise<void> {
 		const draft = this.draft;
 		if (!draft) return;
-		if (!this.models.some((m) => m.race === race && m.sex === sex)) {
-			// The other sex, if the race has only one model.
-			const other = this.models.find((m) => m.race === race);
-			if (!other) return;
-			sex = other.sex;
-		}
+		const sexes = this.models.filter((m) => m.race === race).map((m) => m.sex);
+		if (sexes.length && !sexes.includes(sex)) sex = sexes[0]; // The other sex, if the race has only one model.
 		draft.race = race;
 		draft.sex = sex;
-		$<HTMLSelectElement>('npc-editor-sex').value = String(sex);
+		setSelectValue(this.raceSelect.root, String(race));
+		setRadioValue(this.gender.root, String(sex));
+		for (const s of [0, 1] as const) setRadioOptionDisabled(this.gender.root, String(s), sexes.length > 0 && !sexes.includes(s));
 		this.setStatus('Loading the customization…');
 		try {
 			this.options = await this.storage.customizationOptions(race, sex);
@@ -190,47 +333,34 @@ export class NpcEditor {
 		this.scheduleRebuild(true);
 	}
 
+	/** The customization options, two to a row: colours as swatch pickers, the rest as selects. */
 	private renderOptions(): void {
 		const draft = this.draft!;
-		const box = $('npc-editor-options');
-		box.replaceChildren(
+		this.optionsBox.replaceChildren(
 			...this.options.map((option) => {
-				const row = document.createElement('div');
-				row.className = 'npc-option';
-				const label = document.createElement('span');
-				label.textContent = option.name;
-				label.title = `Option ${option.id}`;
-				row.append(label);
 				const current = draft.customization[String(option.id)] ?? option.choices[0].id;
-				// Colour options (skin, hair, eyes) show as swatches; a choice without one (a rare odd one out) is a plain button.
+				const pick = (choice: number) => {
+					draft.customization[String(option.id)] = choice;
+					this.scheduleRebuild();
+				};
+				// Colour options (skin, hair, eyes) show as swatches; a choice without one (a rare odd one out) is grey.
 				const swatches = option.choices.filter((c) => c.swatch !== null).length >= option.choices.length / 2 && option.choices.every((c) => !c.name);
 				if (swatches && option.choices.length <= 48) {
-					const strip = document.createElement('div');
-					strip.className = 'npc-swatches';
-					option.choices.forEach((choice, i) => {
-						const b = document.createElement('button');
-						b.style.background = choice.swatch !== null ? `#${choice.swatch.toString(16).padStart(6, '0')}` : '#777';
-						b.title = `${option.name} ${i + 1} (choice ${choice.id})`;
-						b.classList.toggle('active', choice.id === current);
-						b.addEventListener('click', () => {
-							draft.customization[String(option.id)] = choice.id;
-							for (const other of strip.children) other.classList.toggle('active', other === b);
-							this.scheduleRebuild();
-						});
-						strip.append(b);
-					});
-					row.append(strip);
-				} else {
-					const select = document.createElement('select');
-					select.replaceChildren(...option.choices.map((c, i) => new Option(c.name || `${i + 1}`, String(c.id))));
-					select.value = String(current);
-					select.addEventListener('change', () => {
-						draft.customization[String(option.id)] = Number(select.value);
-						this.scheduleRebuild();
-					});
-					row.append(select);
+					return swatchPicker({
+						label: option.name,
+						name: `npc-studio-option-${option.id}`,
+						options: option.choices.map((choice, i) => ({ value: String(choice.id), color: choice.swatch !== null ? `#${choice.swatch.toString(16).padStart(6, '0')}` : 'var(--color-border)', name: `${option.name} ${i + 1}` })),
+						value: String(current),
+						onChange: (v) => pick(Number(v)),
+					}).root;
 				}
-				return row;
+				return select({
+					label: option.name,
+					title: `Option ${option.id}`,
+					options: option.choices.map((c, i) => ({ value: String(c.id), label: c.name || `${i + 1}` })),
+					value: String(current),
+					onChange: (v) => pick(Number(v)),
+				}).root;
 			}),
 		);
 	}
@@ -258,40 +388,26 @@ export class NpcEditor {
 		return this.gearLoading;
 	}
 
+	/** A field per slot: type to search, the magnifier to browse with pictures, the reset to wear nothing. */
 	private renderGear(): void {
 		const draft = this.draft!;
-		const box = $('npc-editor-gear');
-		box.replaceChildren(
+		this.gearBox.replaceChildren(
 			...SLOTS.map(([slot, label]) => {
-				const row = document.createElement('div');
-				row.className = 'npc-slot';
-				const name = document.createElement('span');
-				name.textContent = label;
-				const input = document.createElement('input');
-				input.type = 'search';
-				input.autocomplete = 'off';
-				input.spellcheck = false;
-				input.placeholder = 'none';
-				input.setAttribute('aria-label', `${label} gear`);
-				const browse = document.createElement('button');
-				browse.className = 'npc-slot-browse';
-				browse.type = 'button';
-				browse.textContent = '▦';
-				browse.title = `Browse all ${label.toLowerCase()} gear with pictures`;
-				browse.setAttribute('aria-label', `Browse ${label.toLowerCase()} gear`);
-				const clear = document.createElement('button');
-				clear.className = 'npc-slot-clear';
-				clear.textContent = '×';
-				clear.title = `Wear nothing in the ${label.toLowerCase()} slot`;
-				const results = document.createElement('div');
-				results.className = 'npc-slot-results';
-				results.hidden = true;
+				const results = el('div', { class: 'npc-studio-suggest', role: 'listbox', 'aria-label': `${label} matches`, hidden: true });
+				const field = textInput({ label, placeholder: 'None', autocomplete: 'off', spellcheck: false, title: `Type to search the ${label.toLowerCase()} gear` });
+				const input = field.input;
 				const showWorn = () => {
 					const display = draft.equipment[slot];
 					input.value = display ? this.gear?.find((g) => g.id === display)?.label ?? `display ${display}` : '';
-					input.classList.toggle('greyed', !display);
 				};
 				showWorn();
+				const wear = (display: number | null) => {
+					if (display === null) delete draft.equipment[slot];
+					else draft.equipment[slot] = display;
+					results.hidden = true;
+					showWorn();
+					this.scheduleRebuild();
+				};
 				const search = async () => {
 					const query = input.value.trim().toLowerCase();
 					if (query.length < 2) {
@@ -299,36 +415,22 @@ export class NpcEditor {
 						return;
 					}
 					const all = this.gear ?? (await this.loadGear());
+					if (document.activeElement !== input) return;
 					const tokens = query.split(/\s+/);
 					const found = all.filter((g) => g.slot === slot && tokens.every((t) => g.search.includes(t)));
 					const shown = found.slice(0, MAX_RESULTS);
-					results.replaceChildren(
+					results.replaceChildren();
+					append(
+						results,
 						...shown.map((g) => {
-							const b = document.createElement('button');
-							b.textContent = g.name ? g.name : `${g.label} (${g.id})`;
-							b.title = `Item display ${g.id}${g.status !== 'ok' ? ' · not downloaded in your install' : ''}`;
-							if (g.status !== 'ok') b.classList.add('greyed');
-							b.addEventListener('mousedown', (e) => e.preventDefault());
-							b.addEventListener('click', () => {
-								draft.equipment[slot] = g.id;
-								results.hidden = true;
-								showWorn();
-								this.scheduleRebuild();
-							});
-							return b;
+							const option = el('button', { type: 'button', class: 'npc-studio-suggest-option', role: 'option', title: `Item display ${g.id}${g.status !== 'ok' ? ' · not downloaded in your install' : ''}`, 'data-missing': g.status !== 'ok' ? 'true' : undefined }, g.name ? g.name : `${g.label} (${g.id})`);
+							option.addEventListener('mousedown', (e) => e.preventDefault());
+							option.addEventListener('click', () => wear(g.id));
+							return option;
 						}),
+						!shown.length ? el('div', { class: 'npc-studio-suggest-note' }, 'Nothing matches') : null,
+						found.length > shown.length ? el('div', { class: 'npc-studio-suggest-note' }, `${found.length - shown.length} more — type to narrow`) : null,
 					);
-					if (!shown.length) {
-						const none = document.createElement('div');
-						none.className = 'muted small';
-						none.textContent = 'Nothing matches';
-						results.append(none);
-					} else if (found.length > shown.length) {
-						const more = document.createElement('div');
-						more.className = 'muted small';
-						more.textContent = `${found.length - shown.length} more — type to narrow`;
-						results.append(more);
-					}
 					results.hidden = false;
 				};
 				input.addEventListener('input', () => void search());
@@ -340,14 +442,9 @@ export class NpcEditor {
 					results.hidden = true;
 					showWorn();
 				});
-				clear.addEventListener('click', () => {
-					delete draft.equipment[slot];
-					showWorn();
-					this.scheduleRebuild();
-				});
-				browse.addEventListener('click', () => void this.browse(slot, label));
-				row.append(name, input, browse, clear, results);
-				return row;
+				const browse = iconButton({ icon: 'search', label: `Browse the ${label.toLowerCase()} gear with pictures`, variant: 'secondary', size: 'sm', onClick: () => void this.browse(slot, label) });
+				const clear = iconButton({ icon: 'reset', label: `Wear nothing in the ${label.toLowerCase()} slot`, variant: 'secondary', size: 'sm', onClick: () => wear(null) });
+				return el('div', { class: 'npc-studio-slot' }, field.root, el('div', { class: 'npc-studio-slot-actions' }, browse, clear), results);
 			}),
 		);
 	}
@@ -383,33 +480,45 @@ export class NpcEditor {
 	private save(): void {
 		const draft = this.draft;
 		if (!draft) return;
-		draft.name = $<HTMLInputElement>('npc-editor-name').value.trim() || `${this.models.find((m) => m.race === draft.race)?.name ?? 'Custom'} NPC`;
+		draft.name = this.nameField.input.value.trim() || this.hooks.nextName?.() || `${this.models.find((m) => m.race === draft.race)?.name ?? 'Custom'} NPC`;
+		const title = this.titleField.input.value.trim();
+		if (title) draft.title = title;
+		else delete draft.title;
 		this.hooks.onSave(structuredClone(draft));
 		this.close();
 	}
 
 	dispose(): void {
 		this.close();
+		this.resizer.disconnect();
 		this.preview.dispose();
 		this.browser.dispose();
 		for (const c of this.cleanups) c();
 		this.cleanups.length = 0;
+		this.root.remove();
 	}
 }
 
+/** What a draft is, for telling whether it changed. */
+function snapshot(preset: NpcPreset): string {
+	return JSON.stringify([preset.name, preset.title ?? '', preset.race, preset.sex, preset.customization, preset.equipment]);
+}
+
 /**
- * The editor's preview: the built model on a renderer of its own, lit from the front, playing
- * its Stand loop, turned by dragging.
+ * The studio's preview: the built model on a renderer of its own, lit from the front, playing
+ * its Stand loop, turned by dragging, framed afresh whenever the pane is resized.
  */
 class NpcPreview {
 	private readonly renderer: THREE.WebGLRenderer;
 	private readonly scene = new THREE.Scene();
-	private readonly camera = new THREE.PerspectiveCamera(FOV, 3 / 4, 0.05, 500);
+	private readonly camera = new THREE.PerspectiveCamera(FOV, 371 / 659, 0.05, 500);
 	private readonly textures: TextureCache;
 	private readonly clock = new THREE.Clock();
 	private frame = 0;
 	private yaw = Math.PI + 0.3;
 	private shown: { mesh: THREE.Mesh; textures: number[]; boneTexture: THREE.DataTexture | null; skin: SkinUniforms | null; clip: { row: number; frames: number; duration: number } | null; time: number } | null = null;
+	/** The shown model's standing height and width, for framing it again after a resize. */
+	private extent: { height: number; width: number } | null = null;
 	private dragging: { x: number; yaw: number } | null = null;
 
 	constructor(private readonly canvas: HTMLCanvasElement, storage: AsyncStorageApi) {
@@ -443,6 +552,14 @@ class NpcPreview {
 		this.dragging = null;
 	};
 
+	/** Fits the renderer to the pane (CSS pixels) and frames the model again. */
+	resize(width: number, height: number): void {
+		this.renderer.setSize(Math.round(width), Math.round(height), false);
+		this.camera.aspect = width / height;
+		this.frameModel();
+		if (!this.frame && this.shown) this.renderer.render(this.scene, this.camera);
+	}
+
 	start(): void {
 		this.stop();
 		this.clock.start();
@@ -468,8 +585,12 @@ class NpcPreview {
 			this.shown.boneTexture?.dispose();
 			this.textures.release(this.shown.textures);
 			this.shown = null;
+			this.extent = null;
 		}
-		if (!data) return;
+		if (!data) {
+			this.renderer.render(this.scene, this.camera);
+			return;
+		}
 		const geometry = new THREE.BufferGeometry();
 		geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
 		geometry.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3));
@@ -507,15 +628,22 @@ class NpcPreview {
 		mesh.matrixAutoUpdate = false;
 		this.scene.add(mesh);
 		this.shown = { mesh, textures: ids, boneTexture, skin, clip, time: 0 };
-		// Frame the model standing: back far enough for its height (model z) to fill the view, a
-		// little further for a wide one. The header's bounding radius overstates most models, so it
-		// only ever adds up to the height.
+		// The header's bounding radius overstates most models, so it only ever adds up to the height.
 		const height = Math.max(0.5, data.height);
-		const width = Math.min(height, Math.max(0.5, data.radius));
+		this.extent = { height, width: Math.min(height, Math.max(0.5, data.radius)) };
+		this.frameModel();
+	}
+
+	/**
+	 * Frames the model standing: back far enough for its height (model z) to fill the view, a
+	 * little further for a wide one or a narrow pane.
+	 */
+	private frameModel(): void {
+		const extent = this.extent ?? { height: 2, width: 1 };
 		const half = THREE.MathUtils.degToRad(FOV / 2);
-		const distance = Math.max((height / 2) * MARGIN / Math.tan(half), (width / 2) * MARGIN / Math.tan(half * this.camera.aspect)) + width * 0.5;
-		this.camera.position.set(0, height * 0.5, distance);
-		this.camera.lookAt(0, height * 0.5, 0);
+		const distance = Math.max((extent.height / 2) * MARGIN / Math.tan(half), (extent.width / 2) * MARGIN / Math.tan(half * this.camera.aspect)) + extent.width * 0.5;
+		this.camera.position.set(0, extent.height * 0.5, distance);
+		this.camera.lookAt(0, extent.height * 0.5, 0);
 		this.camera.updateProjectionMatrix();
 	}
 

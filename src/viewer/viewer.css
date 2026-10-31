@@ -185,7 +185,7 @@ kbd {
 
 /* --- The dungeon builder: the scene library, the new-scene dialog and the editor bar. --- */
 
-#scene-create, #npc-editor {
+#scene-create {
 	position: fixed;
 	inset: 0;
 	display: grid;
@@ -885,220 +885,286 @@ body.playing :is(#texture-browser, #object-browser, #npc-library) {
 	opacity: 0.35;
 }
 
-#npc-editor {
-	z-index: 40;
-}
-
-.npc-editor-frame {
-	width: min(900px, 100%);
-	max-height: calc(100vh - 32px);
-	display: flex;
-	flex-direction: column;
-}
-
-.npc-editor-frame header {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-}
-
-.npc-editor-frame header h2 {
-	flex: 1;
-	margin: 0;
-}
-
-.npc-editor-body {
+/* ---- The NPC studio (spec 7.9.3; src/ui/specs/npc-studio.md) ----
+   A modal over the scene built by src/editor/npcEditor.ts: the preview column beside a right
+   rail of two tabs (Appearance, Gear) or the Browse Piece view (src/editor/gearBrowser.ts),
+   with Exit and Save to library in the footer. Controls are molecules; tokens only. */
+.npc-studio-scrim {
+	position: fixed;
+	inset: 0;
+	z-index: var(--z-window); /* over the windows and the side panel; under the popovers its selects open */
 	display: grid;
-	grid-template-columns: 360px 1fr;
-	gap: 14px;
-	min-height: 0;
+	place-items: center;
+	padding: var(--space-4);
+	background-color: var(--color-scrim);
 }
 
-#npc-editor-preview {
-	width: 360px;
-	height: 480px;
-	border-radius: 8px;
-	background: radial-gradient(ellipse at 50% 30%, #3a4150, #1b1f26 75%);
-	cursor: grab;
-	align-self: start;
+.npc-studio-scrim[hidden] {
+	display: none;
 }
 
-.npc-editor-form {
+/* Drawn 925 × 787: 16px above the title row and under the footer; the rest is the body. */
+.npc-studio {
+	--studio-preview-width: 371px;
+
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
-	min-height: 0;
-	max-height: calc(100vh - 110px);
-	overflow: auto;
-	padding-right: 4px;
-	font-size: 13px;
+	box-sizing: border-box;
+	inline-size: min(925px, 100%);
+	block-size: min(787px, 100%);
+	padding-block: var(--space-4);
+	border: var(--border-width) solid var(--color-bg-surface);
+	border-radius: var(--radius-lg);
+	background-color: var(--color-bg-panel);
+	backdrop-filter: blur(var(--blur-panel));
+	-webkit-backdrop-filter: blur(var(--blur-panel));
+	color: var(--color-text);
+	overflow: hidden;
 }
 
-.npc-editor-form h3 {
-	margin: 6px 0 0;
-	font-size: 13px;
-}
-
-.npc-editor-form .prop-row {
+.npc-studio-header {
+	flex: none;
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	gap: var(--space-2-5);
+	min-block-size: 24px;
+	padding: 0 var(--space-4);
+	margin-block-end: var(--space-4);
 }
 
-.npc-editor-form .prop-row input[type='text'],
-.npc-editor-form .prop-row select {
-	flex: 1;
-	min-width: 0;
-}
-
-.npc-editor-options {
-	display: flex;
-	flex-direction: column;
-	gap: 6px;
-}
-
-.npc-option {
-	display: grid;
-	grid-template-columns: 96px 1fr;
-	align-items: center;
-	gap: 6px;
-}
-
-.npc-option select {
-	min-width: 0;
-}
-
-.npc-swatches {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 3px;
-}
-
-.npc-swatches button {
-	width: 18px;
-	height: 18px;
-	padding: 0;
-	border: 2px solid transparent;
-	border-radius: 4px;
-}
-
-.npc-swatches button.active {
-	border-color: #fff;
-	box-shadow: 0 0 0 1px #000;
-}
-
-.npc-editor-gear {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-}
-
-.npc-slot {
-	display: grid;
-	grid-template-columns: 72px 1fr auto auto;
-	align-items: center;
-	gap: 6px;
-	position: relative;
-}
-
-.npc-slot input {
-	min-width: 0;
-}
-
-.npc-slot .npc-slot-browse,
-.npc-slot .npc-slot-clear {
-	padding: 2px 6px;
-}
-
-/* The slot browser, in the form's place while the preview stays (spec 7.9.3). */
-
-.npc-editor-browse {
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-	min-height: 0;
-	max-height: calc(100vh - 110px);
-	font-size: 13px;
-}
-
-.npc-browse-top {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-}
-
-#npc-browse-back {
-	font-size: 24px;
-	line-height: 1;
-	padding: 0 4px;
-	color: var(--muted);
-}
-
-#npc-browse-back:hover {
-	color: var(--text);
-}
-
-.npc-browse-title {
-	font-size: 15px;
-	font-weight: 600;
-}
-
-#npc-browse-count {
-	flex: 1;
-	text-align: right;
-}
-
-.npc-browse-grid {
+.npc-studio-title {
 	flex: 1 1 auto;
-	min-height: 240px;
-	overflow: auto;
-	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
-	align-content: start;
-	gap: 4px;
-	border: 1px solid var(--line);
-	border-radius: 6px;
-	padding: 4px;
+	min-inline-size: 0;
+	margin: 0;
+	font: var(--type-heading-1);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
-.npc-browse-grid .texture-item img {
-	width: 64px;
-	height: 64px;
+.npc-studio-body {
+	flex: 1 1 auto;
+	display: flex;
+	min-block-size: 0;
+	border-block: var(--border-width) solid var(--color-bg-surface);
 }
 
-.npc-browse-more {
-	grid-column: 1 / -1;
-	margin: 4px 0;
+/* The preview column: the model over a dark blue-grey backdrop (an image fill in Figma). */
+.npc-studio-preview {
+	position: relative;
+	flex: none;
+	inline-size: var(--studio-preview-width);
+	border-inline-end: var(--border-width) solid var(--color-bg-surface);
+	background: radial-gradient(ellipse at 50% 30%, color-mix(in srgb, var(--color-accent) 14%, var(--color-bg-surface)), var(--color-bg-page) 80%);
+	overflow: hidden;
 }
 
-.npc-slot-results {
+.npc-studio-preview canvas {
+	display: block;
+	inline-size: 100%;
+	block-size: 100%;
+	cursor: grab;
+}
+
+.npc-studio-preview canvas:active {
+	cursor: grabbing;
+}
+
+/* What the studio is doing (loading, building, gear left off), over the preview's bottom. */
+.npc-studio-status {
 	position: absolute;
-	left: 78px;
-	right: 0;
-	top: 100%;
-	z-index: 5;
-	max-height: 220px;
-	overflow: auto;
-	background: var(--panel);
-	border: 1px solid var(--line);
-	border-radius: 6px;
+	inset-inline: var(--space-3);
+	inset-block-end: var(--space-3);
+	margin: 0;
+	color: var(--color-text-muted);
+	font: var(--type-label);
+	text-align: center;
+	text-wrap: balance;
+	pointer-events: none;
+}
+
+.npc-studio-status:empty {
+	display: none;
+}
+
+/* The right rail: the tabs form, or the Browse Piece view in its place. */
+.npc-studio-rail {
+	flex: 1 1 auto;
 	display: flex;
 	flex-direction: column;
+	min-inline-size: 0;
+	min-block-size: 0;
 }
 
-.npc-slot-results button {
-	text-align: left;
-	border: none;
-	border-radius: 0;
+.npc-studio-form,
+.npc-studio-browse {
+	flex: 1 1 auto;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	min-block-size: 0;
+	padding: var(--space-4);
+}
+
+.npc-studio-form[hidden],
+.npc-studio-browse[hidden] {
+	display: none;
+}
+
+/* Molecules with overflow hidden (the segmented control) would shrink in the column: only
+   the scrolling part gives way. */
+.npc-studio-form > *,
+.npc-studio-browse > * {
+	flex: none;
+}
+
+.npc-studio-panes,
+.npc-studio-browse .npc-studio-browse-grid {
+	flex: 1 1 auto;
+	min-block-size: 0;
+	/* Room for the thin scrollbar's gutter beside the fields. */
+	padding-inline-end: var(--space-1);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+.npc-studio-pane[hidden] {
+	display: none;
+}
+
+/* Fields two to a row, 16px apart, each row as tall as its taller field. */
+.npc-studio-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: var(--space-4);
+	align-items: start;
+}
+
+/* The options flow into the Appearance grid after the fixed fields. */
+.npc-studio-options {
+	display: contents;
+}
+
+/* A gear slot: the field, then the browse and reset buttons on the box's line. */
+.npc-studio-slot {
+	position: relative;
+	display: flex;
+	align-items: flex-end;
+	gap: var(--space-2);
+	min-inline-size: 0;
+}
+
+.npc-studio-slot .ds-field {
+	flex: 1 1 auto;
+	min-inline-size: 0;
+}
+
+.npc-studio-slot-actions {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	padding-block-end: var(--space-1);
+}
+
+/* The type-ahead matches, a panel under the field as wide as it. */
+.npc-studio-suggest {
+	position: absolute;
+	inset-inline: 0 76px; /* the actions' 68px and the gap */
+	inset-block-start: 100%;
+	z-index: 1;
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	max-block-size: 220px;
+	margin-block-start: var(--space-1);
+	padding: var(--space-1);
+	border: var(--border-width) solid var(--color-bg-surface);
+	border-radius: var(--radius-md);
+	background-color: var(--color-bg-panel);
+	backdrop-filter: blur(var(--blur-panel));
+	-webkit-backdrop-filter: blur(var(--blur-panel));
+	overflow-y: auto;
+}
+
+.npc-studio-suggest[hidden] {
+	display: none;
+}
+
+.npc-studio-suggest-option {
+	display: block;
+	inline-size: 100%;
+	margin: 0;
+	padding: var(--space-1-5) var(--space-2);
+	border: 0;
+	border-radius: var(--radius-sm);
 	background: none;
-	padding: 4px 8px;
-	font-size: 12px;
+	color: var(--color-text);
+	font: var(--type-label);
+	text-align: start;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	cursor: pointer;
 }
 
-.npc-slot-results button:hover {
-	background: rgba(255, 255, 255, 0.08);
+@media (hover: hover) {
+	.npc-studio-suggest-option:hover {
+		background-image: linear-gradient(var(--color-bg-hover), var(--color-bg-hover));
+	}
 }
 
-.npc-slot-results .muted {
-	padding: 4px 8px;
+.npc-studio-suggest-option[data-missing] {
+	opacity: var(--opacity-disabled);
+}
+
+.npc-studio-suggest-note {
+	padding: var(--space-1-5) var(--space-2);
+	color: var(--color-text-muted);
+	font: var(--type-label);
+}
+
+/* The Browse Piece view: back and the slot's name, the tools row, the gear grid, the count. */
+.npc-studio-browse-head {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	min-block-size: 32px;
+}
+
+.npc-studio-browse-heading {
+	flex: 1 1 auto;
+	min-inline-size: 0;
+	margin: 0;
+	font: var(--type-body-bold);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.npc-studio-browse-more {
+	grid-column: 1 / -1;
+	justify-self: center;
+}
+
+/* Kept under the grid (not drawn): how many pieces the slot offers and how many match. */
+.npc-studio-browse-count {
+	margin: 0;
+	color: var(--color-text-muted);
+	font: var(--type-label);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.npc-studio-browse-count:empty {
+	display: none;
+}
+
+.npc-studio-footer {
+	flex: none;
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--space-3);
+	padding: var(--space-4) var(--space-4) 0;
 }

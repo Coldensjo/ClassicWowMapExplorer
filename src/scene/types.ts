@@ -159,8 +159,10 @@ export type NpcAppearance =
 export interface NpcPreset {
 	/** UUID. */
 	id: string;
-	/** Preset label, e.g. "Stormwind Guard (custom)". */
+	/** Preset label, e.g. "Stormwind Guard (custom)"; the default name of NPCs placed from it. */
 	name: string;
+	/** The default title of NPCs placed from it, e.g. "High Chieftain" (shown as <High Chieftain>). */
+	title?: string;
 	/** ChrRaces ID. */
 	race: number;
 	sex: 0 | 1;

@@ -198,6 +198,11 @@ scale), Shift + click adds to the selection and Shift + drag box-selects, so Cmd
 Shift + drag would collide with selecting. Built: the list shows the real bindings, and
 **Cmd + Space** was added for Drop to ground. Changing the drag model is a separate decision.
 
+*Revised 2026-10-31:* the file's **Space** (toggle 3d widget) is adopted after all: Space steps
+through Move, Rotate and Scale on a selection (W / E / R still jump to one), and Drop to ground
+moved to **Shift + Space** (Cmd + Space is Spotlight on a Mac). Looking around went back to
+holding the right button, so a plain left drag on nothing box-selects without Shift.
+
 ---
 
 ## 5. Questions put to design, and the answers
@@ -207,6 +212,7 @@ described in §2 and §4.
 
 1. The Objects drag model stays the editor's (W / E / R, Shift + click and drag to select); the
    file's Space / Cmd + drag / Shift + drag are not adopted. Cmd + Space drops to ground.
+   (Revised 2026-10-31, §4.1: Space cycles the gizmos and Shift + Space drops to ground.)
 2. Holes and Water use Shift and Cmd instead of mode buttons; Water keeps Brush / Flood fill.
 3. Place / Select mode is gone for Objects and NPCs.
 4. The Proposed modules and rows (§2) stay, in the same style.
@@ -227,7 +233,8 @@ described in §2 and §4.
 - With nothing selected, Transform and Attributes dim and read "Make a selection…"; with a mixed
   selection the fields read "Mixed".
 - Keys 1–7 switch modes; [ ] size the brush; Shift + [ ] change strength (or the water height);
-  Cmd + [ ] change the paint opacity; Cmd + Space drops the selection to the ground.
+  Cmd + [ ] change the paint opacity; Space steps through the gizmos and Shift + Space drops the
+  selection to the ground.
 - Playing hides the dock; Edit brings it back as it was.
 
 ## Update read file version `2416211887664560962`, 2026-10-30: condensed panel

@@ -191,6 +191,16 @@ export class SceneObjects {
 		this.onSelectionChange();
 	}
 
+	/** Space: the next gizmo, Move → Rotate → Scale → Move, skipping Scale when only buildings are selected. */
+	cycleGizmoMode(): void {
+		if (!this.selection.size) return;
+		const order: GizmoMode[] = ['translate', 'rotate', 'scale'];
+		let next = order[(order.indexOf(this.controls.mode) + 1) % order.length];
+		const buildingsOnly = !this.selectedNpcs().length && this.selectedObjects().every((o) => o.kind === 'wmo');
+		if (next === 'scale' && buildingsOnly) next = 'translate';
+		this.setGizmoMode(next);
+	}
+
 	/** Call once per frame. */
 	update(now: number, camera: THREE.Vector3): void {
 		this.manager.update(now, camera);

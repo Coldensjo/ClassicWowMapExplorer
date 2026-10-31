@@ -107,7 +107,8 @@ The hotkey lists under the sliders were already built for the bottom controls (`
 - Full chunk's help button sits at the far right, Ground clutter's beside its title; built beside
   the title everywhere.
 - The Objects variant is named `Mode=Mode8`; its hotkeys still list Space / Cmd + drag /
-  Shift + drag, which bottom-controls.md §4.1 settled against.
+  Shift + drag, which bottom-controls.md §4.1 settled against (Space was taken up later for
+  stepping through the gizmos; the drags were not).
 - Size sliders still show % placeholders; yards stand.
 
 ---

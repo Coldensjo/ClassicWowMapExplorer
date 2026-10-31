@@ -79,12 +79,13 @@ const HEIGHT_KEYS: HotkeyRow[] = [
 ];
 /** The Objects and NPCs tools' editing keys (spec 8), as sceneEditor.ts binds them. */
 const OBJECT_KEYS: HotkeyRow[] = [
+	{ label: 'Next gizmo', keys: ['Space'] },
 	{ label: 'Move gizmo', keys: ['W'] },
 	{ label: 'Rotate gizmo', keys: ['E'] },
 	{ label: 'Scale gizmo', keys: ['R'] },
 	{ label: 'Add to selection', keys: ['Shift'], tail: 'click' },
 	{ label: 'Box select', keys: [], tail: 'drag' },
-	{ label: 'Drop to ground', keys: [MOD, 'Space'] },
+	{ label: 'Drop to ground', keys: ['Shift', 'Space'] },
 	{ label: 'Duplicate', keys: [MOD, 'D'] },
 	{ label: 'Delete', keys: ['Del'] },
 ];

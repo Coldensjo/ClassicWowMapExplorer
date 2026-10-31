@@ -32,8 +32,8 @@ interface Flight {
 }
 
 /**
- * Free-flying camera: lock() captures the mouse for looking around, WASD to move, Space/C for up/down,
- * Shift to boost, mouse wheel to zoom along the view direction. With smart speed, speed scales
+ * Free-flying camera: lock() captures the mouse for looking around, WASD to move, E/C (or Q) for
+ * up/down (Space is the editor's, for the gizmo), Shift to boost, mouse wheel to zoom along the view direction. With smart speed, speed scales
  * with height above the ground, so the same controls work from treetop level to the whole
  * continent; without it, the camera always flies at fixedSpeed.
  */
@@ -80,13 +80,12 @@ export class FlyControls {
 		window.addEventListener('keydown', (e) => {
 			if (isTyping(e) || !this.enabled) return;
 			this.keys.add(e.code);
-			if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC'].includes(e.code)) {
+			if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyQ', 'KeyC'].includes(e.code)) {
 				this.flight = null;
 				// Moving yourself gets you off a ride, as does Escape.
 				this.endRide(false);
 			}
 			if (e.code === 'Escape') this.endRide(false);
-			if (e.code === 'Space') e.preventDefault();
 		});
 		window.addEventListener('keyup', (e) => this.keys.delete(e.code));
 		window.addEventListener('blur', () => this.keys.clear());
@@ -281,7 +280,7 @@ export class FlyControls {
 			if (k.has('KeyS') || k.has('ArrowDown')) move.sub(forward);
 			if (k.has('KeyD') || k.has('ArrowRight')) move.add(right);
 			if (k.has('KeyA') || k.has('ArrowLeft')) move.sub(right);
-			if (k.has('Space') || k.has('KeyE')) move.y += 1;
+			if (k.has('KeyE')) move.y += 1;
 			if (k.has('KeyC') || k.has('KeyQ')) move.y -= 1;
 			const delta = new THREE.Vector3();
 			if (move.lengthSq() > 0) delta.addScaledVector(move.normalize(), this.speed * dt);

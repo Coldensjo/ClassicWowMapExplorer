@@ -1682,9 +1682,15 @@ export class SceneEditor {
 				if (e.code === 'KeyC') this.objects.copySelection();
 				else if (e.code === 'KeyV') this.objects.paste();
 				else if (e.code === 'KeyD') this.objects.duplicateSelection();
-				else if (e.code === 'Space') this.objects.dropToGround();
 				else return;
 				e.preventDefault();
+				return;
+			}
+			// Space steps through the gizmos (Move, Rotate, Scale); with Shift it drops the selection to the ground.
+			if (e.code === 'Space') {
+				e.preventDefault();
+				if (e.shiftKey) this.objects.dropToGround();
+				else if (!e.repeat) this.objects.cycleGizmoMode();
 				return;
 			}
 			if (e.code === 'KeyW') return this.objects.setGizmoMode('translate');

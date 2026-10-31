@@ -772,18 +772,18 @@ export class EditorPanels {
 		return { module, sync };
 	}
 
-	/** The rows every Attributes module ends with: locked, group and the selection count. */
+	/**
+	 * The rows every Attributes module ends with: locked and the selection count. (The Group
+	 * field is out until grouping gets a place of its own in the UI; groups already in a scene
+	 * still select together.)
+	 */
 	private commonAttributes(): { rows: HTMLElement[]; sync(entities: Entity[]): void } {
 		const objects = this.editor.objects;
 		const locked = toggleSwitch({ label: 'Locked', title: 'Locked objects and NPCs are skipped by moves, edits and Delete', onChange: (on) => objects.setLocked(on) });
-		const group = textInput({ label: 'Group', placeholder: 'none', title: 'Objects sharing a group label select together', onChange: (value) => objects.setGroup(value) });
 		const count = dockNote('');
 		const sync = (entities: Entity[]) => {
 			const items = entities.map((e) => (e.kind === 'npc' ? e.n : e.o));
 			setChecked(locked.root, items.length > 0 && items.every((o) => o.locked));
-			const groups = new Set(items.map((o) => o.group ?? ''));
-			if (document.activeElement !== group.input) setTextValue(group.root, groups.size === 1 ? [...groups][0] : '');
-			group.input.placeholder = groups.size > 1 ? 'mixed' : 'none';
 			const selected = objects.selectedObjects().length;
 			const npcs = objects.selectedNpcs().length;
 			const parts: string[] = [];
@@ -791,7 +791,7 @@ export class EditorPanels {
 			if (npcs) parts.push(`${npcs} NPC${npcs === 1 ? '' : 's'}`);
 			count.textContent = `${parts.join(' and ') || 'Nothing'} selected · ${objects.count} objects and ${objects.npcCount} NPCs in the scene`;
 		};
-		return { rows: [locked.root, group.root, count], sync };
+		return { rows: [locked.root, count], sync };
 	}
 
 	private buildObjects(): ToolContent {
@@ -829,8 +829,7 @@ export class EditorPanels {
 		});
 
 		// Placement settings (spec 7.8), for the next asset dropped from the Object browser.
-		const align = toggleSwitch({ label: 'Align to slope', checked: place.alignToSlope, onChange: (on) => (place.alignToSlope = on) });
-		const randomYaw = toggleSwitch({ label: 'Random facing', checked: place.randomYaw, onChange: (on) => (place.randomYaw = on) });
+		const randomYaw = toggleSwitch({ label: 'Random rotation', checked: place.randomYaw, title: 'Placed doodads face a random way', onChange: (on) => (place.randomYaw = on) });
 		const angleSnap = toggleSwitch({ label: '15° angle snap', checked: place.angleSnap, title: 'Snaps the rotate gizmo to 15° steps', onChange: (on) => (place.angleSnap = on) });
 		const scaleMin = stepper({ id: 'place-scale-min', label: 'Smallest scale', value: place.scaleMin, min: 0.05, max: 10, step: 0.05, onChange: (v) => (place.scaleMin = v ?? 1) });
 		const scaleMax = stepper({ id: 'place-scale-max', label: 'Largest scale', value: place.scaleMax, min: 0.05, max: 10, step: 0.05, onChange: (v) => (place.scaleMax = v ?? 1) });
@@ -848,7 +847,7 @@ export class EditorPanels {
 			title: 'Snaps placement and the move gizmo to a grid',
 			onChange: (value) => (place.gridSnap = Number(value)),
 		});
-		const placement = dockModule({ title: 'Placement', children: [align.root, randomYaw.root, angleSnap.root, scaleField, snap.root] });
+		const placement = dockModule({ title: 'Placement', children: [randomYaw.root, angleSnap.root, scaleField, snap.root] });
 
 		const sync = () => {
 			const entities = objects.selectedEntities();
@@ -865,7 +864,6 @@ export class EditorPanels {
 			const deleted = objects.deletedBaseCount;
 			restore.hidden = deleted === 0;
 			restore.querySelector('.ds-button-label')!.textContent = `Restore ${deleted} deleted copied object${deleted === 1 ? '' : 's'}`;
-			setChecked(align.root, place.alignToSlope);
 			setChecked(randomYaw.root, place.randomYaw);
 			setChecked(angleSnap.root, place.angleSnap);
 			setStepperValue(scaleMin.root, place.scaleMin);

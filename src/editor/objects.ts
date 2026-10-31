@@ -16,6 +16,7 @@ export interface PlaceSettings {
 	mode: 'place' | 'select';
 	/** The asset the browser armed; null places nothing. */
 	asset: PlaceAsset | null;
+	/** Lean placed doodads with the ground; no control sets it for now (the toggle is out of the panel). */
 	alignToSlope: boolean;
 	randomYaw: boolean;
 	/** Random scale range for scatter placement (M2 only); min = max places one size. */

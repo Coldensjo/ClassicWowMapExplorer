@@ -360,3 +360,21 @@ export function menu(anchor: HTMLElement, items: MenuItem[]): { open(): void; cl
 - Destructive action items are `#F45060`; activating any action item closes the menu.
 - Disabled trigger renders at 30% and doesn't open.
 - No hex values in `select.css` or `menu.css`.
+
+---
+
+## 11. Update read 2026-10-31 (file version `2416575165113818293`): headings, separators and choices in an action menu
+
+The **Scene Control Panel** (`296:67653`, [scene-control-panel.md](scene-control-panel.md))
+opens a Dropdown Menu whose `Options` slot now draws what §8 left undrawn:
+
+| Part | Figma | Build |
+|---|---|---|
+| Heading | "Hotkey format": `234:39946` label/label-small, 10px / 400, `8:1446` surface-transparent-inverse (`#E7E7E7` @ 40%), no padding, 13px tall, the choices straight under it | `{ heading }` entry → `<li class="ds-menu-heading" role="presentation">`, `--type-label-small`, `--menu-heading-fg` (defaults to `--color-bg-inverse`), a negative margin closing the panel's 4px gap below it |
+| Choices | two **Selection** options (§5) inside the action menu: "Mac" selected (semibold + checkmark), "Windows" not; no icons | `{ checked: boolean, id }` on a `MenuItem` → `role="menuitemradio"` with `aria-checked`; `setOptionSelected()` sets `aria-checked` on that role; the handle's `setChecked(id, on)` moves the mark; the caller keeps the value |
+| Separator | a frame 12px above and 8px below a 1px `6:273` line (21px tall) | `{ separator: true }` → `<li class="ds-menu-separator" role="separator">`: a 1px `--menu-border` line with 12px / 8px padding |
+| Actions | three **Interactive** options with 16px icons: `scene` (Settings), `download` (Export), `log-out` (Exit scene) | `MenuItem.icon`, as before |
+
+Headings and separators are outside the keyboard order (↓/↑ skip them). The panel is 218px wide
+in the drawing; the menu still hugs its content, and the panel's owner sets a width where it
+wants one (the scene control panel does). Shown in the gallery's "Select and menu" section.

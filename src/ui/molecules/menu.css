@@ -4,8 +4,10 @@
  * .ds-menu is the floating panel (translucent, blurred, 8px radius) that both the select's
  * listbox and action menus use; it lives at the end of <body>, position: fixed, above the
  * page. .ds-menu-option is one row: hover and the keyboard-active row (data-active) share the
- * wash; a selected option (aria-selected) is semibold with a trailing checkmark; a
- * destructive action (data-destructive) is in the danger colour.
+ * wash; a selected option (aria-selected, or aria-checked for a menu's choice) is semibold with
+ * a trailing checkmark; a destructive action (data-destructive) is in the danger colour.
+ * .ds-menu-heading is the small caption over a group of choices and .ds-menu-separator the
+ * rule between groups (spec §11).
  */
 .ds-menu {
 	--menu-bg: var(--color-bg-panel);
@@ -16,6 +18,7 @@
 	--menu-option-hover-wash: var(--color-bg-hover);
 	--menu-option-height: 26px;
 	--menu-max-height: 260px; /* about eight options, then it scrolls */
+	--menu-heading-fg: var(--color-bg-inverse); /* the faint caption over a group (surface-transparent-inverse, as drawn) */
 
 	position: fixed;
 	z-index: var(--z-popover);
@@ -91,8 +94,32 @@
 	flex: none;
 }
 
-.ds-menu-option[aria-selected='true'] {
+.ds-menu-option[aria-selected='true'],
+.ds-menu-option[aria-checked='true'] {
 	font: var(--type-body-secondary-bold);
+}
+
+/* The caption over a group: 10px, faint, the 4px gap below it closed so the choices sit under it. */
+.ds-menu-heading {
+	flex: none;
+	margin: 0 0 calc(-1 * var(--space-1));
+	padding: 0;
+	color: var(--menu-heading-fg);
+	font: var(--type-label-small);
+	white-space: nowrap;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+/* The rule between groups: 12px above the line, 8px below, as drawn. */
+.ds-menu-separator {
+	flex: none;
+	box-sizing: content-box;
+	block-size: var(--border-width);
+	margin: 0;
+	padding: var(--space-3) 0 var(--space-2);
+	background-color: var(--menu-border);
+	background-clip: content-box;
 }
 
 .ds-menu-option[data-destructive] {

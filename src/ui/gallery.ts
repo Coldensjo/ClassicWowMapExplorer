@@ -200,7 +200,25 @@ const status = () => el('div', { class: 'status' }, '—');
 		{ label: 'Rename (soon)', disabled: true, onSelect: () => {} },
 		{ label: 'Delete', destructive: true, onSelect: () => (s.textContent = 'Deleted') },
 	]);
-	section('Select and menu', 'dropdown.md', 'A select-only combobox: Enter, Space or arrows open; typing jumps; the selected option is semibold with a checkmark. The ⋯ button opens an action menu with a destructive item.', row(col(weather.root, falloff.root), col(many.root, disabled.root)), row(caption('action menu'), more), s);
+	const sceneMenu = iconButton({ icon: 'down', label: 'Scene menu', variant: 'ghost', size: 'xs' });
+	let format = 'mac';
+	const grouped = menu(sceneMenu, [
+		{ heading: 'Hotkey format' },
+		{ id: 'mac', label: 'Mac', checked: true, onSelect: () => choose('mac') },
+		{ id: 'windows', label: 'Windows', checked: false, onSelect: () => choose('windows') },
+		{ separator: true },
+		{ label: 'Settings', icon: 'scene', onSelect: () => (s.textContent = 'Settings') },
+		{ label: 'Export', icon: 'download', onSelect: () => (s.textContent = 'Export') },
+		{ label: 'Exit scene', icon: 'log-out', onSelect: () => (s.textContent = 'Exit scene') },
+	]);
+	grouped.root.style.inlineSize = '218px';
+	function choose(next: string): void {
+		format = next;
+		grouped.setChecked('mac', format === 'mac');
+		grouped.setChecked('windows', format === 'windows');
+		s.textContent = `Hotkey format: ${format}`;
+	}
+	section('Select and menu', 'dropdown.md', 'A select-only combobox: Enter, Space or arrows open; typing jumps; the selected option is semibold with a checkmark. The ⋯ button opens an action menu with a destructive item; the ⌄ button one with a headed group of choices, a separator and icons, as the scene control panel uses.', row(col(weather.root, falloff.root), col(many.root, disabled.root)), row(caption('action menu'), more, caption('grouped'), sceneMenu), s);
 }
 
 // Swatch picker

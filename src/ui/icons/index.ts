@@ -29,6 +29,7 @@ import npc from './npc.svg?raw';
 import paint from './paint.svg?raw';
 import play from './play.svg?raw';
 import plus from './plus.svg?raw';
+import redo from './redo.svg?raw';
 import reset from './reset.svg?raw';
 import right from './right.svg?raw';
 import save from './save.svg?raw';
@@ -36,6 +37,7 @@ import scene from './scene.svg?raw';
 import sculpt from './sculpt.svg?raw';
 import search from './search.svg?raw';
 import sun from './sun.svg?raw';
+import undo from './undo.svg?raw';
 import up from './up.svg?raw';
 import water from './water.svg?raw';
 
@@ -62,6 +64,7 @@ const sources = {
 	paint,
 	play,
 	plus,
+	redo,
 	reset,
 	right,
 	save,
@@ -69,6 +72,7 @@ const sources = {
 	sculpt,
 	search,
 	sun,
+	undo,
 	up,
 	water,
 };

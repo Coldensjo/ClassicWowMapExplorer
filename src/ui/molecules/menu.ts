@@ -1,7 +1,7 @@
 /**
  * Menu: the floating panel and an action menu opened from a button. Spec: specs/dropdown.md
- * §4, §6 and §7.3; styles in menu.css. The select (select.ts) reuses menuPanel() and
- * menuOption() for its listbox.
+ * §4, §6, §7.3 and §11 (headings, separators and checkable choices); styles in menu.css. The
+ * select (select.ts) reuses menuPanel() and menuOption() for its listbox.
  */
 import { icon, type IconName } from '../icons';
 import { el, uid } from '../dom';
@@ -13,8 +13,28 @@ export interface MenuItem {
 	/** Shown in the danger colour; the caller confirms elsewhere if the action can't be undone. */
 	destructive?: boolean;
 	disabled?: boolean;
+	/**
+	 * A choice in a group of choices (dropdown.md §11): `true` or `false` makes the item a
+	 * `menuitemradio`, checked (semibold, a trailing checkmark) when true. Change it later with
+	 * the handle's setChecked(), by the item's `id`.
+	 */
+	checked?: boolean;
+	/** For setChecked(); any string unique within the menu. */
+	id?: string;
 	onSelect: () => void;
 }
+
+/** A small muted caption over a group of items, e.g. "Hotkey format". Not focusable. */
+export interface MenuHeading {
+	heading: string;
+}
+
+/** A thin rule between groups of items. */
+export interface MenuSeparator {
+	separator: true;
+}
+
+export type MenuEntry = MenuItem | MenuHeading | MenuSeparator;
 
 export interface MenuOptions {
 	/** Side of the anchor the panel opens on; flips when it does not fit. Default bottom. */
@@ -27,6 +47,8 @@ export interface MenuHandle {
 	close(): void;
 	toggle(): void;
 	isOpen(): boolean;
+	/** Checks or unchecks the choice item with this `id`; others in the menu are left alone. */
+	setChecked(id: string, checked: boolean): void;
 }
 
 /** The bare `.ds-menu` panel, hidden until opened; `role` is listbox or menu. */
@@ -37,7 +59,7 @@ export function menuPanel(role: 'listbox' | 'menu', attrs: Record<string, string
 export interface MenuOptionParts {
 	label: string;
 	icon?: IconName;
-	role: 'option' | 'menuitem';
+	role: 'option' | 'menuitem' | 'menuitemradio';
 	id?: string;
 	destructive?: boolean;
 	disabled?: boolean;
@@ -51,7 +73,7 @@ export function menuOption(parts: MenuOptionParts): HTMLLIElement {
 			class: 'ds-menu-option',
 			role: parts.role,
 			id: parts.id ?? uid('option'),
-			tabindex: parts.role === 'menuitem' ? -1 : undefined,
+			tabindex: parts.role === 'option' ? undefined : -1,
 			'data-destructive': parts.destructive ? '' : undefined,
 			'aria-disabled': parts.disabled ? 'true' : undefined,
 		},
@@ -60,9 +82,22 @@ export function menuOption(parts: MenuOptionParts): HTMLLIElement {
 	);
 }
 
-/** Marks an option selected (semibold plus a trailing checkmark) or not. */
+/** A menu heading row: `<li class="ds-menu-heading">`, outside the keyboard order. */
+export function menuHeading(text: string): HTMLLIElement {
+	return el('li', { class: 'ds-menu-heading', role: 'presentation' }, text);
+}
+
+/** A rule between groups: `<li class="ds-menu-separator" role="separator">`. */
+export function menuSeparator(): HTMLLIElement {
+	return el('li', { class: 'ds-menu-separator', role: 'separator' });
+}
+
+/**
+ * Marks an option selected (semibold plus a trailing checkmark) or not: `aria-selected` on a
+ * listbox option, `aria-checked` on a menu's choice item.
+ */
 export function setOptionSelected(option: HTMLElement, selected: boolean): void {
-	option.setAttribute('aria-selected', selected ? 'true' : 'false');
+	option.setAttribute(option.getAttribute('role') === 'menuitemradio' ? 'aria-checked' : 'aria-selected', selected ? 'true' : 'false');
 	const mark = option.querySelector('.ds-menu-option-check');
 	if (selected && !mark) {
 		const check = icon('checkmark', { size: 'sm' });
@@ -76,23 +111,38 @@ export function setOptionSelected(option: HTMLElement, selected: boolean): void 
 /**
  * Attaches an action menu to `anchor`: clicking it (or ↓ / Enter / Space on it) opens the
  * panel below; ↓/↑ move between items, Enter/Space activate, Escape and clicking outside close.
+ * Headings and separators between the items are skipped by the keys.
  */
-export function menu(anchor: HTMLElement, items: MenuItem[], options: MenuOptions = {}): MenuHandle {
+export function menu(anchor: HTMLElement, entries: MenuEntry[], options: MenuOptions = {}): MenuHandle {
 	const root = menuPanel('menu', { 'aria-labelledby': anchor.id || undefined });
 	anchor.setAttribute('aria-haspopup', 'menu');
 	anchor.setAttribute('aria-expanded', 'false');
 	anchor.setAttribute('aria-controls', root.id);
 
-	const rows: HTMLLIElement[] = items.map((item) => {
-		const row = menuOption({ label: item.label, icon: item.icon, role: 'menuitem', destructive: item.destructive, disabled: item.disabled });
+	const rows: HTMLLIElement[] = [];
+	const byId = new Map<string, HTMLLIElement>();
+	for (const entry of entries) {
+		if ('heading' in entry) {
+			root.append(menuHeading(entry.heading));
+			continue;
+		}
+		if ('separator' in entry) {
+			root.append(menuSeparator());
+			continue;
+		}
+		const item = entry;
+		const choice = item.checked !== undefined;
+		const row = menuOption({ label: item.label, icon: item.icon, role: choice ? 'menuitemradio' : 'menuitem', destructive: item.destructive, disabled: item.disabled });
+		if (choice) setOptionSelected(row, item.checked === true);
+		if (item.id) byId.set(item.id, row);
 		row.addEventListener('click', () => {
 			if (item.disabled) return;
 			close();
 			item.onSelect();
 		});
-		return row;
-	});
-	root.append(...rows);
+		rows.push(row);
+		root.append(row);
+	}
 
 	let release: (() => void) | null = null;
 	const enabled = () => rows.filter((row) => row.getAttribute('aria-disabled') !== 'true');
@@ -160,5 +210,15 @@ export function menu(anchor: HTMLElement, items: MenuItem[], options: MenuOption
 		}
 	});
 
-	return { root, open, close, toggle: () => (release ? close() : open()), isOpen: () => release !== null };
+	return {
+		root,
+		open,
+		close,
+		toggle: () => (release ? close() : open()),
+		isOpen: () => release !== null,
+		setChecked: (id, checked) => {
+			const row = byId.get(id);
+			if (row) setOptionSelected(row, checked);
+		},
+	};
 }

@@ -374,6 +374,17 @@ button.plain {
 	flex: 0 0 auto;
 }
 
+/* What is selected, by name, at the top of the Attributes module. */
+.dock-selection-name {
+	margin: 0;
+	font: var(--type-body-bold);
+	overflow-wrap: anywhere;
+}
+
+.dock-selection-name:empty {
+	display: none;
+}
+
 .dock-note {
 	margin: 0;
 	color: var(--color-text-muted);

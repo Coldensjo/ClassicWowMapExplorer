@@ -5,6 +5,7 @@ import type { SceneEditor, Tool } from './sceneEditor';
 import type { Falloff, SculptMode } from './sculpt';
 import type { Entity } from './objects';
 import { ModelBrowser } from './modelBrowser';
+import { ObjectNames } from './objectNames';
 import { TextureBrowser } from './textureBrowser';
 import { NpcLibrary, presetThumbKey } from './npcLibrary';
 import { NpcEditor } from './npcEditor';
@@ -13,7 +14,7 @@ import { PresetLibrary } from '../scene/presetLibrary';
 import { NPC_POSES, SCENE_WEATHERS, type NpcPose, type NpcPreset, type PlacedNpc, type PlacedObject } from '../scene/types';
 import { animationName } from '../formats/animationNames';
 import { POSE_LABELS, poseSequences } from '../scene/npcPoses';
-import { SideControls, dockModule, dockNote, dockRow, setModuleEmpty, type DockModule } from './sideControls';
+import { SideControls, dockModule, dockNote, dockRow, dockSelectionName, setModuleEmpty, type DockModule } from './sideControls';
 import type { SceneControls } from './sceneControls';
 import { MOD_PLACEHOLDER, onHotkeyFormatChange, resolveKeys } from './hotkeyFormat';
 import {
@@ -135,6 +136,8 @@ export class EditorPanels {
 	private sampling = false;
 	/** Made when the Objects tool first opens, so its listfile parts aren't fetched before then. */
 	private models: ModelBrowser | null = null;
+	/** Names for the Attributes heading; a list arriving re-syncs the panel. */
+	private readonly objectNames = new ObjectNames(() => this.syncActive());
 	/** Made when the NPCs tool first opens (spec 7.9). */
 	private npcLibrary: NpcLibrary | null = null;
 	private npcEditor: NpcEditor | null = null;
@@ -794,6 +797,22 @@ export class EditorPanels {
 		return { rows: [locked.root, count], sync };
 	}
 
+	/**
+	 * The heading over an Attributes module: what is selected, by name. One thing, or several of
+	 * the same thing, shows its name (an NPC's, or its creature; an object's file); different
+	 * things show "Multiple selections".
+	 */
+	private selectionName(entities: Entity[]): string {
+		const names = new Set(
+			entities.map((e) => {
+				if (e.kind === 'object') return this.objectNames.nameOf(e.o.kind, e.o.fdid);
+				const npc = e.n;
+				return npc.name?.trim() || this.npcLibrary?.describe(npc.appearance) || (npc.appearance.kind === 'creature' ? `Creature display ${npc.appearance.displayId}` : 'Custom NPC');
+			}),
+		);
+		return names.size === 1 ? [...names][0] : names.size > 1 ? 'Multiple selections' : '';
+	}
+
 	private buildObjects(): ToolContent {
 		const objects = this.editor.objects;
 		const place = objects.place;
@@ -822,10 +841,11 @@ export class EditorPanels {
 		const common = this.commonAttributes();
 		const revert = button({ label: 'Revert to base', title: 'Put the selected copied objects back where the source map has them', onClick: () => objects.revertSelectionToBase() });
 		const restore = button({ title: 'Bring back the copied objects you deleted', label: 'Restore deleted copied objects', onClick: () => objects.restoreDeleted() });
+		const heading = dockSelectionName();
 		const attributes = dockModule({
 			title: 'Attributes',
 			emptyText: 'Make a selection to edit attributes.',
-			children: [doodadSet.root, nameSetField, ...common.rows, revert, restore],
+			children: [heading, doodadSet.root, nameSetField, ...common.rows, revert, restore],
 		});
 
 		// Placement settings (spec 7.8), for the next asset dropped from the Object browser.
@@ -853,6 +873,7 @@ export class EditorPanels {
 			const entities = objects.selectedEntities();
 			transform.sync(entities);
 			setModuleEmpty(attributes, entities.length === 0);
+			heading.textContent = this.selectionName(entities);
 			// The WMO set choices show for a single selected building (spec 7.8).
 			const selected = objects.selectedObjects();
 			const wmo = entities.length === 1 && selected.length === 1 && selected[0].kind === 'wmo' ? selected[0] : null;
@@ -922,10 +943,11 @@ export class EditorPanels {
 		});
 		const look = dockNote('');
 		const common = this.commonAttributes();
+		const heading = dockSelectionName();
 		const attributes = dockModule({
 			title: 'Attributes',
 			emptyText: 'Make a selection to edit attributes.',
-			children: [name.root, title.root, pose.root, idle.root, look, ...common.rows],
+			children: [heading, name.root, title.root, pose.root, idle.root, look, ...common.rows],
 		});
 
 		// The play-mode avatar (spec 7.10): the picked appearance, or the default.
@@ -945,6 +967,7 @@ export class EditorPanels {
 			// NPC attributes show while any NPC is selected; the fields follow the last one.
 			const npcs = objects.selectedNpcs();
 			setModuleEmpty(attributes, npcs.length === 0);
+			heading.textContent = this.selectionName(npcs.map((n): Entity => ({ kind: 'npc', n })));
 			const npc = npcs[npcs.length - 1];
 			if (npc) {
 				const active = document.activeElement;

@@ -101,6 +101,11 @@ export function dockNote(text: string): HTMLParagraphElement {
 	return el('p', { class: 'dock-note' }, text);
 }
 
+/** The line at the top of an Attributes module naming what is selected (or "Multiple selections"). */
+export function dockSelectionName(): HTMLParagraphElement {
+	return el('p', { class: 'dock-selection-name' });
+}
+
 /** Controls side by side, sharing the width: the X, Y and Z fields. */
 export function dockRow(...children: HTMLElement[]): HTMLDivElement {
 	return el('div', { class: 'dock-row' }, ...children);

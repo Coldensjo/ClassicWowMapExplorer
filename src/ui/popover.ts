@@ -25,13 +25,31 @@ export interface Placed {
 	anchorCenter: number;
 }
 
-/** Shows a hidden panel beside its anchor (appending it to <body> first) and returns the placement used. */
+/**
+ * Shows a hidden panel beside its anchor and returns the placement used. The panel lives at the
+ * end of <body>, or inside the open modal <dialog> its anchor is in: a modal dialog makes the
+ * rest of the page inert and paints over it, so a list under <body> could neither be seen nor
+ * clicked (the New scene selects). Either way it is shown as a manual popover, which puts it in
+ * the top layer over the dialog, clear of the dialog's clipping and its backdrop blur.
+ */
 export function showPanel(panel: HTMLElement, anchor: Element, options: PositionOptions = {}): Placed {
-	if (!panel.isConnected) document.body.append(panel);
+	const dialog = anchor.closest<HTMLDialogElement>('dialog[open]');
+	const home: HTMLElement = dialog ?? document.body;
+	if (panel.parentElement !== home) home.append(panel);
 	panel.hidden = false;
+	if ('showPopover' in panel) {
+		if (panel.getAttribute('popover') !== 'manual') panel.setAttribute('popover', 'manual');
+		if (!panel.matches(':popover-open')) panel.showPopover();
+	}
 	const placed = positionPanel(panel, anchor, options);
 	panel.dataset.placement = placed.placement;
 	return placed;
+}
+
+/** Hides a panel shown with showPanel(). */
+export function hidePanel(panel: HTMLElement): void {
+	if ('hidePopover' in panel && panel.matches(':popover-open')) panel.hidePopover();
+	panel.hidden = true;
 }
 
 /** Scrolls `panel` so `row` is in view, without scrolling anything else (scrollIntoView could move the page). */
@@ -50,6 +68,8 @@ export function positionPanel(panel: HTMLElement, anchor: Element, options: Posi
 	const margin = options.margin ?? 8;
 	const a = anchor.getBoundingClientRect();
 	if (options.matchWidth) panel.style.minInlineSize = `${a.width}px`;
+	// A popover's own styles centre it with inset: 0 and auto margins; it is placed by left and top here.
+	panel.style.inset = 'auto';
 	const vw = window.innerWidth;
 	const vh = window.innerHeight;
 	let p = panel.getBoundingClientRect();

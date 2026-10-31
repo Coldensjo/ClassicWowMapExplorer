@@ -18,6 +18,12 @@
 	position: fixed;
 	z-index: var(--z-tooltip);
 	margin: 0;
+	/* Shown as a popover (popover.ts), whose own styles would add a border, padding and a canvas background. */
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--tooltip-fg);
+	overflow: visible;
 	pointer-events: none;
 	animation: ds-tooltip-in var(--duration-fast) var(--easing-out);
 }

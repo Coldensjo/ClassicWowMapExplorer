@@ -9,7 +9,7 @@
  */
 import { icon } from '../icons';
 import { el, uid } from '../dom';
-import { revealInPanel, showPanel, whileOpen } from '../popover';
+import { hidePanel, revealInPanel, showPanel, whileOpen } from '../popover';
 import { fieldShell } from './field';
 import { menuOption, menuPanel, setOptionSelected } from './menu';
 
@@ -151,7 +151,7 @@ export function select(options: SelectOptions): SelectHandle {
 		if (!release) return;
 		release();
 		release = null;
-		list.hidden = true;
+		hidePanel(list);
 		trigger.setAttribute('aria-expanded', 'false');
 		swapChevron('down');
 		setActive(-1);

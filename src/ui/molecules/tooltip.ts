@@ -8,7 +8,7 @@
  * interactive content it is a non-modal dialog rather than a tooltip.
  */
 import { el, uid } from '../dom';
-import { showPanel, whileOpen, type Placement } from '../popover';
+import { hidePanel, showPanel, whileOpen, type Placement } from '../popover';
 import { kbd } from './key-command';
 
 export interface TooltipOptions {
@@ -86,7 +86,7 @@ export function attachTooltip(anchor: HTMLElement, options: TooltipOptions): Too
 	function hide(): void {
 		window.clearTimeout(timer);
 		if (root.hidden) return;
-		root.hidden = true;
+		hidePanel(root);
 		lastHidden = Date.now();
 		if (variant === 'simple') anchor.removeAttribute('aria-describedby');
 		else anchor.setAttribute('aria-expanded', 'false');

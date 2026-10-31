@@ -2,8 +2,8 @@
  * Menu panel and its options. Spec: specs/dropdown.md §4–6.
  *
  * .ds-menu is the floating panel (translucent, blurred, 8px radius) that both the select's
- * listbox and action menus use; it lives at the end of <body>, position: fixed, above the
- * page. .ds-menu-option is one row: hover and the keyboard-active row (data-active) share the
+ * listbox and action menus use; it is shown as a popover in the top layer (popover.ts), so
+ * it sits above the page and above an open modal dialog alike. .ds-menu-option is one row: hover and the keyboard-active row (data-active) share the
  * wash; a selected option (aria-selected, or aria-checked for a menu's choice) is semibold with
  * a trailing checkmark; a destructive action (data-destructive) is in the danger colour.
  * .ds-menu-heading is the small caption over a group of choices and .ds-menu-separator the
@@ -32,6 +32,7 @@
 	border: var(--border-width) solid var(--menu-border);
 	border-radius: var(--radius-md);
 	background-color: var(--menu-bg);
+	color: var(--menu-option-fg); /* shown as a popover (popover.ts), whose own styles would set the canvas text colour */
 	backdrop-filter: blur(var(--menu-blur));
 	-webkit-backdrop-filter: blur(var(--menu-blur));
 	list-style: none;

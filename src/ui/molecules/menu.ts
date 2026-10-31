@@ -5,7 +5,7 @@
  */
 import { icon, type IconName } from '../icons';
 import { el, uid } from '../dom';
-import { revealInPanel, showPanel, whileOpen, type Placement } from '../popover';
+import { hidePanel, revealInPanel, showPanel, whileOpen, type Placement } from '../popover';
 
 export interface MenuItem {
 	label: string;
@@ -167,7 +167,7 @@ export function menu(anchor: HTMLElement, entries: MenuEntry[], options: MenuOpt
 		if (!release) return;
 		release();
 		release = null;
-		root.hidden = true;
+		hidePanel(root);
 		anchor.setAttribute('aria-expanded', 'false');
 	}
 

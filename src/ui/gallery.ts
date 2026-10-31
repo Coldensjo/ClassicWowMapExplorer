@@ -465,7 +465,7 @@ const status = () => el('div', { class: 'status' }, '—');
 			const handle = formDialog({
 				title: 'Scene settings',
 				look: 'panel',
-				body: [textInput({ label: 'Scene name', value: 'Untitled scene' }).root, el('div', { class: 'panel' }, sizeGrid({ max: 3, locked: { tilesX: 1, tilesY: 1 } }).root), save],
+				body: [textInput({ label: 'Scene name', value: 'Untitled scene' }).root, select({ label: 'Base texture', value: 'grass', options: [{ value: 'grass', label: 'Grass' }, { value: 'dirt', label: 'Dirt' }, { value: 'snow', label: 'Snow' }] }).root, el('div', { class: 'panel' }, sizeGrid({ max: 3, locked: { tilesX: 1, tilesY: 1 } }).root), save],
 			});
 		},
 	});

@@ -213,8 +213,13 @@ export interface PlacedNpc {
 	group?: string;
 }
 
-/** Blank scenes: 1x1 to 3x3 tiles; copied scenes: up to 6x6 (spec 6, Q3). */
+/**
+ * Blank and copied scenes alike are 1x1 to 3x3 tiles (spec 6, Q3; the copy limit came down from
+ * 6x6 on 2026-10-31, specs/scene-dialogs.md). Scenes copied before then may hold up to 6x6, and
+ * still open: MAX_SCENE_TILES is what a stored scene may have.
+ */
 export const MAX_BLANK_TILES = 3;
-export const MAX_COPIED_TILES = 6;
+export const MAX_COPIED_TILES = 3;
+export const MAX_SCENE_TILES = 6;
 /** The format version this code writes; loaders migrate every older one (spec 6.4). */
 export const SCENE_VERSION = 2;

@@ -9,6 +9,7 @@ import {
 	bindModeShortcuts,
 	button,
 	confirmDialog,
+	formDialog,
 	floatingWindow,
 	grabBar,
 	hotkeyList,
@@ -28,6 +29,7 @@ import {
 	setAssetTileLayout,
 	setAssetTileSelected,
 	setInvalid,
+	sizeGrid,
 	showToast,
 	slider,
 	stepper,
@@ -446,6 +448,33 @@ const status = () => el('div', { class: 'status' }, '—');
 		'dialog.md',
 		'A modal question on the native <dialog>: the scrim behind, Escape and the close button cancel, the safe choice has focus first. The second opens the destructive shape.',
 		row(button({ label: 'Exit NPC studio?', onClick: () => ask(false) }), button({ label: 'Delete a preset', variant: 'outline', onClick: () => ask(true) })),
+		s,
+	);
+}
+
+// Size grid
+{
+	const s = status();
+	const fresh = sizeGrid({ max: 3, onChange: (v) => (s.textContent = `Pick ${v.x1 - v.x0 + 1} x ${v.y1 - v.y0 + 1} at ${v.x0}, ${v.y0}`) });
+	const grown = sizeGrid({ max: 3, locked: { tilesX: 1, tilesY: 2 }, onChange: (v) => (s.textContent = `Pick ${v.x1 - v.x0 + 1} x ${v.y1 - v.y0 + 1} at ${v.x0}, ${v.y0}`) });
+	const form = button({
+		label: 'Open as a form dialog',
+		variant: 'outline',
+		onClick: () => {
+			const save = button({ label: 'Save settings', variant: 'primary', size: 'md', onClick: () => handle.close() });
+			const handle = formDialog({
+				title: 'Scene settings',
+				look: 'panel',
+				body: [textInput({ label: 'Scene name', value: 'Untitled scene' }).root, el('div', { class: 'panel' }, sizeGrid({ max: 3, locked: { tilesX: 1, tilesY: 1 } }).root), save],
+			});
+		},
+	});
+	section(
+		'Size grid',
+		'size-grid.md',
+		'Click a cell for 1 x 1, drag or Shift+click to span up to 3 x 3; arrows move focus, Enter picks. The second grid has a 1 x 2 scene locked in the middle, so it can only grow around it: the pick always holds the locked cells, and while dragging, cells out of reach dim. The button opens the same grid in a form dialog with the translucent look.',
+		row(col(caption('new'), fresh.root), col(caption('locked'), grown.root)),
+		row(form),
 		s,
 	);
 }

@@ -82,30 +82,8 @@
 		</div>
 	</div>
 
-	<!-- Making a new scene: blank flat tiles, or an area copied from a map (spec 3.2, 7.2). -->
-	<div id="scene-create" hidden>
-		<form id="scene-create-form" class="help-card" role="dialog" aria-labelledby="scene-create-title">
-			<h2 id="scene-create-title">New scene</h2>
-			<label>Name <input id="scene-name" type="text" maxlength="80" placeholder="My dungeon" autocomplete="off"></label>
-			<label>Start from <select id="scene-start"><option value="blank">Blank terrain</option><option value="copy">Copy from world</option></select></label>
-			<div id="scene-blank-options" class="scene-start-options">
-				<label>Size <span class="scene-size"><select id="scene-tiles-x" aria-label="Tiles across"></select> × <select id="scene-tiles-y" aria-label="Tiles down"></select> tiles</span></label>
-				<label>Base texture <select id="scene-texture"></select></label>
-			</div>
-			<div id="scene-copy-options" class="scene-start-options" hidden>
-				<label>Map <select id="scene-map"></select></label>
-				<canvas id="scene-map-canvas" width="512" height="512" aria-label="Map overview; drag to pick the area to copy"></canvas>
-				<div id="scene-copy-info" class="muted small"></div>
-				<label class="scene-check"><input type="checkbox" id="scene-include-doodads" checked> Include doodads</label>
-				<label class="scene-check"><input type="checkbox" id="scene-include-wmos" checked> Include buildings (WMOs)</label>
-			</div>
-			<div id="scene-create-progress" class="muted small" hidden aria-live="polite"></div>
-			<div class="scenes-actions">
-				<button type="submit" class="primary">Create</button>
-				<button type="button" id="scene-create-cancel">Cancel</button>
-			</div>
-		</form>
-	</div>
+	<!-- The New scene and Scene settings dialogs (src/ui/specs/scene-dialogs.md) are built by
+	     src/editor/newSceneDialog.ts and sceneSettingsDialog.ts from the design system. -->
 
 	<!-- The scene control panel at the top left while a scene is open (the scene's name and
 	     menu, Save and Play, Undo and Redo) is built by src/editor/sceneControls.ts from the

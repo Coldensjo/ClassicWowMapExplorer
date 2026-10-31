@@ -120,10 +120,11 @@ shows: the page goes straight to the library.
   `surface-primary` fill.
 - **Opening a scene:** clicking the card. The scene name is the button, stretched over the
   whole card by CSS; the "…" button sits above it.
-- **Scene settings** is a placeholder dialog saying settings are coming (**Decided:** designed
-  in a later task). **Duplicate** copies the saved file under a new id as "<name> copy".
+- **Scene settings** opens the Scene settings dialog ([scene-dialogs.md](scene-dialogs.md) §3,
+  built 2026-10-31 in place of the placeholder): rename, and grow a blank scene. **Duplicate**
+  copies the saved file under a new id as "<name> copy".
   **Delete** asks with the destructive dialog instead of the browser's `confirm()`.
 - Dropped from the old library: the "Explore the world" button (**Decided:** the world explorer
   is not part of this product), the game build label and the footnote about where scenes are
-  kept. The New scene dialog is unchanged for now.
+  kept. New scene opens the dialog in [scene-dialogs.md](scene-dialogs.md) §2 (built 2026-10-31).
 - The copy keeps Figma's `--` where a dash goes (**Decided**).

@@ -4,7 +4,7 @@ import { CHUNK_HEIGHTS, CHUNKS_PER_TILE } from '../formats/adt';
 import { ALPHA_SIZE } from '../formats/adtTex';
 import { baseObjectsFromCopy, baseTileFromCopy, cloneChunk, composeObjects, matchesTemplate } from './copyScene';
 import { sameWater, SceneModel, type SceneBaseData, type SceneChunk, type SceneTile, type SceneWater } from './sceneModel';
-import { MAX_COPIED_TILES, SCENE_VERSION, SCENE_WEATHERS, type BinRef, type Chunk, type ChunkLayer, type ChunkOverride, type EquipSlot, type NpcAppearance, type NpcPreset, type PlacedNpc, type PlacedObject, type Scene, type Tile, type Vec3, type WaterSettings } from './types';
+import { MAX_SCENE_TILES, SCENE_VERSION, SCENE_WEATHERS, type BinRef, type Chunk, type ChunkLayer, type ChunkOverride, type EquipSlot, type NpcAppearance, type NpcPreset, type PlacedNpc, type PlacedObject, type Scene, type Tile, type Vec3, type WaterSettings } from './types';
 import { isNpcPose } from './npcPoses';
 
 /**
@@ -229,6 +229,15 @@ export function copySceneFile(file: SceneFile, name: string): Uint8Array {
 }
 
 /**
+ * The same container renamed in place, keeping its id, so a saved scene renames without being
+ * decoded (a copied one would need its source map for that). `modified` is the new stamp.
+ */
+export function renameSceneFile(file: SceneFile, name: string, modified: string): Uint8Array {
+	const scene: Scene = { ...file.scene, name, modified };
+	return zipSync({ ...file.files, 'scene.json': strToU8(JSON.stringify(scene)) });
+}
+
+/**
  * Reads .wscene bytes back into a SceneModel, refusing anything but a valid container. A copied
  * scene needs its source tiles loaded first (readSceneFile says whether scene.base is set), passed
  * here row-major over the base rectangle.
@@ -256,7 +265,7 @@ function migrate(scene: Omit<Scene, 'version'> & { version: number }): void {
 
 function toModel(scene: Scene, files: Record<string, Uint8Array>, copyTiles?: CopyTile[]): { model: SceneModel; missingObjects: number } {
 	const { tilesX, tilesY } = scene.size ?? {};
-	if (!Number.isInteger(tilesX) || !Number.isInteger(tilesY) || tilesX < 1 || tilesY < 1 || tilesX > MAX_COPIED_TILES || tilesY > MAX_COPIED_TILES) {
+	if (!Number.isInteger(tilesX) || !Number.isInteger(tilesY) || tilesX < 1 || tilesY < 1 || tilesX > MAX_SCENE_TILES || tilesY > MAX_SCENE_TILES) {
 		throw new Error(`Bad scene size ${tilesX}x${tilesY}`);
 	}
 	if (!Array.isArray(scene.tiles) || scene.tiles.length !== tilesX * tilesY) {

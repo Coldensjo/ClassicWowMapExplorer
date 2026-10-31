@@ -24,3 +24,4 @@ export * from './mode-controller';
 export * from './asset-tile';
 export * from './floating-window';
 export * from './dialog';
+export * from './size-grid';

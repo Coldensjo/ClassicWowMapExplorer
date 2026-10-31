@@ -471,6 +471,79 @@
 	background-image: linear-gradient(var(--color-bg-pressed), var(--color-bg-pressed));
 }
 
+/* ---- The scene dialogs (src/ui/specs/scene-dialogs.md) ----
+   New scene and Scene settings, built on the form dialog by src/editor/newSceneDialog.ts and
+   sceneSettingsDialog.ts: a section groups the fields one start mode shows, a panel holds the
+   size grid or the map picker (a hint line, the zoom row and a square viewport the map scrolls
+   in), and a status line reports loading under the form. */
+
+.scene-dialog-section {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+}
+
+.scene-dialog-section[hidden],
+.scene-dialog-status[hidden] {
+	display: none;
+}
+
+.scene-dialog-panel {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-3);
+	padding: var(--space-3);
+	border-radius: var(--radius-md);
+	background-color: var(--color-bg-panel);
+}
+
+.scene-dialog-hint,
+.scene-dialog-status {
+	margin: 0;
+	color: var(--color-text-muted);
+	font: var(--type-label);
+	text-align: center;
+	text-wrap: pretty;
+}
+
+.scene-dialog-hint-strong {
+	color: var(--color-text);
+}
+
+/* The map runs to the panel's sides and foot, as drawn. */
+.scene-map-panel {
+	padding-block-end: 0;
+	overflow: hidden;
+}
+
+.scene-map-zoom {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	inline-size: 100%;
+}
+
+.scene-map-zoom .ds-slider {
+	flex: 1 1 auto;
+	min-inline-size: 0;
+}
+
+.scene-map-viewport {
+	inline-size: calc(100% + 2 * var(--space-3));
+	margin-inline: calc(-1 * var(--space-3));
+	aspect-ratio: 1;
+	max-block-size: 32vh; /* square as drawn, but short enough for the whole form to fit a laptop screen */
+	overflow: auto;
+	background-color: var(--color-bg-page);
+	cursor: crosshair;
+}
+
+.scene-map-canvas {
+	display: block;
+	touch-action: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	#loading-fill::after {
 		animation: none;

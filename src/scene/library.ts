@@ -1,7 +1,7 @@
 import { dbOp, SCENE_STORE } from './db';
 import type { SceneModel } from './sceneModel';
 import type { Scene } from './types';
-import { copySceneFile, decodeFile, encodeScene, readSceneFile } from './wscene';
+import { copySceneFile, decodeFile, encodeScene, readSceneFile, renameSceneFile } from './wscene';
 
 /**
  * The local scene library (spec 7.11): OPFS holds one .wscene per scene, and an IndexedDB index
@@ -113,6 +113,22 @@ export class SceneLibrary {
 		const file = readSceneFile(await this.bytes(id));
 		const scene = await this.import(copySceneFile(file, `${original.name} copy`));
 		return (await this.summary(scene.id))!;
+	}
+
+	/** Renames a saved scene without decoding it (Scene settings from the library); returns its summary. */
+	async rename(id: string, name: string): Promise<SceneSummary> {
+		const original = await this.summary(id);
+		if (!original) throw new Error('That scene is no longer in the library');
+		const modified = new Date().toISOString();
+		const bytes = renameSceneFile(readSceneFile(await this.bytes(id)), name, modified);
+		const folder = await sceneFolder();
+		const file = await folder.getFileHandle(`${id}.wscene`, { create: true });
+		const writable = await file.createWritable();
+		await writable.write(bytes as Uint8Array<ArrayBuffer>);
+		await writable.close();
+		const summary: SceneSummary = { ...original, name, modified };
+		await indexOp('readwrite', (store) => store.put(summary));
+		return summary;
 	}
 
 	async delete(id: string): Promise<void> {

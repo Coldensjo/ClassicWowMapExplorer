@@ -4,17 +4,16 @@ import type { AsyncStorageApi } from '../worker/protocol';
 import { createCopiedScene, selectionCentre } from '../scene/copyScene';
 import { zoneLightAt } from '../explorer/lighting';
 import { SceneLibrary, type SceneSummary } from '../scene/library';
+import { growBlankScene } from '../scene/resizeScene';
 import { SceneModel } from '../scene/sceneModel';
-import { MAX_BLANK_TILES } from '../scene/types';
 import { decodeFile, readSceneFile } from '../scene/wscene';
 import { art, button, confirmDialog, el, iconButton, menu, showToast } from '../ui';
-import { CopyPicker } from './copyPicker';
 import { EditorPanels } from './editorPanels';
 import { groundEffectScan, type GroundEffectScan } from './groundEffectScan';
+import { openNewSceneDialog, type NewSceneRequest } from './newSceneDialog';
 import { SceneEditor } from './sceneEditor';
 import { SceneControls } from './sceneControls';
-
-import { BASE_TEXTURES } from './baseTextures';
+import { openSceneSettingsDialog, type SceneSettingsResult } from './sceneSettingsDialog';
 
 /** Autosave to the library while a scene is open (spec 7.11). */
 const AUTOSAVE_SECONDS = 30;
@@ -30,7 +29,6 @@ let panels: EditorPanels | null = null;
 /** The scene control panel at the top left, made once and shown while a scene is open. */
 let controls: SceneControls;
 let scan: GroundEffectScan | null = null;
-let picker: CopyPicker | null = null;
 let lastSaved = '';
 let autosaveTimer = 0;
 
@@ -63,51 +61,15 @@ function wireOnce(): void {
 	$('scenes-actions').append(...actions());
 	$('scenes-empty-actions').append(...actions());
 
-	// New scene: a name, then blank tiles or a copied area (spec 3.2).
-	const sizes = (select: HTMLSelectElement) => {
-		select.replaceChildren(...Array.from({ length: MAX_BLANK_TILES }, (_, i) => new Option(String(i + 1), String(i + 1))));
-	};
-	sizes($('scene-tiles-x') as HTMLSelectElement);
-	sizes($('scene-tiles-y') as HTMLSelectElement);
-	$<HTMLSelectElement>('scene-texture').replaceChildren(...BASE_TEXTURES.map((t) => new Option(t.name, String(t.fdid))));
-	picker = new CopyPicker(() => storage, notice);
-	const syncStart = () => {
-		const copy = $<HTMLSelectElement>('scene-start').value === 'copy';
-		$('scene-blank-options').hidden = copy;
-		$('scene-copy-options').hidden = !copy;
-		$('scene-create-form').classList.toggle('copy', copy);
-		if (copy) void picker!.open();
-	};
-	$('scene-start').addEventListener('change', syncStart);
+	// New scene (src/ui/specs/scene-dialogs.md §2): a name, then blank tiles or a copied area (spec 3.2).
 	function openCreate(): void {
-		$('scene-create').hidden = false;
-		$<HTMLInputElement>('scene-name').value = '';
-		$<HTMLInputElement>('scene-name').focus();
-		syncStart();
-	}
-	$('scene-create-cancel').addEventListener('click', () => ($('scene-create').hidden = true));
-	$('scene-create-form').addEventListener('submit', (e) => {
-		e.preventDefault();
-		if ($<HTMLSelectElement>('scene-start').value === 'copy') {
-			void createCopy();
-			return;
-		}
-		const baseTexture = Number($<HTMLSelectElement>('scene-texture').value);
-		const model = SceneModel.blank({
-			name: $<HTMLInputElement>('scene-name').value.trim() || 'Untitled scene',
-			tilesX: Number($<HTMLSelectElement>('scene-tiles-x').value),
-			tilesY: Number($<HTMLSelectElement>('scene-tiles-y').value),
-			baseTexture,
-			client: { product: stats.product, build: stats.buildName },
+		openNewSceneDialog({
+			storage: () => storage,
+			notice,
+			create: createScene,
+			onCreated: (model) => void openEditor(model, true),
 		});
-		// The base layer carries its texture's usual clutter where the scan already knows it (spec 7.7.2).
-		const effect = scan?.effectFor(baseTexture) ?? 0;
-		if (effect) {
-			for (const tile of model.tiles) for (const chunk of tile.chunks) chunk.layers[0].effectId = effect;
-		}
-		$('scene-create').hidden = true;
-		void openEditor(model, true);
-	});
+	}
 
 	importInput.addEventListener('change', async (e) => {
 		const input = e.target as HTMLInputElement;
@@ -131,9 +93,7 @@ function wireOnce(): void {
 		onPlay: () => editor?.setPlaying(!editor.playing),
 		onUndo: () => editor?.undo(),
 		onRedo: () => editor?.redo(),
-		onSettings: () => {
-			if (editor) void sceneSettings(editor.model.meta.name);
-		},
+		onSettings: () => openSceneSettings(),
 		onExport: async () => {
 			if (!editor) return;
 			if (await saveOpen(true)) download(`${editor.model.meta.name}.wscene`, await library.bytes(editor.model.meta.id));
@@ -148,13 +108,6 @@ class MissingTilesError extends Error {
 	constructor(readonly tiles: string[]) {
 		super(`tile${tiles.length === 1 ? '' : 's'} ${tiles.join(', ')} ${tiles.length === 1 ? "isn't" : "aren't"} in your client`);
 	}
-}
-
-/** Progress while source tiles load, shown in the New scene dialog (spec 7.2). */
-function createProgress(text: string | null): void {
-	const element = $('scene-create-progress');
-	element.hidden = !text;
-	element.textContent = text ?? '';
 }
 
 /** Reads every source tile of the rectangle, row-major, reporting progress. */
@@ -177,47 +130,43 @@ async function loadCopyTiles(wdt: number, tileMin: [number, number], tileMax: [n
 	return tiles;
 }
 
-/** Creates a scene from the picker's map, rectangle and options (spec 7.2). */
-async function createCopy(): Promise<void> {
-	const map = picker?.map;
-	const selection = picker?.selection;
-	if (!map || !selection) {
-		notice('Pick a map and drag the area to copy first');
-		return;
-	}
-	const form = $<HTMLFormElement>('scene-create-form');
-	const buttons = form.querySelectorAll('button');
-	buttons.forEach((b) => (b.disabled = true));
-	try {
-		const tiles = await loadCopyTiles(map.wdt, selection.tileMin, selection.tileMax, createProgress);
-		createProgress('Building the scene…');
-		// The scene starts with the light of the zone at the selection's centre (spec 7.2); when
-		// the light tables can't be read it keeps the default preset.
-		let lightPreset = 0;
-		try {
-			const { wowX, wowY } = selectionCentre(selection.tileMin, selection.tileMax);
-			lightPreset = zoneLightAt((await storage.loadLighting([map.id])).zones, map.id, wowX, wowY);
-		} catch {
-			// The default preset it is.
+/** Builds the scene the New scene dialog asked for: blank tiles at once, or a copied area (spec 7.2). */
+async function createScene(request: NewSceneRequest, progress: (text: string | null) => void): Promise<SceneModel> {
+	const client = { product: stats.product, build: stats.buildName };
+	if (request.kind === 'blank') {
+		const model = SceneModel.blank({ name: request.name, tilesX: request.tilesX, tilesY: request.tilesY, baseTexture: request.baseTexture, client });
+		// The base layer carries its texture's usual clutter where the scan already knows it (spec 7.7.2).
+		const effect = scan?.effectFor(request.baseTexture) ?? 0;
+		if (effect) {
+			for (const tile of model.tiles) for (const chunk of tile.chunks) chunk.layers[0].effectId = effect;
 		}
-		const model = createCopiedScene({
-			name: $<HTMLInputElement>('scene-name').value.trim() || map.name,
-			client: { product: stats.product, build: stats.buildName },
-			map: { id: map.id, directory: map.directory },
-			tileMin: selection.tileMin,
-			tileMax: selection.tileMax,
-			includeDoodads: $<HTMLInputElement>('scene-include-doodads').checked,
-			includeWmos: $<HTMLInputElement>('scene-include-wmos').checked,
-			lightPreset,
-		}, tiles);
-		$('scene-create').hidden = true;
-		await openEditor(model, true);
-	} catch (e) {
-		notice(`The area couldn't be copied: ${e instanceof Error ? e.message : e}`);
-	} finally {
-		createProgress(null);
-		buttons.forEach((b) => (b.disabled = false));
+		return model;
 	}
+	const { map, tileMin, tileMax } = request;
+	const tiles = await loadCopyTiles(map.wdt, tileMin, tileMax, progress);
+	progress('Building the scene…');
+	// The scene starts with the light of the zone at the selection's centre (spec 7.2); when
+	// the light tables can't be read it keeps the default preset.
+	let lightPreset = 0;
+	try {
+		const { wowX, wowY } = selectionCentre(tileMin, tileMax);
+		lightPreset = zoneLightAt((await storage.loadLighting([map.id])).zones, map.id, wowX, wowY);
+	} catch {
+		// The default preset it is.
+	}
+	return createCopiedScene(
+		{
+			name: request.name,
+			client,
+			map: { id: map.id, directory: map.directory },
+			tileMin,
+			tileMax,
+			includeDoodads: request.includeDoodads,
+			includeWmos: request.includeWmos,
+			lightPreset,
+		},
+		tiles,
+	);
 }
 
 /** Progress while a saved scene's source tiles load, over the scene list. */
@@ -303,7 +252,7 @@ function sceneCard(s: SceneSummary): HTMLElement {
 	const more = iconButton({ icon: 'more', label: `More for ${s.name}`, variant: 'ghost', size: 'sm' });
 	more.classList.add('scene-card-more');
 	menu(more, [
-		{ label: 'Scene settings', onSelect: () => void sceneSettings(s.name) },
+		{ label: 'Scene settings', onSelect: () => openSavedSceneSettings(s) },
 		{ label: 'Duplicate', onSelect: () => void duplicateScene(s) },
 		{ label: 'Export', onSelect: () => void library.bytes(s.id).then((bytes) => download(`${s.name}.wscene`, bytes)) },
 		{ label: 'Delete', destructive: true, onSelect: () => void deleteScene(s) },
@@ -327,14 +276,69 @@ function sceneCard(s: SceneSummary): HTMLElement {
 	);
 }
 
-/** A stand-in until scene settings are designed: says so, and no more. */
-async function sceneSettings(name: string): Promise<void> {
-	await confirmDialog({
-		title: 'Scene settings',
-		message: `Settings for "${name}" aren’t here yet. Renaming and other options are coming in a later update.`,
-		confirm: { label: 'OK' },
-		cancel: { label: 'Close' },
+/**
+ * Scene settings for the open scene (src/ui/specs/scene-dialogs.md §3): a rename shows in the
+ * control panel at once; a bigger size rebuilds the editor around the grown model, which
+ * clears the undo history. Either way the scene is saved.
+ */
+function openSceneSettings(): void {
+	if (!editor) return;
+	const model = editor.model;
+	openSceneSettingsDialog({
+		name: model.meta.name,
+		size: model.meta.size,
+		copiedFrom: model.meta.base?.mapDirectory ?? null,
+		notice,
+		save: async (result) => {
+			if (!editor) return;
+			applySettings(model, result);
+			controls.setName(model.meta.name);
+			if (result.grow) await reopenEditor(model);
+			if (!(await saveOpen(true))) throw new Error('the scene could not be saved');
+		},
 	});
+}
+
+/** Scene settings from a card on the landing page: the saved file is rewritten in place. */
+function openSavedSceneSettings(s: SceneSummary): void {
+	openSceneSettingsDialog({
+		name: s.name,
+		size: s.size,
+		copiedFrom: s.kind === 'copied' ? 'its map' : null,
+		notice,
+		save: async (result) => {
+			if (!result.grow) {
+				if (result.name !== s.name) await library.rename(s.id, result.name);
+			} else {
+				// Growing needs the tiles, so the scene is decoded (a blank scene needs no source map).
+				const model = decodeFile(readSceneFile(await library.bytes(s.id))).model;
+				applySettings(model, result);
+				await library.save(model);
+			}
+			await refreshList();
+		},
+	});
+}
+
+/** Puts a settings result onto a model: the name, and the grown size. */
+function applySettings(model: SceneModel, result: SceneSettingsResult): void {
+	if (result.name !== model.meta.name) {
+		model.meta.name = result.name;
+		model.meta.modified = new Date().toISOString();
+	}
+	if (result.grow) growBlankScene(model, result.grow);
+}
+
+/** Tears the editor down and opens the same model again, for changes that rebuild every tile. */
+async function reopenEditor(model: SceneModel): Promise<void> {
+	if (!editor) return;
+	clearInterval(autosaveTimer);
+	document.removeEventListener('visibilitychange', autosaveOnHide);
+	panels?.dispose();
+	panels = null;
+	editor.dispose();
+	editor = null;
+	await openEditor(model);
 }
 
 async function duplicateScene(s: SceneSummary): Promise<void> {

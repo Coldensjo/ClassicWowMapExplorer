@@ -65,3 +65,19 @@ const yes = await confirmDialog({
 ```
 
 `dialog()` returns `{ root, result, close }` for a caller that needs to close it itself.
+
+## 5. The form shape (added 2026-10-31)
+
+The scene dialogs ([scene-dialogs.md](scene-dialogs.md)) are the same shell around a form:
+the title row and its divider, then a scrolling body column of fields padded 16 with 16 between
+them, and optionally a divider over a footer whose one button fills the width (two would share
+it). They are drawn as a translucent panel (`6:272` at 85% over a 24px blur) rather than the
+opaque card, so `formDialog()` takes `look: 'panel' | 'card'`.
+
+```ts
+const handle = formDialog({ title: 'New scene', look: 'panel', body: [name.root, start.root, panel], footer: [create] });
+handle.close(); // when the caller's button has done its work; Escape and × cancel (onCancel)
+```
+
+The first field has focus when it opens. `handle.open` says whether it is still up, for work
+that finishes after the user closed it.

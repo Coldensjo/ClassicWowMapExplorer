@@ -27,8 +27,21 @@
 	overflow: hidden;
 }
 
+.ds-dialog[open] {
+	display: flex;
+	flex-direction: column;
+}
+
 .ds-dialog::backdrop {
 	background-color: var(--color-scrim, rgb(0 0 0 / 0.6));
+}
+
+/* The scene dialogs (specs/scene-dialogs.md): the translucent panel colour over a blur. */
+.ds-dialog[data-look='panel'] {
+	--dialog-bg: var(--color-bg-panel);
+
+	backdrop-filter: blur(var(--blur-panel));
+	-webkit-backdrop-filter: blur(var(--blur-panel));
 }
 
 /* 16px above the 24px title row; the divider sits 16px under it. */
@@ -70,11 +83,28 @@
 	margin-block-start: var(--space-4);
 }
 
+/* A form's body: a column of fields 16px apart, scrolling when the window is short. */
+.ds-dialog-form-body {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	gap: var(--space-4);
+	min-block-size: 0;
+	padding: var(--space-4);
+	border-block-start: var(--border-width) solid var(--dialog-border);
+	overflow-y: auto;
+}
+
 /* The two buttons share the width, 16px apart. */
 .ds-dialog-footer {
 	display: flex;
+	flex: none;
 	gap: var(--space-4);
 	padding: var(--space-4);
+}
+
+.ds-dialog-form-footer {
+	border-block-start: var(--border-width) solid var(--dialog-border);
 }
 
 .ds-dialog-footer .ds-button {

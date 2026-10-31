@@ -77,7 +77,7 @@ Conventions match the other specs in this folder (Figma variable → code token 
 |---|---|
 | "Hotkey format" | a heading |
 | Mac · Windows | choices with a checkmark on the current one: how the hotkey lists and tooltips write the command key (**Cmd** or **Ctrl**). The editor accepts both keys whatever the format. `src/editor/hotkeyFormat.ts` keeps the choice in `localStorage['foreverForge.hotkeyFormat']`, following the platform until chosen; the editor panels rewrite every hotkey list when it changes |
-| Settings (`scene` icon) | **Proposed**: the scene settings placeholder dialog the scene card's menu opens ([landing-page.md](landing-page.md)), until scene settings are designed |
+| Settings (`scene` icon) | the Scene settings dialog ([scene-dialogs.md](scene-dialogs.md) §3), the same one a scene card's menu opens; a rename shows in the panel at once |
 | Export (`download`) | §2.1 |
 | Exit scene (`log-out`) | §2.1 |
 

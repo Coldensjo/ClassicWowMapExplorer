@@ -6,9 +6,6 @@
 	--muted: #9aa1ac;
 	--accent: #d9a441;
 	--bad: #e58080;
-	/* The editor bar's height: what sits at the top of the screen goes under it. */
-	--bar: 34px;
-	--status-bar-height: 22px; /* the editor's status bar; the bottom controls sit above it */
 	font: 14px/1.45 system-ui, sans-serif;
 }
 
@@ -142,22 +139,11 @@ button.plain {
 	transition: none;
 }
 
-kbd {
-	display: inline-block;
-	font: 11px/1.5 ui-monospace, monospace;
-	color: var(--text);
-	background: #2a2f37;
-	border: 1px solid #3a404a;
-	border-radius: 3px;
-	padding: 0 4px;
-	margin-right: 2px;
-}
-
 /* The game updated under the open storage: shown until reloaded. */
 
 #game-updated {
 	position: fixed;
-	top: calc(var(--bar) + 12px);
+	top: var(--space-6);
 	left: 50%;
 	transform: translateX(-50%);
 	max-width: calc(100% - 32px);
@@ -204,9 +190,9 @@ kbd {
 	--dock-panel-min-height: 180px;
 
 	position: fixed;
-	top: calc(var(--bar) + var(--space-4));
+	top: var(--space-6); /* level with the scene control panel's top */
 	right: var(--space-4);
-	bottom: calc(var(--status-bar-height) + var(--space-4));
+	bottom: var(--space-4);
 	z-index: 30; /* over the page's panels, under the floating windows (--z-window) */
 	display: flex;
 	align-items: flex-start;
@@ -488,44 +474,80 @@ kbd {
 	justify-content: flex-start;
 }
 
-#editor-bar {
+/* ---- The scene control panel (src/ui/specs/scene-control-panel.md) ----
+   Built by src/editor/sceneControls.ts at the top left while a scene is open: the scene's name
+   with its menu button, Save and Play, Undo and Redo, three groups divided by rules on one
+   translucent blurred panel. Controls are molecules; tokens only. */
+
+#scene-controls {
+	--scene-controls-width: 480px;
+
 	position: fixed;
-	top: 0;
-	left: 0;
-	right: 0;
-	height: var(--bar);
+	top: var(--space-6);
+	left: var(--space-6);
+	z-index: 30; /* with the side panel: over the page's panels, under the floating windows */
 	display: flex;
-	align-items: center;
-	gap: 8px;
-	padding: 0 10px;
-	background: var(--panel);
-	border-bottom: 1px solid var(--line);
+	align-items: stretch;
+	box-sizing: border-box;
+	inline-size: var(--scene-controls-width);
+	max-inline-size: calc(100vw - 2 * var(--space-6));
+	border: var(--border-width) solid var(--color-bg-surface);
+	border-radius: var(--radius-md);
+	background-color: var(--color-bg-panel);
+	backdrop-filter: blur(var(--blur-panel));
+	-webkit-backdrop-filter: blur(var(--blur-panel));
+	color: var(--color-text);
 }
 
-#editor-bar #editor-name {
-	font-weight: 600;
+#scene-controls[hidden] {
+	display: none;
+}
+
+.scene-controls-group {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-3);
+}
+
+.scene-controls-group[data-fills] {
+	flex: 1 1 auto;
+	min-inline-size: 0;
+}
+
+.scene-controls-group + .scene-controls-group {
+	border-inline-start: var(--border-width) solid var(--color-bg-surface);
+}
+
+.scene-controls-name {
+	flex: 1 1 auto;
+	min-inline-size: 0;
+	margin: 0;
+	font: var(--type-heading-1);
+	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
-	white-space: nowrap;
 }
 
-#editor-bar .editor-hint {
-	margin-left: auto;
+/* The panel's menu, as wide as drawn; it hangs off <body>, so the value sits here, not on the panel. */
+.scene-controls-menu {
+	inline-size: 218px;
 }
 
 /* ---- Scene editing panels (spec 8) ---- */
 
-/* Playing (spec 7.10): the bottom controls go; the top bar and its Edit button stay put. */
+/* Playing (spec 7.10): the side panel goes; the scene control panel and its Edit button stay put. */
 
 body.playing #side-controls {
 	display: none;
 }
 
-/* The target frame: the targeted NPC's name under the top bar, out of the mouse's way. */
+/* The target frame: the targeted NPC's name at the top, out of the mouse's way. */
 
 #target-frame {
 	position: fixed;
-	top: calc(var(--bar) + 10px);
+	top: var(--space-6);
 	left: 50%;
 	transform: translateX(-50%);
 	min-width: 160px;
@@ -540,35 +562,6 @@ body.playing #side-controls {
 #target-frame #target-name {
 	font-weight: 600;
 	color: #ffd100;
-}
-
-#editor-bar #editor-undo:disabled,
-#editor-bar #editor-redo:disabled {
-	opacity: 0.4;
-}
-
-#status-bar {
-	position: fixed;
-	left: 0;
-	right: 0;
-	bottom: 0;
-	display: flex;
-	gap: 16px;
-	align-items: center;
-	padding: 3px 12px;
-	background: var(--panel);
-	border-top: 1px solid var(--line);
-	font-size: 12px;
-	color: var(--muted, #aab);
-}
-
-#status-bar #status-cursor {
-	min-width: 110px;
-}
-
-#status-bar #status-fps {
-	margin-left: auto;
-	font-variant-numeric: tabular-nums;
 }
 
 /* ---- The browser windows (spec 7.3, 7.9; src/ui/specs/texture-browser.md, object-browser.md

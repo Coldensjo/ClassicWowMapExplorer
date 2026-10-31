@@ -7,11 +7,12 @@ import { SceneLibrary, type SceneSummary } from '../scene/library';
 import { SceneModel } from '../scene/sceneModel';
 import { MAX_BLANK_TILES } from '../scene/types';
 import { decodeFile, readSceneFile } from '../scene/wscene';
-import { art, button, confirmDialog, el, iconButton, menu } from '../ui';
+import { art, button, confirmDialog, el, iconButton, menu, showToast } from '../ui';
 import { CopyPicker } from './copyPicker';
 import { EditorPanels } from './editorPanels';
 import { groundEffectScan, type GroundEffectScan } from './groundEffectScan';
 import { SceneEditor } from './sceneEditor';
+import { SceneControls } from './sceneControls';
 
 import { BASE_TEXTURES } from './baseTextures';
 
@@ -26,6 +27,8 @@ let stats: StorageStats;
 
 let editor: SceneEditor | null = null;
 let panels: EditorPanels | null = null;
+/** The scene control panel at the top left, made once and shown while a scene is open. */
+let controls: SceneControls;
 let scan: GroundEffectScan | null = null;
 let picker: CopyPicker | null = null;
 let lastSaved = '';
@@ -40,12 +43,6 @@ export function showScenes(openedStorage: AsyncStorageApi, openedStats: StorageS
 	stats = openedStats;
 	// The ground effect scan (spec 3.1) starts in the background; editing does not wait for it.
 	scan = groundEffectScan(storage, stats.buildName);
-	scan.onStatus = (text, paused) => {
-		const element = $('status-scan');
-		element.textContent = text;
-		element.hidden = !text;
-		if (paused) element.textContent += ' — click to resume';
-	};
 	wireOnce();
 	$('landing').hidden = false;
 	$('scenes').hidden = false;
@@ -56,8 +53,6 @@ let wired = false;
 function wireOnce(): void {
 	if (wired) return;
 	wired = true;
-
-	$('status-scan').addEventListener('click', () => scan?.setPaused(!scan.paused));
 
 	// New scene and Import scene, over the cards and again in the empty state.
 	const importInput = $<HTMLInputElement>('scene-import-input');
@@ -128,9 +123,24 @@ function wireOnce(): void {
 		}
 	});
 
-	// The editor bar.
-	$('editor-save').addEventListener('click', () => void saveOpen(true));
-	wireEditorBar();
+	// The scene control panel (src/ui/specs/scene-control-panel.md).
+	controls = new SceneControls({
+		onSave: async () => {
+			if (await saveOpen(true)) showToast('Scene saved');
+		},
+		onPlay: () => editor?.setPlaying(!editor.playing),
+		onUndo: () => editor?.undo(),
+		onRedo: () => editor?.redo(),
+		onSettings: () => {
+			if (editor) void sceneSettings(editor.model.meta.name);
+		},
+		onExport: async () => {
+			if (!editor) return;
+			if (await saveOpen(true)) download(`${editor.model.meta.name}.wscene`, await library.bytes(editor.model.meta.id));
+		},
+		onExit: () => void closeEditor(),
+	});
+	document.body.append(controls.root);
 }
 
 /** Source tiles that exist in the map but can't be read from this client. */
@@ -261,15 +271,6 @@ async function openSavedScene(id: string): Promise<void> {
 	}
 }
 
-function wireEditorBar(): void {
-	$('editor-export').addEventListener('click', async () => {
-		if (!editor) return;
-		await saveOpen(true);
-		download(`${editor.model.meta.name}.wscene`, await library.bytes(editor.model.meta.id));
-	});
-	$('editor-back').addEventListener('click', () => void closeEditor());
-}
-
 /** Lists the saved scenes as cards, or shows the empty state when there are none. */
 async function refreshList(): Promise<void> {
 	let scenes: SceneSummary[] = [];
@@ -302,7 +303,7 @@ function sceneCard(s: SceneSummary): HTMLElement {
 	const more = iconButton({ icon: 'more', label: `More for ${s.name}`, variant: 'ghost', size: 'sm' });
 	more.classList.add('scene-card-more');
 	menu(more, [
-		{ label: 'Scene settings', onSelect: () => void sceneSettings(s) },
+		{ label: 'Scene settings', onSelect: () => void sceneSettings(s.name) },
 		{ label: 'Duplicate', onSelect: () => void duplicateScene(s) },
 		{ label: 'Export', onSelect: () => void library.bytes(s.id).then((bytes) => download(`${s.name}.wscene`, bytes)) },
 		{ label: 'Delete', destructive: true, onSelect: () => void deleteScene(s) },
@@ -327,10 +328,10 @@ function sceneCard(s: SceneSummary): HTMLElement {
 }
 
 /** A stand-in until scene settings are designed: says so, and no more. */
-async function sceneSettings(s: SceneSummary): Promise<void> {
+async function sceneSettings(name: string): Promise<void> {
 	await confirmDialog({
 		title: 'Scene settings',
-		message: `Settings for "${s.name}" aren’t here yet. Renaming and other options are coming in a later update.`,
+		message: `Settings for "${name}" aren’t here yet. Renaming and other options are coming in a later update.`,
 		confirm: { label: 'OK' },
 		cancel: { label: 'Close' },
 	});
@@ -382,16 +383,15 @@ function notice(text: string): void {
 
 async function openEditor(model: SceneModel, isNew = false): Promise<void> {
 	$('landing').hidden = true;
-	$('editor-bar').hidden = false;
-	$('editor-name').textContent = model.meta.name;
-	setSaveState('');
+	controls.setName(model.meta.name);
+	controls.show(true);
 	editor = new SceneEditor($<HTMLCanvasElement>('view'), storage, model);
 	// A console handle on the open editor, for poking at the model and managers while testing.
 	(window as { editor?: SceneEditor }).editor = editor;
 	editor.onNotice = notice;
 	// Newly painted layers take the effect their texture usually carries (spec 7.7.2).
 	editor.effectFor = (fdid) => scan?.effectFor(fdid) ?? 0;
-	panels = new EditorPanels(editor, storage);
+	panels = new EditorPanels(editor, storage, controls);
 	try {
 		await editor.load();
 	} catch (e) {
@@ -408,24 +408,25 @@ function autosaveOnHide(): void {
 	if (document.visibilityState === 'hidden') void saveOpen(false);
 }
 
-/** Saves the open scene; forced also renders a fresh thumbnail, unforced only when changed. */
-async function saveOpen(force: boolean): Promise<void> {
-	if (!editor) return;
+/**
+ * Saves the open scene; forced also renders a fresh thumbnail, unforced only when changed.
+ * Resolves true when the scene is saved (or was already), false when saving failed.
+ */
+async function saveOpen(force: boolean): Promise<boolean> {
+	if (!editor) return false;
 	const model = editor.model;
-	if (!force && model.meta.modified === lastSaved) return;
-	setSaveState('Saving…');
+	if (!force && model.meta.modified === lastSaved) return true;
+	controls.setSaving(true);
 	try {
 		await library.save(model, force ? await editor.thumbnail() : null);
 		lastSaved = model.meta.modified;
-		setSaveState(`Saved ${new Date().toLocaleTimeString()}`);
+		return true;
 	} catch (e) {
-		setSaveState('');
 		notice(`Saving failed: ${e instanceof Error ? e.message : e}. Export the scene to keep it.`);
+		return false;
+	} finally {
+		controls.setSaving(false);
 	}
-}
-
-function setSaveState(text: string): void {
-	$('editor-status').textContent = text;
 }
 
 async function closeEditor(): Promise<void> {
@@ -438,7 +439,7 @@ async function closeEditor(): Promise<void> {
 	editor.dispose();
 	editor = null;
 	delete (window as { editor?: SceneEditor }).editor;
-	$('editor-bar').hidden = true;
+	controls.show(false);
 	$('landing').hidden = false;
 	$('scenes').hidden = false;
 	await refreshList();

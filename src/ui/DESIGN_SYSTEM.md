@@ -14,7 +14,9 @@ migrated: the Paint tool's texture browser, the Objects tool's object browser an
 tool's NPC library are floating windows built from molecules, and every tool's settings live in
 the side panel controls, the mode column beside a resizable tool panel of modules down the right
 (§7.1); the landing page (the folder card and the scene library) is built from molecules and the
-art (§6.4) with its own page stylesheet; the top bar and the status bar still use their own markup.
+art (§6.4) with its own page stylesheet; the scene control panel at the top left (the name and
+its menu, Save and Play, Undo and Redo) is built from molecules too, and the status bar along
+the bottom is gone (`specs/scene-control-panel.md`).
 
 ## 1. Layout
 
@@ -245,7 +247,7 @@ was drawn, what was decided and what is proposed. File names follow the specs (s
 | `text-input` | `textInput()`, `setTextValue()`, `setInvalid()` | a text or search field with icon, prefix, suffix and hint; the search box is this with `icon: 'search'`; `size: 'sm'` is the 30px box |
 | `slider` | `slider()`, `setSliderValue()` | a range with a caption and an editable value field; `size: 'sm'` is the 30px row |
 | `stepper` | `stepper()`, `setStepperValue()` | a number field between minus and plus buttons |
-| `menu` | `menu()`, `menuPanel()`, `menuOption()` | the floating panel, and an action menu on any button |
+| `menu` | `menu()`, `menuPanel()`, `menuOption()`, `menuHeading()`, `menuSeparator()` | the floating panel, and an action menu on any button, with headings, separators and checkable choices between its items |
 | `select` | `select()`, `setSelectValue()`, `setSelectOptions()` | a select-only combobox on the field box and the menu panel |
 | `swatch-picker` | `swatchPicker()`, `setSwatchValue()` | a radiogroup of colour squares |
 | `tile` | `tile()` | an outlined card that navigates |
@@ -291,7 +293,7 @@ dots). Names are the Figma layer names:
 | Group | Icons |
 |---|---|
 | Tools | `sculpt`, `paint`, `hole`, `water`, `npc`, `container` (objects), `eyedropped` (eyedropper / pick) |
-| Scene and file | `scene`, `save`, `download`, `play`, `reset`, `log-out`, `sun` (time of day / lighting) |
+| Scene and file | `scene`, `save`, `download`, `play`, `undo`, `redo`, `reset`, `log-out`, `sun` (time of day / lighting) |
 | Actions | `plus`, `minus`, `close`, `checkmark`, `search`, `menu`, `more`, `drag-to-expand` (resize grip), `grid` and `list` (view toggles) |
 | Direction | `up`, `down`, `left`, `right` |
 | Status | `info`, `help`, `alert` |

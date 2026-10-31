@@ -107,37 +107,18 @@
 		</form>
 	</div>
 
-	<!-- Along the top while a scene is open. -->
-	<nav id="editor-bar" aria-label="Scene" hidden>
-		<span id="editor-name"></span>
-		<button id="editor-save">Save</button>
-		<button id="editor-undo" hidden aria-label="Undo">↶</button>
-		<button id="editor-redo" hidden aria-label="Redo">↷</button>
-		<button id="editor-play" class="primary" title="Walk the scene as your character (spec 7.10); the same button comes back to editing">Play</button>
-		<button id="editor-export" title="Download this scene as a .wscene file">Export</button>
-		<button id="editor-back" title="Save and go back to your scenes">Scenes</button>
-		<span id="editor-status" class="muted small"></span>
-		<span class="editor-hint muted small" id="editor-hint-edit"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly · left drag look · <kbd>Shift</kbd> / <kbd>Cmd</kbd> + left mouse tool</span>
-		<span class="editor-hint muted small" id="editor-hint-play" hidden><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Space</kbd> jump · mouse look · wheel zoom · click an NPC to target, <kbd>Esc</kbd> clears</span>
-	</nav>
+	<!-- The scene control panel at the top left while a scene is open (the scene's name and
+	     menu, Save and Play, Undo and Redo) is built by src/editor/sceneControls.ts from the
+	     design system. -->
 
 	<!-- The tools and their settings are the side panel controls (src/editor/sideControls.ts and
 	     editorPanels.ts): the mode column beside a resizable tool panel on the right, built from the design system
 	     while a scene is open. -->
 
-	<!-- The status bar along the bottom (spec 8). -->
 	<!-- Play mode's target frame (spec 7.10): the targeted NPC's name; Esc clears it. -->
 	<div id="target-frame" hidden>
 		<div id="target-name"></div>
 		<div id="target-sub" class="muted small"></div>
-	</div>
-
-	<div id="status-bar" hidden>
-		<span id="status-cursor" title="Cursor position in yards"></span>
-		<span id="status-height" title="Ground height under the cursor"></span>
-		<span id="status-layers" title="Texture layers of the chunk under the cursor"></span>
-		<button id="status-scan" class="plain muted small" title="The background ground effect scan (spec 7.7.2); click to pause or resume it"></button>
-		<span id="status-fps"></span>
 	</div>
 
 	<div id="game-updated" hidden role="alert">

@@ -152,3 +152,11 @@ bottom centre, 16px up: nothing is in their way any more.
 - Each Size, Strength, Opacity and Height slider has its hotkey list beneath it.
 - The texture browser, object browser and NPC library open at the bottom left.
 - Keys 1–7 switch modes; playing hides the dock; Edit brings it back as it was.
+
+## Update 2026-10-31: no bars above or below
+
+The editor bar along the top became the scene control panel at the top left
+([scene-control-panel.md](scene-control-panel.md)) and the status bar along the bottom went. The
+dock's top inset is now **24px** (`--space-6`), level with that panel's top, and its bottom inset
+16px from the viewport's edge; §1's "from under the editor bar and from above the status bar"
+reads so.

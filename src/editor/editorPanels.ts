@@ -14,12 +14,15 @@ import { NPC_POSES, SCENE_WEATHERS, type NpcPose, type NpcPreset, type PlacedNpc
 import { animationName } from '../formats/animationNames';
 import { POSE_LABELS, poseSequences } from '../scene/npcPoses';
 import { SideControls, dockModule, dockNote, dockRow, setModuleEmpty, type DockModule } from './sideControls';
+import type { SceneControls } from './sceneControls';
+import { MOD_PLACEHOLDER, onHotkeyFormatChange, resolveKeys } from './hotkeyFormat';
 import {
 	attachTooltip,
 	button,
 	confirmDialog,
 	fieldShell,
 	hotkeyList,
+	type HotkeyListHandle,
 	type HotkeyRow,
 	el,
 	type ModeId,
@@ -43,8 +46,6 @@ import {
 	textInput,
 } from '../ui';
 
-const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-
 /** The mode bar's chips and the editor tools they drive; Revert to base (copied scenes) has no chip. */
 const TOOL_OF: Record<ModeId, Tool> = { environment: 'environment', sculpt: 'sculpt', paint: 'paint', water: 'water', holes: 'holes', objects: 'place', npcs: 'npcs' };
 
@@ -54,8 +55,8 @@ function modeOf(tool: Tool): ModeId | null {
 	return tool;
 }
 
-/** The platform's command key, as the hotkey lists name it; the editor accepts both. */
-const MOD = /Mac|iPhone|iPad/i.test(navigator.platform) ? 'Cmd' : 'Ctrl';
+/** The command key in a row, written as Cmd or Ctrl by the hotkey format when the list is made (hotkeyFormat.ts). */
+const MOD = MOD_PLACEHOLDER;
 
 const SHIFT_CLICK = (label: string): HotkeyRow => ({ label, keys: ['Shift'], tail: 'click' });
 const MOD_CLICK = (label: string): HotkeyRow => ({ label, keys: [MOD], tail: 'click' });
@@ -117,10 +118,10 @@ interface ToolContent {
 /**
  * The editing panels around the viewport (spec 8): the side panel controls (the mode column
  * beside the tool panel; design "Side Panel Controls", src/ui/specs/side-panel-controls.md),
- * the status bar along the bottom, and Undo/Redo and Play in the top bar. Each tool's modules are built once from
- * the design system's molecules when the tool is first opened, and brought in line with the
- * editor's settings whenever they change elsewhere (shortcuts, undo, a selection). One is made
- * per open scene and disposed with it.
+ * and the play and undo state of the scene control panel (sceneControls.ts). Each tool's
+ * modules are built once from the design system's molecules when the tool is first opened, and
+ * brought in line with the editor's settings whenever they change elsewhere (shortcuts, undo, a
+ * selection). One is made per open scene and disposed with it.
  */
 export class EditorPanels {
 	private readonly cleanups: (() => void)[] = [];
@@ -142,10 +143,13 @@ export class EditorPanels {
 	/** Which fill of the idle select is current, so a slower earlier one doesn't replace it. */
 	private idleSerial = 0;
 	private readonly presets = new PresetLibrary();
+	/** Every hotkey list in the modules with its rows, so a change of hotkey format rewrites them. */
+	private readonly hotkeyLists = new Map<HTMLElement, HotkeyRow[]>();
 
 	constructor(
 		private readonly editor: SceneEditor,
 		private readonly storage: AsyncStorageApi,
+		private readonly controls: SceneControls,
 	) {
 		// The texture browser window first: setTool() below shows it when the Paint tool is active.
 		this.textures = new TextureBrowser(storage, editor.paint.fdid, (fdid) => {
@@ -163,7 +167,7 @@ export class EditorPanels {
 		this.wireUndo();
 		this.wirePlay();
 		this.wireKeys();
-		this.wireStatus();
+		this.cleanups.push(onHotkeyFormatChange(() => this.refreshHotkeys()));
 		this.setTool(editor.tool);
 	}
 
@@ -171,21 +175,13 @@ export class EditorPanels {
 		this.shown = on;
 		this.dock.show(on);
 		this.syncWindows();
-		$('status-bar').hidden = !on;
-		$('editor-undo').hidden = !on;
-		$('editor-redo').hidden = !on;
-		$('editor-play').hidden = !on;
 		if (!on) this.syncPlay(false);
 	}
 
 	// ---- Edit / Play (spec 7.10) ----
 
-	/** The top bar's Edit/Play button: the one toggle, in the same place in both modes (spec 8). */
+	/** The scene control panel's Play/Edit button is the one toggle, in the same place in both modes (spec 8). */
 	private wirePlay(): void {
-		this.listen($('editor-play'), 'click', () => {
-			this.editor.setPlaying(!this.editor.playing);
-			$('editor-play').blur();
-		});
 		this.editor.onPlayChange = (playing) => this.syncPlay(playing);
 		this.cleanups.push(() => {
 			this.editor.onPlayChange = () => {};
@@ -195,13 +191,9 @@ export class EditorPanels {
 
 	/** Playing hides the side panel (by a body class, so the button stays put). */
 	private syncPlay(playing: boolean): void {
-		const button = $<HTMLButtonElement>('editor-play');
-		button.textContent = playing ? 'Edit' : 'Play';
-		button.title = playing ? 'Back to editing, with the camera where the player stands' : 'Walk the scene as your character (spec 7.10); the same button comes back to editing';
+		this.controls.setPlaying(playing);
 		document.body.classList.toggle('playing', playing);
 		this.syncWindows();
-		$('editor-hint-edit').hidden = playing;
-		$('editor-hint-play').hidden = !playing;
 	}
 
 	private listen<K extends keyof WindowEventMap>(target: Window, type: K, fn: (e: WindowEventMap[K]) => void): void;
@@ -288,17 +280,34 @@ export class EditorPanels {
 
 	// ---- Shared module builders ----
 
+	/** A hotkey list whose command key follows the hotkey format, now and when it changes. */
+	private keys(options: { heading?: string; rows: HotkeyRow[] }): HotkeyListHandle {
+		const handle = hotkeyList({ heading: options.heading, rows: resolveRows(options.rows) });
+		this.hotkeyLists.set(handle.root, options.rows);
+		return handle;
+	}
+
+	/** Swaps a hotkey list's rows (when the selected mode changes), keeping them in the format. */
+	private setKeys(root: HTMLElement, rows: HotkeyRow[]): void {
+		this.hotkeyLists.set(root, rows);
+		setHotkeyRows(root, resolveRows(rows));
+	}
+
+	private refreshHotkeys(): void {
+		for (const [root, rows] of this.hotkeyLists) setHotkeyRows(root, resolveRows(rows));
+	}
+
 	/** A brush size module: the radius slider in yards and the [ ] hotkeys. */
 	private sizeModule(max: number, get: () => number, set: (radius: number) => void): { module: DockModule; sync(): void } {
 		const size = slider({ ariaLabel: 'Brush size', value: get(), min: 1, max, step: 1, suffix: 'yd', onInput: set });
-		const module = dockModule({ title: 'Size', children: [size.root, hotkeyList({ heading: 'Hotkeys', rows: SIZE_KEYS }).root] });
+		const module = dockModule({ title: 'Size', children: [size.root, this.keys({ heading: 'Hotkeys', rows: SIZE_KEYS }).root] });
 		return { module, sync: () => setSliderValue(size.root, get()) };
 	}
 
 	/** A 0 to 1 setting shown as a percentage, with its hotkeys. */
 	private percentModule(title: string, keys: HotkeyRow[], get: () => number, set: (value: number) => void): { module: DockModule; sync(): void } {
 		const range = slider({ ariaLabel: title, value: Math.round(get() * 100), min: 0, max: 100, step: 5, suffix: '%', onInput: (v) => set(v / 100) });
-		const module = dockModule({ title, children: [range.root, hotkeyList({ heading: 'Hotkeys', rows: keys }).root] });
+		const module = dockModule({ title, children: [range.root, this.keys({ heading: 'Hotkeys', rows: keys }).root] });
 		return { module, sync: () => setSliderValue(range.root, Math.round(get() * 100)) };
 	}
 
@@ -452,7 +461,7 @@ export class EditorPanels {
 			noise: 'Roughen up terrain surface with randomized fractal noise.',
 			ramp: 'Ideal for sculpting an angled surface into terrain. To use, click a starting point then an ending point to create a smooth ramp between them.',
 		});
-		const keys = hotkeyList({ heading: 'Hotkeys', rows: SCULPT_KEYS[brush.mode] });
+		const keys = this.keys({ heading: 'Hotkeys', rows: SCULPT_KEYS[brush.mode] });
 		const flatten = stepper({
 			id: 'sculpt-flatten-to',
 			label: 'Flatten to',
@@ -498,7 +507,7 @@ export class EditorPanels {
 			const mode = brush.mode === 'lower' ? 'raise' : brush.mode;
 			setRadioValue(setting.root, mode);
 			this.nestUnder(setting, mode, nested);
-			setHotkeyRows(keys.root, SCULPT_KEYS[brush.mode]);
+			this.setKeys(keys.root, SCULPT_KEYS[brush.mode]);
 			flattenField.hidden = brush.mode !== 'flatten';
 			setStepperValue(flatten.root, brush.flattenTo);
 			size.sync();
@@ -529,7 +538,7 @@ export class EditorPanels {
 			},
 		});
 		this.infoTips(tool, { base: "Set a chunk's base texture that you paint on top of. The eraser won't affect a chunk's base texture." });
-		const keys = hotkeyList({ heading: 'Hotkeys', rows: PAINT_KEYS[paint.mode] });
+		const keys = this.keys({ heading: 'Hotkeys', rows: PAINT_KEYS[paint.mode] });
 		const nested = el('div', { class: 'dock-nested' }, keys.root);
 		const toolModule = dockModule({ title: 'Tool', children: [tool.root] });
 
@@ -566,7 +575,7 @@ export class EditorPanels {
 		const sync = () => {
 			setRadioValue(tool.root, paint.mode);
 			this.nestUnder(tool, paint.mode, nested);
-			setHotkeyRows(keys.root, PAINT_KEYS[paint.mode]);
+			this.setKeys(keys.root, PAINT_KEYS[paint.mode]);
 			size.sync();
 			strength.sync();
 			opacity.sync();
@@ -603,7 +612,7 @@ export class EditorPanels {
 
 	private buildHoles(): ToolContent {
 		const holes = this.editor.holes;
-		const keysModule = dockModule({ title: 'Hotkeys', children: [hotkeyList({ rows: [SHIFT_CLICK('Cut hole'), MOD_CLICK('Fill hole')] }).root] });
+		const keysModule = dockModule({ title: 'Hotkeys', children: [this.keys({ rows: [SHIFT_CLICK('Cut hole'), MOD_CLICK('Fill hole')] }).root] });
 		const size = this.sizeModule(30, () => holes.radius, (r) => (holes.radius = r));
 		return {
 			title: 'Cut holes',
@@ -632,7 +641,7 @@ export class EditorPanels {
 			},
 		});
 		this.infoTips(tool, { flood: 'Click a hollow: everything connected below the surface height fills, like a lake.' });
-		const keys = hotkeyList({ heading: 'Hotkeys', rows: keysFor(toolOf()) });
+		const keys = this.keys({ heading: 'Hotkeys', rows: keysFor(toolOf()) });
 		const nested = el('div', { class: 'dock-nested' }, keys.root);
 		const toolModule = dockModule({ title: 'Tool', children: [tool.root] });
 
@@ -663,14 +672,14 @@ export class EditorPanels {
 		});
 		const heightModule = dockModule({
 			title: 'Height',
-			children: [dockNote('(empty = just above the clicked ground)'), el('div', { class: 'dock-row' }, height.root), hotkeyList({ heading: 'Hotkeys', rows: HEIGHT_KEYS }).root],
+			children: [dockNote('(empty = just above the clicked ground)'), el('div', { class: 'dock-row' }, height.root), this.keys({ heading: 'Hotkeys', rows: HEIGHT_KEYS }).root],
 		});
 
 		const sync = () => {
 			const current = toolOf();
 			setRadioValue(tool.root, current);
 			this.nestUnder(tool, current, nested);
-			setHotkeyRows(keys.root, keysFor(current));
+			this.setKeys(keys.root, keysFor(current));
 			setRadioValue(kind.root, String(water.kind));
 			size.sync();
 			setStepperValue(height.root, water.height);
@@ -787,7 +796,7 @@ export class EditorPanels {
 	private buildObjects(): ToolContent {
 		const objects = this.editor.objects;
 		const place = objects.place;
-		const keysModule = dockModule({ title: 'Hotkeys', children: [hotkeyList({ rows: OBJECT_KEYS }).root] });
+		const keysModule = dockModule({ title: 'Hotkeys', children: [this.keys({ rows: OBJECT_KEYS }).root] });
 		const transform = this.buildTransform();
 
 		// Attributes: a building's doodad and name sets (spec 7.8), then the common rows.
@@ -884,7 +893,7 @@ export class EditorPanels {
 		const editor = this.editor;
 		const objects = editor.objects;
 		const settings = objects.npcPlace;
-		const keysModule = dockModule({ title: 'Hotkeys', children: [hotkeyList({ rows: OBJECT_KEYS }).root] });
+		const keysModule = dockModule({ title: 'Hotkeys', children: [this.keys({ rows: OBJECT_KEYS }).root] });
 		const transform = this.buildTransform();
 
 		// Attributes (spec 7.9.1): name, title, pose, idle, the look, then the common rows.
@@ -1119,7 +1128,7 @@ export class EditorPanels {
 			toggleSwitch({ label: labels[channel], checked: revert.channels[channel], onChange: (on) => (revert.channels[channel] = on) }),
 		);
 		const channels = dockModule({ title: 'What goes back', children: switches.map((s) => s.root) });
-		const keysModule = dockModule({ title: 'Hotkeys', children: [hotkeyList({ rows: [SHIFT_CLICK('Revert')] }).root] });
+		const keysModule = dockModule({ title: 'Hotkeys', children: [this.keys({ rows: [SHIFT_CLICK('Revert')] }).root] });
 		const size = this.sizeModule(100, () => revert.radius, (r) => (revert.radius = r));
 		return {
 			title: 'Revert to base',
@@ -1134,17 +1143,12 @@ export class EditorPanels {
 
 	// ---- Undo and redo ----
 
+	/** The scene control panel's Undo and Redo follow the command history. */
 	private wireUndo(): void {
 		const commands = this.editor.commands;
-		this.listen($('editor-undo'), 'click', () => this.editor.undo());
-		this.listen($('editor-redo'), 'click', () => this.editor.redo());
 		const refresh = () => {
-			const undoButton = $<HTMLButtonElement>('editor-undo');
-			const redoButton = $<HTMLButtonElement>('editor-redo');
-			undoButton.disabled = !commands.canUndo;
-			redoButton.disabled = !commands.canRedo;
-			undoButton.title = commands.undoLabel ? `Undo: ${commands.undoLabel.toLowerCase()} (Ctrl+Z)` : 'Nothing to undo (Ctrl+Z)';
-			redoButton.title = commands.redoLabel ? `Redo: ${commands.redoLabel.toLowerCase()} (Ctrl+Y)` : 'Nothing to redo (Ctrl+Y)';
+			this.controls.setUndo(commands.canUndo ? (commands.undoLabel ?? '') : null);
+			this.controls.setRedo(commands.canRedo ? (commands.redoLabel ?? '') : null);
 		};
 		commands.onChange = refresh;
 		this.cleanups.push(() => {
@@ -1200,24 +1204,6 @@ export class EditorPanels {
 		});
 	}
 
-	// ---- The status bar ----
-
-	private wireStatus(): void {
-		const cursor = $('status-cursor');
-		const height = $('status-height');
-		const layers = $('status-layers');
-		const fps = $('status-fps');
-		this.editor.onStatus = (s) => {
-			cursor.textContent = s.cursor ? `${s.cursor.x.toFixed(1)}, ${s.cursor.z.toFixed(1)}` : '—';
-			height.textContent = s.cursor ? `${s.cursor.height.toFixed(1)} yd` : '';
-			layers.textContent = s.layers !== null ? `${s.layers}/4 layers` : '';
-			fps.textContent = `${s.fps} FPS`;
-		};
-		this.cleanups.push(() => {
-			this.editor.onStatus = () => {};
-		});
-	}
-
 	dispose(): void {
 		this.textures.dispose();
 		this.models?.dispose();
@@ -1231,6 +1217,11 @@ export class EditorPanels {
 		this.show(false);
 		this.dock.dispose();
 	}
+}
+
+/** The rows with their command key written as the hotkey format says. */
+function resolveRows(rows: HotkeyRow[]): HotkeyRow[] {
+	return rows.map((row) => ({ ...row, keys: resolveKeys(row.keys) }));
 }
 
 /** A time of day in minutes as HH:MM. */

@@ -78,3 +78,6 @@ browsers open at the **bottom left**: 16px from the left edge, 16px above the st
 360 × 487. `WindowRect` gained `bottom` (the distance from the viewport's bottom edge, used when
 `y` is omitted), `src/editor/windowDefaults.ts` gives the three the same rect, and their storage
 keys moved to `wdb.window.<name>.2` so a place remembered from the old default is not kept.
+
+**Update 2026-10-31:** the status bar is gone ([scene-control-panel.md](scene-control-panel.md)),
+so the windows open 16px above the viewport's bottom edge; the stored places are untouched.

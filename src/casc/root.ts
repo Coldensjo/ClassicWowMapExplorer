@@ -40,9 +40,15 @@ export class RootTable {
 		r.seek(headerSize);
 		const allowUnnamed = totalCount !== namedCount;
 
+		// Every locale's files are kept, enUS first: a client installed in another language stores
+		// only its own locale's copy of locale-specific files (DB2 tables, voiced sounds), and the
+		// storage reads the first variant that is stored.
 		const recFdid: number[] = [];
 		const recCkey: number[] = [];
 		const recHashOff: number[] = [];
+		const otherFdid: number[] = [];
+		const otherCkey: number[] = [];
+		const otherHashOff: number[] = [];
 		while (r.remaining > 0) {
 			const count = r.u32();
 			let contentFlags: number;
@@ -66,14 +72,23 @@ export class RootTable {
 			const hashStart = r.pos;
 			if (hasNames) r.skip(count * 8);
 
-			if (!(localeFlags & LOCALE_ENUS) || contentFlags & CONTENT_LOW_VIOLENCE) continue;
+			if (contentFlags & CONTENT_LOW_VIOLENCE) continue;
+			const english = (localeFlags & LOCALE_ENUS) !== 0;
+			const toFdid = english ? recFdid : otherFdid;
+			const toCkey = english ? recCkey : otherCkey;
+			const toHashOff = english ? recHashOff : otherHashOff;
 			let fdid = -1;
 			for (let i = 0; i < count; i++) {
 				fdid += r.view.getInt32(idStart + i * 4, true) + 1;
-				recFdid.push(fdid);
-				recCkey.push(ckeyStart + i * 16);
-				recHashOff.push(hasNames ? hashStart + i * 8 : -1);
+				toFdid.push(fdid);
+				toCkey.push(ckeyStart + i * 16);
+				toHashOff.push(hasNames ? hashStart + i * 8 : -1);
 			}
+		}
+		for (let i = 0; i < otherFdid.length; i++) {
+			recFdid.push(otherFdid[i]);
+			recCkey.push(otherCkey[i]);
+			recHashOff.push(otherHashOff[i]);
 		}
 
 		// Sort records by fdid (ties by record order) with a single numeric typed-array sort.
@@ -121,7 +136,7 @@ export class RootTable {
 		return -1;
 	}
 
-	/** All content keys listed for a file, in root order (high-res variants come first). */
+	/** All content keys listed for a file: enUS first, then other locales, each in root order (high-res variants come first). */
 	getContentKeys(fdid: number): Uint8Array[] {
 		let i = this.indexOf(fdid);
 		if (i < 0) return [];

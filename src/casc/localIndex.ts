@@ -73,7 +73,7 @@ class IndexBucket {
 		const size = new Uint32Array(count);
 		for (let i = 0; i < count; i++) {
 			const e = start + (order ? order[i] : i) * entrySize;
-			keys.set(bytes.subarray(e, e + keyBytes), i * keyBytes);
+			for (let k = 0; k < keyBytes; k++) keys[i * keyBytes + k] = bytes[e + k];
 			// 40-bit big-endian location: archive number in the high bits, offset in the low offsetBits.
 			const hi = bytes[e + keyBytes];
 			const lo = r.view.getUint32(e + keyBytes + 1, false);

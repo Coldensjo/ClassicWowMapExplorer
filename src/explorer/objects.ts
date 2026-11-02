@@ -544,9 +544,25 @@ export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type:
 	// converted to linear to match the rest of the lighting.
 	const ambient = root.ambient.map((c) => c / 255);
 	const toLinear = (g: number) => Math.pow(Math.max(0, g), 2.2);
-	// Triangles per material, so each material becomes one batch.
-	const byMaterial = new Map<number, number[]>();
-	const collision: number[] = [];
+	// Per colour channel, the interior light each vertex colour byte gives.
+	// Capped at full brightness: brighter would overexpose the texture.
+	const light = [0, 1, 2].map((k) => Float32Array.from({ length: 256 }, (_, c) => toLinear(Math.min(1, (c / 255) * 2 + ambient[k]))));
+	// Triangles per material, so each material becomes one batch: counted first, then filled.
+	const materialSizes = new Map<number, number>();
+	let collisionSize = 0;
+	for (const g of groups) {
+		if (!g) continue;
+		for (const batch of g.batches) materialSizes.set(batch.material, (materialSizes.get(batch.material) ?? 0) + batch.indexCount);
+		collisionSize += g.collisionOnly.length * 3;
+	}
+	const byMaterial = new Map<number, Uint32Array>();
+	const filled = new Map<number, number>();
+	for (const [material, size] of materialSizes) {
+		byMaterial.set(material, new Uint32Array(size));
+		filled.set(material, 0);
+	}
+	const collision = new Uint32Array(collisionSize);
+	let collisionFilled = 0;
 	let base = 0;
 	for (const g of groups) {
 		if (!g) continue;
@@ -556,20 +572,23 @@ export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type:
 		if (g.uvs.length === count * 2) uvs.set(g.uvs, base * 2);
 		// Alpha picks per vertex between baked interior light (1) and normal outdoor lighting (0).
 		if (g.colors && g.flags & WMO_GROUP_INTERIOR) {
+			const [red, green, blue] = light;
 			for (let i = 0; i < count; i++) {
 				const o = (base + i) * 4;
-				// Capped at full brightness: brighter would overexpose the texture.
-				for (let k = 0; k < 3; k++) baked[o + k] = toLinear(Math.min(1, (g.colors[i * 4 + k] / 255) * 2 + ambient[k]));
+				baked[o] = red[g.colors[i * 4]];
+				baked[o + 1] = green[g.colors[i * 4 + 1]];
+				baked[o + 2] = blue[g.colors[i * 4 + 2]];
 				baked[o + 3] = g.colors[i * 4 + 3] / 255;
 			}
 		}
 		for (const batch of g.batches) {
-			const list = byMaterial.get(batch.material) ?? [];
-			for (let i = batch.indexStart; i < batch.indexStart + batch.indexCount; i++) list.push(g.indices[i] + base);
-			byMaterial.set(batch.material, list);
+			const list = byMaterial.get(batch.material)!;
+			let at = filled.get(batch.material)!;
+			for (let i = batch.indexStart; i < batch.indexStart + batch.indexCount; i++) list[at++] = g.indices[i] + base;
+			filled.set(batch.material, at);
 		}
 		for (const t of g.collisionOnly) {
-			for (let k = 0; k < 3; k++) collision.push(g.indices[t * 3 + k] + base);
+			for (let k = 0; k < 3; k++) collision[collisionFilled++] = g.indices[t * 3 + k] + base;
 		}
 		base += count;
 	}
@@ -585,12 +604,16 @@ export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type:
 		const [rb, tb] = shadowRank(b);
 		return ra - rb || ta - tb;
 	});
-	const indices: number[] = [];
+	let indexTotal = collision.length;
+	for (const [, list] of layout) indexTotal += list.length;
+	const indexArray = new Uint32Array(indexTotal);
+	let indexCount = 0;
 	const batches: ModelBatch[] = [];
 	for (const [materialIndex, list] of layout) {
 		const m = root.materials[materialIndex];
-		const start = indices.length;
-		for (const i of list) indices.push(i);
+		const start = indexCount;
+		indexArray.set(list, start);
+		indexCount += list.length;
 		batches.push({
 			start,
 			count: list.length,
@@ -613,8 +636,8 @@ export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type:
 		const byGround = new Map<number, number>();
 		for (const b of batches) if (b.material.ground) byGround.set(b.material.ground, (byGround.get(b.material.ground) ?? 0) + b.count);
 		const ground = [...byGround].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 0;
-		batches.push({ start: indices.length, count: collision.length, order: 0, material: { texture: 0, blend: 0, twoSided: false, unlit: true, unfogged: false, opacity: 1, collision: true, ground } });
-		for (const i of collision) indices.push(i);
+		batches.push({ start: indexCount, count: collision.length, order: 0, material: { texture: 0, blend: 0, twoSided: false, unlit: true, unfogged: false, opacity: 1, collision: true, ground } });
+		indexArray.set(collision, indexCount);
 	}
 	const doodadSets = root.doodadSets.map((set) => ({
 
@@ -624,7 +647,6 @@ export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type:
 			matrix: compose(translation(...d.position), fromQuaternion(...d.rotation), scaling(d.scale)),
 		})),
 	}));
-	const indexArray = new Uint32Array(indices);
 	return {
 		fdid, positions, normals, uvs, baked, indices: indexArray, bvh: indexArray.length ? buildBvh(positions, indexArray) : undefined, batches, radius: boundingRadius(positions), height: topOf(positions), doodadSets,
 		liquids: buildWmoLiquids(groups, (root.flags & WMO_LIQUID_TYPE_IDS) !== 0, kindOf),

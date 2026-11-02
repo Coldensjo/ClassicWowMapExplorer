@@ -34,6 +34,16 @@ THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
 /** Models per worker request; small batches let the nearest models show up sooner. */
 const MODEL_BATCH = 8;
+/**
+ * Models placed farther than this (yards) from the camera when read come without their ray-cast
+ * structure, built when the camera comes within it (see ModelEntry.pendingBvh); collision, line of
+ * sight and walking are only asked about near the camera.
+ */
+const BVH_RANGE = 600;
+/** And seconds of travel at the camera's speed on top, so a fast camera asks for it in time. */
+const BVH_LEAD = 3;
+/** A building's radius before it's read, for BVH_RANGE: big, so one that reaches the camera isn't missed. */
+const UNREAD_WMO_RADIUS = 1500;
 const MAX_MODEL_REQUESTS = 4;
 /** Unused models stay cached this long, so flying back and forth doesn't reload them. */
 const UNUSED_MODEL_TTL = 15000;
@@ -91,6 +101,12 @@ class ModelEntry {
 	 * time they're shown.
 	 */
 	walls: { geometry: THREE.BufferGeometry | null; mesh: THREE.InstancedMesh | null } | null = null;
+	/**
+	 * A ray-cast structure the model was read without (it was far): the geometry it's for (the model's,
+	 * or a doodad's collision mesh) and what to build it from. Until it's built, casts test the
+	 * triangles one by one, which finds the same surfaces, slower. request: the build under way.
+	 */
+	pendingBvh: { target: THREE.BufferGeometry; positions: Float32Array; indices: Uint32Array; request: Promise<void> | null } | null = null;
 	/** Particle emitters (fire, smoke), with their textures. */
 	emitters: LoadedEmitter[] = [];
 	/** Instance key for each slot in the instance buffer, for picking. */
@@ -366,6 +382,8 @@ export class ObjectManager {
 
 	private lastCull = 0;
 	private readonly camera = new THREE.Vector3();
+	/** How fast the camera moved over the last frame (yards per second), for BVH_LEAD. */
+	private cameraSpeed = 0;
 
 	private lastUpdate = 0;
 	private readonly emitterSources: EmitterSource[] = [];
@@ -374,8 +392,9 @@ export class ObjectManager {
 
 	/** Call once per frame: starts model loads, culls by view distance and applies instance changes. */
 	update(now: number, camera: THREE.Vector3): void {
-		this.camera.copy(camera);
 		const dt = this.lastUpdate ? (now - this.lastUpdate) / 1000 : 0;
+		if (dt > 0) this.cameraSpeed = this.camera.distanceTo(camera) / dt;
+		this.camera.copy(camera);
 		this.lastUpdate = now;
 		const cull = now - this.lastCull > CULL_INTERVAL;
 		if (cull) this.lastCull = now;
@@ -386,6 +405,7 @@ export class ObjectManager {
 		}
 		for (const [id, entry] of this.models) {
 			if (entry.state === 'ready' && (entry.dirty || (cull && this.visibilityChanged(entry)))) this.flush(entry);
+			if (cull && entry.pendingBvh && !entry.pendingBvh.request && this.withinBvhReach(entry)) void this.buildBvh(entry);
 			if (entry.instances.size === 0 && entry.state !== 'loading' && entry.state !== 'queued') {
 				entry.unusedSince ||= now;
 				if (now - entry.unusedSince > UNUSED_MODEL_TTL) {
@@ -514,7 +534,7 @@ export class ObjectManager {
 		for (const e of batch) e.state = 'loading';
 		try {
 			const start = performance.now();
-			const results = await this.storage.loadModels(batch.map((e) => ({ fdid: e.fdid, kind: e.kind, variant: e.variant })));
+			const results = await this.storage.loadModels(batch.map((e) => ({ fdid: e.fdid, kind: e.kind, variant: e.variant, deferBvh: !this.wallsShown && !this.withinBvhReach(e) })));
 			perf.log('model', `read ${batch.length} models in ${(performance.now() - start).toFixed(0)} ms (${this.queue.length} queued)`);
 			await Promise.all(batch.map((entry, i) => this.build(entry, results[i])));
 		} catch (e) {
@@ -572,12 +592,15 @@ export class ObjectManager {
 		geometry.computeBoundingSphere();
 		if (data.bvh) {
 			geometry.boundsTree = MeshBVH.deserialize({ ...data.bvh, index: data.indices } as Parameters<typeof MeshBVH.deserialize>[0], geometry, { setIndex: false });
+		} else if (entry.kind === 'wmo' && data.indices.length) {
+			entry.pendingBvh = { target: geometry, positions: data.positions, indices: data.indices, request: null };
 		}
 		if (data.collision) {
 			const hull = new THREE.BufferGeometry();
 			hull.setAttribute('position', new THREE.BufferAttribute(data.collision.positions, 3));
 			hull.setIndex(new THREE.BufferAttribute(data.collision.indices, 1));
-			hull.boundsTree = MeshBVH.deserialize({ ...data.collision.bvh, index: data.collision.indices } as Parameters<typeof MeshBVH.deserialize>[0], hull, { setIndex: false });
+			if (data.collision.bvh) hull.boundsTree = MeshBVH.deserialize({ ...data.collision.bvh, index: data.collision.indices } as Parameters<typeof MeshBVH.deserialize>[0], hull, { setIndex: false });
+			else entry.pendingBvh = { target: hull, positions: data.collision.positions, indices: data.collision.indices, request: null };
 			hull.computeBoundingSphere();
 			const mesh = new THREE.Mesh(hull, ObjectManager.COLLIDER_MATERIAL);
 			mesh.matrixAutoUpdate = false;
@@ -615,6 +638,8 @@ export class ObjectManager {
 		perf.log('model', `${entry.kind} ${entry.fdid}: ready after ${(performance.now() - start).toFixed(0)} ms (textures and build ${(built - start).toFixed(0)}, shaders and upload ${(performance.now() - built).toFixed(0)}; ${entry.materials.length} materials, ${(data.indices.length / 3).toFixed(0)} triangles${skin ? ', animated' : ''}${entry.liquids.length ? `, ${entry.liquids.length} liquids` : ''})`);
 		entry.geometry = geometry;
 		entry.radius = data.radius;
+		// Its true size is known now: near after all, its structure is built straight away.
+		if (entry.pendingBvh && this.withinBvhReach(entry)) void this.buildBvh(entry);
 		entry.data = { ...data, positions: new Float32Array(0), normals: new Float32Array(0), uvs: new Float32Array(0), baked: null, indices: new Uint32Array(0), liquids: [], animation: undefined };
 		entry.state = 'ready';
 		entry.dirty = true;
@@ -774,6 +799,8 @@ export class ObjectManager {
 	private async findWalls(entry: ModelEntry, walls: NonNullable<ModelEntry['walls']>): Promise<void> {
 		let geometry: THREE.BufferGeometry | null = null;
 		try {
+			// A building's walls are found with its ray-cast structure.
+			if (entry.kind === 'wmo' && entry.pendingBvh) await this.buildBvh(entry);
 			geometry = this.wallGeometry(entry, await this.unseenRuns(entry));
 		} catch (e) {
 			console.warn(`Invisible walls of ${entry.kind} ${entry.fdid}:`, e);
@@ -960,7 +987,37 @@ export class ObjectManager {
 		material.dispose();
 	}
 
+	/** Whether any copy of a model is within BVH_RANGE (and BVH_LEAD of travel) of the camera, or it has none placed. */
+	private withinBvhReach(entry: ModelEntry): boolean {
+		if (!entry.instances.size) return true;
+		const reach = BVH_RANGE + this.cameraSpeed * BVH_LEAD;
+		const modelRadius = entry.geometry || entry.kind !== 'wmo' ? entry.radius : UNREAD_WMO_RADIUS;
+		for (const m of entry.instances.values()) {
+			const e = m.elements;
+			const radius = modelRadius * Math.hypot(e[0], e[1], e[2]);
+			const dx = e[12] - this.camera.x, dy = e[13] - this.camera.y, dz = e[14] - this.camera.z;
+			if (dx * dx + dy * dy + dz * dz < (reach + radius) ** 2) return true;
+		}
+		return false;
+	}
+
+	/** Builds the ray-cast structure a model was read without, in the worker (once; the same promise after). */
+	private buildBvh(entry: ModelEntry): Promise<void> {
+		const pending = entry.pendingBvh!;
+		pending.request ??= this.storage.buildBvh(pending.positions, pending.indices).then((bvh) => {
+			// Unloaded meanwhile.
+			if (entry.pendingBvh !== pending) return;
+			pending.target.boundsTree = MeshBVH.deserialize({ ...bvh, index: pending.indices } as Parameters<typeof MeshBVH.deserialize>[0], pending.target, { setIndex: false });
+			entry.pendingBvh = null;
+		}, (e) => {
+			// Casts go on testing its triangles one by one.
+			console.warn(`Ray-cast structure of ${entry.kind} ${entry.fdid}:`, e);
+		});
+		return pending.request;
+	}
+
 	private dispose(entry: ModelEntry): void {
+		entry.pendingBvh = null;
 		if (entry.walls?.mesh) {
 			this.group.remove(entry.walls.mesh);
 			entry.walls.mesh.dispose();
@@ -1060,7 +1117,8 @@ export class ObjectManager {
 				}
 				continue;
 			}
-			if (!entry.mesh?.visible || !entry.geometry?.boundsTree) continue;
+			// Without its structure yet (see pendingBvh), the cast tests the triangles one by one.
+			if (!entry.mesh?.visible || !(entry.geometry?.boundsTree || entry.pendingBvh)) continue;
 			const hit = this.sweepRay.intersectObject(entry.mesh, false)[0];
 			if (!hit?.face || (best && hit.distance >= best.distance)) continue;
 			// The face normal is in model space; carry it through the instance's placement.
@@ -1119,7 +1177,7 @@ export class ObjectManager {
 				continue;
 			}
 			const sphere = entry.geometry?.boundingSphere;
-			if (!entry.mesh?.visible || !entry.geometry?.boundsTree || !sphere) continue;
+			if (!entry.mesh?.visible || !(entry.geometry?.boundsTree || entry.pendingBvh) || !sphere) continue;
 			for (const key of entry.visible) {
 				const m = entry.instances.get(key)!;
 				const e = m.elements;

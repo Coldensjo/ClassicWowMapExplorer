@@ -6,7 +6,7 @@ import type { FootstepSounds, LiquidLooks, LockKind } from '../explorer/clientDb
 import type { MusicData, WmoArea } from '../explorer/music';
 import type { Place } from '../explorer/places';
 import type { WorldMapInfo } from '../explorer/worldMap';
-import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
+import type { ModelData, ObjectKind, Placement, SerializedBvh } from '../explorer/objects';
 import type { CharacterModel, FarTile, InstanceMap, LoadedTexture, MapListing, NearTile, TileTexture } from '../explorer/world';
 import type { CharacterOutfit, CharacterRace } from '../explorer/spawns';
 import type { Image } from '../formats/blp';
@@ -31,7 +31,9 @@ export interface StorageApi {
 	loadNearTile(wdtFdid: number, x: number, y: number, compressed: boolean): NearTile;
 	loadTextures(fdids: number[], compressed: boolean): LoadedTexture[];
 	loadTileObjects(wdtFdid: number, x: number, y: number): Placement[];
-	loadModels(models: { fdid: number; kind: ObjectKind; variant?: string }[]): (ModelData | null)[];
+	/** deferBvh: leave out the model's ray-cast structures, for buildBvh to make once it's near (see M2Options.deferBvh). */
+	loadModels(models: { fdid: number; kind: ObjectKind; variant?: string; deferBvh?: boolean }[]): (ModelData | null)[];
+	buildBvh(positions: Float32Array, indices: Uint32Array): SerializedBvh;
 	/** The walking character: the races it can be, and one dressed as a look with the clips given. */
 	characterRaces(): CharacterRace[];
 	loadCharacter(race: number, sex: number, hd: boolean, look: number, clips: number[], outfit: CharacterOutfit | null, torch: boolean): CharacterModel | null;

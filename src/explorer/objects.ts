@@ -88,13 +88,16 @@ export interface ModelData {
 	emitters?: ParticleEmitter[];
 	/** Creatures: which footsteps they make (FootstepTerrainLookup's creature column; 0 none). */
 	footstep?: number;
-	/** WMOs only: a serialised ray-cast acceleration structure (three-mesh-bvh, indirect), for line of sight. */
+	/**
+	 * WMOs only: a serialised ray-cast acceleration structure (three-mesh-bvh, indirect), for line of
+	 * sight. Left out when asked to defer it (see M2Options.deferBvh); buildBvh makes it from positions and indices.
+	 */
 	bvh?: SerializedBvh;
 	/**
 	 * Solid M2s (trees, rocks, logs): the model's own collision mesh, never drawn, and its ray-cast
 	 * structure, for walking into and onto them.
 	 */
-	collision?: { positions: Float32Array; indices: Uint32Array; bvh: SerializedBvh };
+	collision?: { positions: Float32Array; indices: Uint32Array; bvh?: SerializedBvh };
 }
 
 export interface SerializedBvh {
@@ -107,7 +110,7 @@ export interface SerializedBvh {
  * Builds the ray-cast structure for a model in the worker, so the main thread never stalls on it.
  * Indirect mode leaves the index buffer (and so the material ranges) untouched.
  */
-function buildBvh(positions: Float32Array, indices: Uint32Array): SerializedBvh {
+export function buildBvh(positions: Float32Array, indices: Uint32Array): SerializedBvh {
 	const geometry = new BufferGeometry();
 	geometry.setAttribute('position', new BufferAttribute(positions, 3));
 	geometry.setIndex(new BufferAttribute(indices, 1));
@@ -230,6 +233,11 @@ export interface M2Options {
 	footstep?: number;
 	/** Keep the model's collision mesh (ModelData.collision): placed doodads and game objects. */
 	solid?: boolean;
+	/**
+	 * Leave out the ray-cast structures (ModelData.bvh, collision.bvh), for a model placed far from
+	 * the camera: they're a third of the time a model takes, and are only needed once it's near.
+	 */
+	deferBvh?: boolean;
 }
 
 /** A gear model (helmet, shoulder, weapon) and its texture, at an M2 attachment point. */
@@ -500,7 +508,7 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 	if (options.solid && hull.indices.length) {
 		const hullPositions = hull.positions.slice();
 		const hullIndices = Uint32Array.from(hull.indices);
-		collision = { positions: hullPositions, indices: hullIndices, bvh: buildBvh(hullPositions, hullIndices) };
+		collision = { positions: hullPositions, indices: hullIndices, bvh: options.deferBvh ? undefined : buildBvh(hullPositions, hullIndices) };
 	}
 	// Fresh frames: the arrays are transferred to the main thread, which would empty the cached ones.
 	const place = (p: (typeof parts)[number], frame: Mat4) => (p.rest ? multiply(p.rest, frame) : frame.slice());
@@ -523,8 +531,8 @@ export async function loadM2(storage: CascStorage, fdid: number, options: M2Opti
 		collision,
 	};
 }
-/** file: the root file's bytes, when the caller has already read them. */
-export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type: number) => LiquidKind, file?: Uint8Array): Promise<ModelData> {
+/** file: the root file's bytes, when the caller has already read them. deferBvh: see M2Options. */
+export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type: number) => LiquidKind, file?: Uint8Array, deferBvh = false): Promise<ModelData> {
 	const root = parseWmoRoot(file ?? await storage.readFile(fdid));
 	const groups = visibleWmoGroups(await Promise.all(root.groupFdids.map(async (g) => {
 		try {
@@ -648,7 +656,7 @@ export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type:
 		})),
 	}));
 	return {
-		fdid, positions, normals, uvs, baked, indices: indexArray, bvh: indexArray.length ? buildBvh(positions, indexArray) : undefined, batches, radius: boundingRadius(positions), height: topOf(positions), doodadSets,
+		fdid, positions, normals, uvs, baked, indices: indexArray, bvh: indexArray.length && !deferBvh ? buildBvh(positions, indexArray) : undefined, batches, radius: boundingRadius(positions), height: topOf(positions), doodadSets,
 		liquids: buildWmoLiquids(groups, (root.flags & WMO_LIQUID_TYPE_IDS) !== 0, kindOf),
 		areas: {
 			wmoId: root.wmoId,

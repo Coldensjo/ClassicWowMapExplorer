@@ -65,6 +65,9 @@ const api: AsyncStorageApi = {
 	async loadModels(models) {
 		return requireWorld().loadModels(models);
 	},
+	async buildBvh(positions, indices) {
+		return requireWorld().buildBvh(positions, indices);
+	},
 	async characterRaces() {
 		return requireWorld().characterRaces();
 	},

@@ -12,7 +12,7 @@ import type { MapExplorer } from './maps';
 import { loadWorldMaps, type WorldMapInfo } from './worldMap';
 import { loadPlaces, type Place } from './places';
 import { KNOWN_MAPS } from './maps';
-import { globalWmoPlacement, globalWmoTiles, loadM2, loadWmo, parsePlacements, type ModelData, type ObjectKind, type Placement } from './objects';
+import { buildBvh, globalWmoPlacement, globalWmoTiles, loadM2, loadWmo, parsePlacements, type ModelData, type ObjectKind, type Placement, type SerializedBvh } from './objects';
 import { GroundEffects, type ClutterSource } from './groundEffects';
 import { PortalSource } from './portals';
 import { DisplayResolver, parseWeapons, SpawnSource, type CharacterOutfit, type CharacterRace } from './spawns';
@@ -355,10 +355,10 @@ export class WorldLoader {
 	}
 
 	/** Renderable geometry for models; null where a model can't be read. */
-	async loadModels(models: { fdid: number; kind: ObjectKind; variant?: string }[]): Promise<(ModelData | null)[]> {
-		return Promise.all(models.map(async ({ fdid, kind, variant }) => {
+	async loadModels(models: { fdid: number; kind: ObjectKind; variant?: string; deferBvh?: boolean }[]): Promise<(ModelData | null)[]> {
+		return Promise.all(models.map(async ({ fdid, kind, variant, deferBvh = false }) => {
 			try {
-				if (kind === 'wmo') return await loadWmo(this.storage, fdid, await this.liquidKind());
+				if (kind === 'wmo') return await loadWmo(this.storage, fdid, await this.liquidKind(), undefined, deferBvh);
 				if (kind === 'creature') {
 					const creature = await this.displays.creature(fdid, parseWeapons(variant));
 					return creature ? { ...(await loadM2(this.storage, creature.fdid, creature.options)), fdid } : null;
@@ -370,15 +370,20 @@ export class WorldLoader {
 					// Read once and handed on, rather than read (and decompressed) again by the loader.
 					const bytes = await this.storage.readFile(file);
 					const isWmo = bytes[0] === 0x52 && bytes[1] === 0x45 && bytes[2] === 0x56 && bytes[3] === 0x4d; // 'REVM'
-					const model = isWmo ? await loadWmo(this.storage, file, await this.liquidKind(), bytes) : await loadM2(this.storage, file, { solid: true }, bytes);
+					const model = isWmo ? await loadWmo(this.storage, file, await this.liquidKind(), bytes, deferBvh) : await loadM2(this.storage, file, { solid: true, deferBvh }, bytes);
 					return { ...model, fdid };
 				}
-				return await loadM2(this.storage, fdid, { solid: true });
+				return await loadM2(this.storage, fdid, { solid: true, deferBvh });
 			} catch (e) {
 				console.warn(`Model ${fdid}:`, e);
 				return null;
 			}
 		}));
+	}
+
+	/** A model's ray-cast structure, left out when it was read (see M2Options.deferBvh). */
+	buildBvh(positions: Float32Array, indices: Uint32Array): SerializedBvh {
+		return buildBvh(positions, indices);
 	}
 
 	loadLighting(mapIds: number[]): Promise<LightingData> {

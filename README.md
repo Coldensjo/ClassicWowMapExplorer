@@ -53,6 +53,9 @@ macOS is untested.
 - `bun run spawns`: rebuild the spawn files from a VMaNGOS SQLite database (`-- path/to/mangos.sqlite`)
 - `bun run regions`: rebuild regions, flight paths, boats and zeppelins
 - `bun run portable`: build the Windows portable version into `release/`
+- `bun run bench`, `bun run bench:chrome`: time the storage worker's work against your install (Node, or a worker in
+  headless Chrome; `--compare <dir>` alternates rounds with another copy of `src/`, `--digest` checks results are unchanged)
+- `bun run bench:app -- <dist>`: fly a fixed route in the built app in headless Chrome and report frame times and load latency
 
 Source layout: `src/casc` (storage), `src/formats` (file formats), `src/worker` (parsing),
 `src/explorer` (world data), `src/viewer` (rendering, controls, audio), `tools` (Bun scripts).

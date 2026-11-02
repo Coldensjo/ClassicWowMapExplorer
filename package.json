@@ -11,7 +11,10 @@
 		"probe": "bun tools/probe.ts",
 		"spawns": "bun tools/buildSpawns.ts",
 		"regions": "bun tools/buildRegions.ts",
-		"portable": "bun tools/buildPortable.ts"
+		"portable": "bun tools/buildPortable.ts",
+		"bench": "bun build tools/bench/node.ts --target=node --format=esm --outfile=out/bench.mjs && node out/bench.mjs",
+		"bench:chrome": "bun tools/bench/serve.ts",
+		"bench:app": "bun tools/bench/app.ts"
 	},
 	"dependencies": {
 		"fflate": "^0.8.3",

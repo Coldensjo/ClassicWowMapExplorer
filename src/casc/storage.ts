@@ -133,11 +133,89 @@ class ArchiveReader {
 	private archive(n: number): Promise<RandomAccessFile> {
 		let file = this.archives.get(n);
 		if (!file) {
-			file = this.source.openFile(['Data', 'data', `data.${n.toString().padStart(3, '0')}`]);
+			file = this.source.openFile(['Data', 'data', `data.${n.toString().padStart(3, '0')}`]).then((f) => new CoalescingFile(f));
 			this.archives.set(n, file);
 		}
 		return file;
 	}
+}
+
+/** Reads closer than this in an archive go as one, the bytes between read and dropped. */
+const COALESCE_GAP = 32 * 1024;
+/** The most one coalesced read takes in. */
+const COALESCE_MAX = 8 * 1024 * 1024;
+
+/**
+ * An archive whose reads asked for together (before the worker's pending work has run) go to the
+ * file as one where they lie close: the textures of a batch of tiles, a model and its skin, are
+ * mostly stored side by side. Over HTTP each read is a request, and the browser runs only six at a
+ * time to one server. Every read still gets its own copy of exactly its bytes; a coalesced read that
+ * fails or comes back short is read again piece by piece, as it would have been.
+ */
+export class CoalescingFile implements RandomAccessFile {
+	private queue: { offset: number; length: number; resolve: (bytes: Uint8Array) => void; reject: (e: unknown) => void }[] = [];
+
+	constructor(private readonly file: RandomAccessFile) {}
+
+	get size(): number {
+		return this.file.size;
+	}
+
+	read(offset: number, length: number): Promise<Uint8Array> {
+		if (length <= 0) return this.file.read(offset, length);
+		return new Promise((resolve, reject) => {
+			if (!this.queue.length) afterPendingWork(() => this.flush());
+			this.queue.push({ offset, length, resolve, reject });
+		});
+	}
+
+	private flush(): void {
+		const reads = this.queue.sort((a, b) => a.offset - b.offset);
+		this.queue = [];
+		for (let i = 0; i < reads.length;) {
+			const start = reads[i].offset;
+			let end = start + reads[i].length;
+			let j = i + 1;
+			while (j < reads.length && reads[j].offset - end <= COALESCE_GAP && Math.max(end, reads[j].offset + reads[j].length) - start <= COALESCE_MAX) {
+				end = Math.max(end, reads[j].offset + reads[j].length);
+				j++;
+			}
+			this.readGroup(reads.slice(i, j), start, end);
+			i = j;
+		}
+	}
+
+	private readGroup(group: CoalescingFile['queue'], start: number, end: number): void {
+		const alone = (r: CoalescingFile['queue'][number]) => this.file.read(r.offset, r.length).then(r.resolve, r.reject);
+		if (group.length === 1) {
+			alone(group[0]);
+			return;
+		}
+		this.file.read(start, end - start).then((bytes) => {
+			if (bytes.length < end - start) {
+				group.forEach(alone);
+				return;
+			}
+			for (const r of group) r.resolve(bytes.slice(r.offset - start, r.offset - start + r.length));
+		}, () => group.forEach(alone));
+	}
+}
+
+/**
+ * Runs a callback once the work already queued (promise callbacks) has run, but before anything
+ * else: reads started together, each a few awaits deep, are all asked for by then.
+ */
+function afterPendingWork(callback: () => void): void {
+	if (typeof MessageChannel !== 'function') {
+		setTimeout(callback, 0);
+		return;
+	}
+	const channel = new MessageChannel();
+	channel.port1.onmessage = () => {
+		channel.port1.close();
+		callback();
+	};
+	channel.port2.postMessage(null);
 }
 
 /** Read-only view of a local CASC storage for one product (e.g. wow_classic_beta). */

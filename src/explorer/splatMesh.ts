@@ -79,9 +79,16 @@ export function buildSplatTerrain(root: AdtRoot, tex: AdtTex, skirtDepth = 30): 
 		positions[v * 3] = shared.positions[sharedIndex * 3];
 		positions[v * 3 + 1] = shared.positions[sharedIndex * 3 + 1] - drop;
 		positions[v * 3 + 2] = shared.positions[sharedIndex * 3 + 2];
-		normals.set(shared.normals.subarray(sharedIndex * 3, sharedIndex * 3 + 3), v * 3);
-		uvs.set(shared.uvs.subarray(sharedIndex * 2, sharedIndex * 2 + 2), v * 2);
-		if (color) colors.set(color.subarray(colorIndex * 3, colorIndex * 3 + 3), v * 3);
+		normals[v * 3] = shared.normals[sharedIndex * 3];
+		normals[v * 3 + 1] = shared.normals[sharedIndex * 3 + 1];
+		normals[v * 3 + 2] = shared.normals[sharedIndex * 3 + 2];
+		uvs[v * 2] = shared.uvs[sharedIndex * 2];
+		uvs[v * 2 + 1] = shared.uvs[sharedIndex * 2 + 1];
+		if (color) {
+			colors[v * 3] = color[colorIndex * 3];
+			colors[v * 3 + 1] = color[colorIndex * 3 + 1];
+			colors[v * 3 + 2] = color[colorIndex * 3 + 2];
+		}
 		chunkIds[v] = chunkId;
 		skirt[v] = drop;
 		return v;
@@ -152,12 +159,19 @@ export function buildSplatTerrain(root: AdtRoot, tex: AdtTex, skirtDepth = 30): 
 		group.chunks.push(id);
 		groupsByKey.set(key, group);
 	}
-	const indices: number[] = [];
+	let indexCount = 0;
+	for (const tris of chunkTriangles.values()) indexCount += tris.length;
+	const indices = new Uint32Array(indexCount);
 	const groups: SplatGroup[] = [];
+	let filled = 0;
 	for (const group of groupsByKey.values()) {
-		const start = indices.length;
-		for (const id of group.chunks) for (const i of chunkTriangles.get(id)!) indices.push(i);
-		groups.push({ start, count: indices.length - start, layers: group.layers });
+		const start = filled;
+		for (const id of group.chunks) {
+			const tris = chunkTriangles.get(id)!;
+			indices.set(tris, filled);
+			filled += tris.length;
+		}
+		groups.push({ start, count: filled - start, layers: group.layers });
 	}
 
 	// Alpha atlas.
@@ -180,7 +194,7 @@ export function buildSplatTerrain(root: AdtRoot, tex: AdtTex, skirtDepth = 30): 
 		if (l.height) textures.add(l.height);
 	}
 	return {
-		geometry: { positions, normals, uvs, colors, chunks: chunkIds, skirt, indices: new Uint32Array(indices) },
+		geometry: { positions, normals, uvs, colors, chunks: chunkIds, skirt, indices },
 		groups,
 		alpha,
 		textures: [...textures],

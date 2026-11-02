@@ -59,7 +59,15 @@ export function buildTerrainMesh(
 		skirt[skirtStart + k] = skirtDepth;
 	});
 
-	const indices: number[] = [];
+	let cells = n * n;
+	if (holes) for (let i = 0; i < n * n; i++) if (holes[i]) cells--;
+	const index = new Uint32Array((cells + perimeter) * 12);
+	let next = 0;
+	const triangle = (a: number, b: number, c: number) => {
+		index[next++] = a;
+		index[next++] = b;
+		index[next++] = c;
+	};
 	for (let row = 0; row < n; row++) {
 		for (let col = 0; col < n; col++) {
 			if (holes?.[row * n + col]) continue;
@@ -69,7 +77,10 @@ export function buildTerrainMesh(
 			const br = bl + 1;
 			const c = outerCount + row * n + col;
 			// Counter-clockwise seen from above.
-			indices.push(tl, c, tr, tr, c, br, br, c, bl, bl, c, tl);
+			triangle(tl, c, tr);
+			triangle(tr, c, br);
+			triangle(br, c, bl);
+			triangle(bl, c, tl);
 		}
 	}
 	for (let k = 0; k < perimeter; k++) {
@@ -78,10 +89,12 @@ export function buildTerrainMesh(
 		const sa = skirtStart + k;
 		const sb = skirtStart + ((k + 1) % perimeter);
 		// Both windings, so the skirt is visible from either side.
-		indices.push(a, sa, b, b, sa, sb, a, b, sa, b, sb, sa);
+		triangle(a, sa, b);
+		triangle(b, sa, sb);
+		triangle(a, b, sa);
+		triangle(b, sb, sa);
 	}
 
-	const index = new Uint32Array(indices);
 	return { positions, normals: computeNormals(positions, index, outerCount + innerCount), uvs, skirt, indices: index };
 }
 
@@ -98,11 +111,15 @@ function computeNormals(positions: Float32Array, indices: Uint32Array, surfaceCo
 		const nx = aby * acz - abz * acy;
 		const ny = abz * acx - abx * acz;
 		const nz = abx * acy - aby * acx;
-		for (const v of [a, b, c]) {
-			normals[v] += nx;
-			normals[v + 1] += ny;
-			normals[v + 2] += nz;
-		}
+		normals[a] += nx;
+		normals[a + 1] += ny;
+		normals[a + 2] += nz;
+		normals[b] += nx;
+		normals[b + 1] += ny;
+		normals[b + 2] += nz;
+		normals[c] += nx;
+		normals[c + 1] += ny;
+		normals[c + 2] += nz;
 	}
 	for (let i = 0; i < surfaceCount; i++) {
 		const o = i * 3;

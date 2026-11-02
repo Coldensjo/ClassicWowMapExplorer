@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { acceleratedRaycast, MeshBVH } from 'three-mesh-bvh';
-import type { ModelData, ObjectKind, Placement } from '../explorer/objects';
+import type { ModelData, ModelMaterial, ObjectKind, Placement } from '../explorer/objects';
 import type { SpawnInfo } from '../explorer/spawns';
 import type { AsyncStorageApi } from '../worker/protocol';
 import { createModelMaterial, createSkinnedDepthMaterial, type SkinUniforms } from './modelMaterials';
@@ -567,10 +567,7 @@ export class ObjectManager {
 		entry.footstep = data.footstep ?? 0;
 		entry.materials = batches.map((b, i) => {
 			geometry.addGroup(b.start, b.count, i);
-			const material = createModelMaterial(b.material, textures.get(b.material.texture) ?? null, !!data.baked, skin);
-			// Walkable slopes show on buildings, whose drawn triangles are what's walked on (a doodad's collision mesh isn't drawn).
-			if (entry.kind === 'wmo') applyWalkable(material);
-			return material;
+			return this.acquireMaterial(entry.kind === 'wmo', b.material, textures.get(b.material.texture) ?? null, !!data.baked, skin);
 		});
 		geometry.computeBoundingSphere();
 		if (data.bvh) {
@@ -921,6 +918,48 @@ export class ObjectManager {
 		this.boneTextures.delete(key);
 	}
 
+	/**
+	 * Materials that models with the same texture and the same look share, with how many batches use
+	 * each. Many models are drawn with the same texture (a town's houses, a forest's trees): about three
+	 * materials in view were alike for every one that differed. A draw with the material of the draw
+	 * before skips three re-uploading all its uniforms, which is most of what a draw costs on this side.
+	 * Animated materials have uniforms of their own and aren't shared.
+	 */
+	private readonly sharedMaterials = new Map<string, { material: THREE.Material; refs: number }>();
+	private readonly sharedKeys = new WeakMap<THREE.Material, string>();
+
+	private acquireMaterial(building: boolean, m: ModelMaterial, texture: THREE.Texture | null, baked: boolean, skin: SkinUniforms | null): THREE.Material {
+		const create = () => {
+			const material = createModelMaterial(m, texture, baked, skin);
+			// Walkable slopes show on buildings, whose drawn triangles are what's walked on (a doodad's collision mesh isn't drawn).
+			if (building) applyWalkable(material);
+			return material;
+		};
+		if (skin || m.uvScroll || m.collision) return create();
+		// Everything createModelMaterial (and applyWalkable) goes by.
+		const key = `${building ? 1 : 0}:${texture?.id ?? 0}:${baked ? 1 : 0}:${m.blend}:${m.twoSided ? 1 : 0}:${m.unlit ? 1 : 0}:${m.unfogged ? 1 : 0}:${m.opacity}`;
+		let shared = this.sharedMaterials.get(key);
+		if (!shared) {
+			shared = { material: create(), refs: 0 };
+			this.sharedMaterials.set(key, shared);
+			this.sharedKeys.set(shared.material, key);
+		}
+		shared.refs++;
+		return shared.material;
+	}
+
+	private releaseMaterial(material: THREE.Material): void {
+		const key = this.sharedKeys.get(material);
+		const shared = key === undefined ? undefined : this.sharedMaterials.get(key);
+		if (!shared) {
+			material.dispose();
+			return;
+		}
+		if (--shared.refs > 0) return;
+		this.sharedMaterials.delete(key!);
+		material.dispose();
+	}
+
 	private dispose(entry: ModelEntry): void {
 		if (entry.walls?.mesh) {
 			this.group.remove(entry.walls.mesh);
@@ -934,7 +973,7 @@ export class ObjectManager {
 		}
 		entry.geometry?.dispose();
 		entry.collider?.geometry.dispose();
-		for (const m of entry.materials) m.dispose();
+		for (const m of entry.materials) this.releaseMaterial(m);
 		entry.depthMaterial?.dispose();
 		for (const l of entry.liquids) {
 			if (l.mesh) {

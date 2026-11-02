@@ -1,4 +1,4 @@
-import { decodeBlte, EncryptedError, type BlteResult } from './blte';
+import { decodeBlteAsync, EncryptedError, type BlteResult } from './blte';
 import { readBuildInfo, readConfig, type ProductInfo } from './config';
 import { EncodingTable } from './encoding';
 import { hashPath } from './jenkins96';
@@ -111,14 +111,14 @@ class ArchiveReader {
 		const archive = await this.archive(entry.archive);
 		const bytes = await archive.read(entry.offset + ARCHIVE_ENTRY_HEADER, entry.size - ARCHIVE_ENTRY_HEADER);
 		try {
-			return decodeBlte(bytes, allowPartial);
+			return await decodeBlteAsync(bytes, allowPartial);
 		} catch (e) {
 			if (!(e instanceof Error) || !e.message.startsWith('Not a BLTE stream')) throw e;
 			// The entry header holds the key reversed; if it differs, the index points at the wrong place.
 			const header = await archive.read(entry.offset, ARCHIVE_ENTRY_HEADER);
 			// Some installs (seen with Forever Beta) store the stream right at the offset, with no entry header.
 			if (header[0] === 0x42 && header[1] === 0x4c && header[2] === 0x54 && header[3] === 0x45) {
-				return decodeBlte(await archive.read(entry.offset, Math.min(entry.size, archive.size - entry.offset)), allowPartial);
+				return await decodeBlteAsync(await archive.read(entry.offset, Math.min(entry.size, archive.size - entry.offset)), allowPartial);
 			}
 			const headerKey = toHex(header.subarray(0, 16).slice().reverse());
 			const where = `data.${entry.archive.toString().padStart(3, '0')} offset ${entry.offset} size ${entry.size}` +

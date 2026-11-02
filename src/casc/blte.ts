@@ -21,11 +21,8 @@ interface ChunkInfo {
 	decompressedSize: number;
 }
 
-/**
- * Decodes a BLTE stream. Encrypted chunks throw EncryptedError, unless allowPartial is set,
- * in which case they are zero-filled and reported in encryptedKeys.
- */
-export function decodeBlte(input: Uint8Array, allowPartial = false): BlteResult {
+/** The chunks of a BLTE stream, and where the first one starts. */
+function readHeader(input: Uint8Array): { chunks: ChunkInfo[]; offset: number } {
 	const r = new Reader(input);
 	if (input.length < 8 || r.u32be() !== BLTE_MAGIC) {
 		const head = toHex(input.subarray(0, 16));
@@ -47,8 +44,16 @@ export function decodeBlte(input: Uint8Array, allowPartial = false): BlteResult 
 			chunks.push({ compressedSize, decompressedSize });
 		}
 	}
+	return { chunks, offset: headerSize === 0 ? 8 : headerSize };
+}
 
-	let offset = headerSize === 0 ? 8 : headerSize;
+/**
+ * Decodes a BLTE stream. Encrypted chunks throw EncryptedError, unless allowPartial is set,
+ * in which case they are zero-filled and reported in encryptedKeys.
+ */
+export function decodeBlte(input: Uint8Array, allowPartial = false): BlteResult {
+	const { chunks, offset: start } = readHeader(input);
+	let offset = start;
 	const parts: Uint8Array[] = [];
 	const encryptedKeys: string[] = [];
 	for (const chunk of chunks) {
@@ -57,6 +62,58 @@ export function decodeBlte(input: Uint8Array, allowPartial = false): BlteResult 
 		parts.push(decodeChunk(block, chunk.decompressedSize, allowPartial, encryptedKeys));
 	}
 	return { data: concatBytes(parts), encryptedKeys };
+}
+
+/**
+ * decodeBlte, with zlib chunks inflated by the browser's own DecompressionStream where there is
+ * one: native zlib is over twice as fast as fflate's, and it is most of the time spent reading
+ * files. A chunk it can't inflate, or inflates to other than the size the header gives, goes to
+ * fflate as before, so the result (and any error) is the same as decodeBlte's.
+ */
+export async function decodeBlteAsync(input: Uint8Array, allowPartial = false): Promise<BlteResult> {
+	if (!NATIVE_INFLATE) return decodeBlte(input, allowPartial);
+	const { chunks, offset: start } = readHeader(input);
+	let offset = start;
+	const parts: Uint8Array[] = [];
+	const encryptedKeys: string[] = [];
+	for (const chunk of chunks) {
+		const block = input.subarray(offset, offset + chunk.compressedSize);
+		offset += chunk.compressedSize;
+		let part: Uint8Array | null = null;
+		if (block[0] === 0x5a && chunk.decompressedSize > 0) part = await inflateNative(block.subarray(1), chunk.decompressedSize);
+		else if (block[0] === 0x46) part = (await decodeBlteAsync(block.subarray(1), allowPartial)).data;
+		parts.push(part ?? decodeChunk(block, chunk.decompressedSize, allowPartial, encryptedKeys));
+	}
+	return { data: concatBytes(parts), encryptedKeys };
+}
+
+const NATIVE_INFLATE = typeof DecompressionStream === 'function';
+
+/** A zlib stream inflated with DecompressionStream, or null if that fails or gives other than size bytes. */
+async function inflateNative(data: Uint8Array, size: number): Promise<Uint8Array | null> {
+	try {
+		const stream = new DecompressionStream('deflate');
+		const writer = stream.writable.getWriter();
+		// Rejections show up on the reader too; these are only kept from going unhandled.
+		writer.write(data as Uint8Array<ArrayBuffer>).catch(() => {});
+		writer.close().catch(() => {});
+		const reader = stream.readable.getReader();
+		const out = new Uint8Array(size);
+		let length = 0;
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			if (length + value.length > size) {
+				reader.cancel().catch(() => {});
+				return null;
+			}
+			out.set(value, length);
+			length += value.length;
+		}
+		return length === size ? out : null;
+	} catch {
+		return null;
+	}
 }
 
 function decodeChunk(block: Uint8Array, decompressedSize: number, allowPartial: boolean, encryptedKeys: string[]): Uint8Array {

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { zlibSync } from 'fflate';
-import { EncryptedError, decodeBlte } from '../src/casc/blte';
+import { EncryptedError, decodeBlte, decodeBlteAsync } from '../src/casc/blte';
 
 const u32be = (n: number) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
 const MAGIC = [0x42, 0x4c, 0x54, 0x45];
@@ -72,4 +72,43 @@ test('rejects bad magic, truncated input and unknown modes', () => {
 	expect(() => decodeBlte(new Uint8Array(3))).toThrow(/Not a BLTE stream/);
 	const bad = Uint8Array.from([...MAGIC, 0, 0, 0, 0, 0x58, 1]);
 	expect(() => decodeBlte(bad)).toThrow(/Unknown BLTE chunk mode 0x58/);
+});
+
+/** Bytes that compress well and badly, so the stream has stored and Huffman blocks. */
+function sample(n: number): number[] {
+	let seed = 12345;
+	return Array.from({ length: n }, (_, i) => (i % 3 === 0 ? (seed = (seed * 1103515245 + 12345) >>> 0) >>> 24 : i & 0x3f));
+}
+
+test('the async decoder gives what the sync one does, chunk for chunk', async () => {
+	const cases = [
+		Uint8Array.from([...MAGIC, 0, 0, 0, 0, ...zlib(sample(5000))]),
+		blte([
+			{ block: raw([1, 2]), size: 2 },
+			{ block: zlib(sample(70000)), size: 70000 },
+			{ block: zlib([3, 3, 3, 3]), size: 4 },
+			{ block: Uint8Array.from([0x46, ...MAGIC, 0, 0, 0, 0, ...raw([7, 8])]), size: 2 },
+		]),
+	];
+	for (const input of cases) expect(await decodeBlteAsync(input)).toEqual(decodeBlte(input));
+	const partial = blte([{ block: zlib(sample(100)), size: 100 }, { block: encrypted, size: 3 }]);
+	expect(await decodeBlteAsync(partial, true)).toEqual(decodeBlte(partial, true));
+	await expect(decodeBlteAsync(blte([{ block: zlib([1]), size: 1 }, { block: encrypted, size: 3 }]))).rejects.toBeInstanceOf(EncryptedError);
+});
+
+test('the async decoder falls back to the sync one for a chunk native zlib rejects or sizes otherwise', async () => {
+	// A size the header gets wrong: fflate fills what it is given.
+	const short = blte([{ block: zlib(sample(64)), size: 40 }]);
+	expect(await decodeBlteAsync(short)).toEqual(decodeBlte(short));
+	const long = blte([{ block: zlib(sample(64)), size: 100 }]);
+	expect(await decodeBlteAsync(long)).toEqual(decodeBlte(long));
+	// A damaged checksum native zlib refuses; fflate doesn't check it.
+	const z = zlib(sample(300));
+	z[z.length - 1] ^= 0xff;
+	const damaged = blte([{ block: z, size: 300 }]);
+	expect(await decodeBlteAsync(damaged)).toEqual(decodeBlte(damaged));
+	// Trailing bytes after the stream.
+	const trailing = blte([{ block: Uint8Array.from([...zlib(sample(50)), 1, 2, 3]), size: 50 }]);
+	expect(await decodeBlteAsync(trailing)).toEqual(decodeBlte(trailing));
+	await expect(decodeBlteAsync(Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]))).rejects.toThrow(/Not a BLTE stream/);
 });

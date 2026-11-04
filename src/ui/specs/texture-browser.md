@@ -74,3 +74,10 @@ is built from the row tile ([asset-tile.md](asset-tile.md) §9): in the list the
 stops are the row picture's size (48, 80, 120px) instead of the grid's columns, and the choice
 is kept per window in `localStorage` (`wdb.<window>.view`) beside the tile size. The shared
 toggle, stops and storage live in `src/editor/browserView.ts`.
+
+## 6. The Texture swap window (2026-11-04)
+
+In the Paint tool's **Swap texture** mode this same window becomes the Texture swap window:
+two slots above the sampler, the sampler and browser shown only for an active slot, and the
+window hugging its content when no browser is needed. The behaviour, states and heights are in
+[texture-swap.md](texture-swap.md) §4.2 to §4.4.

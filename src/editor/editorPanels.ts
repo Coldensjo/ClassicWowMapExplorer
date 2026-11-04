@@ -157,10 +157,22 @@ export class EditorPanels {
 		private readonly controls: SceneControls,
 	) {
 		// The texture browser window first: setTool() below shows it when the Paint tool is active.
-		this.textures = new TextureBrowser(storage, editor.paint.fdid, (fdid) => {
-			editor.paint.fdid = fdid;
-			this.syncActive();
-		}, (text) => editor.onNotice(text), (on) => this.setSampling(on));
+		this.textures = new TextureBrowser(
+			storage,
+			editor.paint.fdid,
+			editor.paint,
+			(fdid) => {
+				editor.paint.fdid = fdid;
+				this.syncActive();
+			},
+			(slot, fdid) => {
+				if (slot === 'existing') editor.paint.swapFrom = fdid;
+				else editor.paint.swapTo = fdid;
+				this.syncActive();
+			},
+			(text) => editor.onNotice(text),
+			(on) => this.setSampling(on),
+		);
 		this.dock = new SideControls({
 			mode: modeOf(editor.tool),
 			onMode: (mode) => this.setTool(TOOL_OF[mode]),
@@ -530,6 +542,7 @@ export class EditorPanels {
 				{ value: 'erase', label: 'Eraser' },
 				{ value: 'fill', label: 'Fill chunk' },
 				{ value: 'base', label: 'Set chunk base', info: { label: 'About setting the chunk base', onClick: () => {} } },
+				{ value: 'swap', label: 'Swap texture', info: { label: 'About swapping textures', onClick: () => {} } },
 			],
 			value: paint.mode,
 			onChange: (value) => {
@@ -537,7 +550,10 @@ export class EditorPanels {
 				this.syncActive();
 			},
 		});
-		this.infoTips(tool, { base: "Set a chunk's base texture that you paint on top of. The eraser won't affect a chunk's base texture." });
+		this.infoTips(tool, {
+			base: "Set a chunk's base texture that you paint on top of. The eraser won't affect a chunk's base texture.",
+			swap: 'Replace one texture with another across a whole chunk, keeping its blend.',
+		});
 		const keys = this.keys({ heading: 'Hotkeys', rows: PAINT_KEYS[paint.mode] });
 		const nested = el('div', { class: 'dock-nested' }, keys.root);
 		const toolModule = dockModule({ title: 'Tool', children: [tool.root] });
@@ -576,17 +592,27 @@ export class EditorPanels {
 			setRadioValue(tool.root, paint.mode);
 			this.nestUnder(tool, paint.mode, nested);
 			this.setKeys(keys.root, PAINT_KEYS[paint.mode]);
+			// Swap texture is always complete, so the brush's settings do not apply (texture-swap.md §2.1 #8).
+			const swap = paint.mode === 'swap';
+			for (const module of [size.module, strength.module, opacity.module, policyModule]) module.root.hidden = swap;
+			this.textures.setSwapMode(swap);
 			size.sync();
 			strength.sync();
 			opacity.sync();
 			setRadioValue(policy.root, paint.policy);
 		};
 		const description = () =>
-			this.sampling
-				? 'Click a chunk to list the textures it uses in the Texture browser; click one there to paint with it. Esc cancels.'
-				: paint.fdid === 0 && paint.mode !== 'erase'
-					? 'Pick a texture in the Texture browser to paint with.'
-					: 'Paint up to four textures per chunk.';
+			paint.mode === 'swap'
+				? this.sampling
+					? 'Click a chunk to list the textures it uses; click one to fill the slot. Esc cancels.'
+					: !paint.swapFrom || !paint.swapTo
+						? 'Choose the existing and replacement textures in the Texture swap window.'
+						: 'Shift + click a chunk to swap its texture, keeping the blend.'
+				: this.sampling
+					? 'Click a chunk to list the textures it uses in the Texture browser; click one there to paint with it. Esc cancels.'
+					: paint.fdid === 0 && paint.mode !== 'erase'
+						? 'Pick a texture in the Texture browser to paint with.'
+						: 'Paint up to four textures per chunk.';
 		return { title: 'Paint terrain', description, modules: [toolModule.root, size.module.root, strength.module.root, opacity.module.root, policyModule.root], sync };
 	}
 
@@ -1198,6 +1224,8 @@ export class EditorPanels {
 				this.setSampling(false);
 				return;
 			}
+			// In Swap texture, Esc puts the active slot's pickers away (texture-swap.md §2.1 #13).
+			if (e.code === 'Escape' && this.editor.tool === 'paint' && this.editor.paint.mode === 'swap' && this.textures.deactivateSlot()) return;
 			if (e.code === 'Digit8' && this.copied) {
 				this.setTool('revert');
 				return;

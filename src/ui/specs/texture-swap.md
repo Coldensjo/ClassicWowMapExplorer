@@ -255,6 +255,11 @@ toolbar and the footer are estimated from the CSS to leave the grid little or no
 measured). Measure it in the browser pane and adjust the number so the grid shows at least two rows
 of tiles at the default tile size. On a short viewport the body should scroll rather than clip.
 
+**Measured 2026-11-04 (built as 790px):** at 680px, with one sampled texture showing, the grid had
+97px, one row of the 92px tiles the 360px window gives at the default tile size; two rows with
+their gap need 201px, so the minimum is 790px (`SWAP_MIN_HEIGHT` in `textureBrowser.ts`). On a
+900px viewport that reaches the top bar; collapsing the sampler gives the grid the room instead.
+
 ### 4.5 CSS
 
 Add the slots section beside `.texture-browser-sample` in `viewer.css`, tokens only, following the

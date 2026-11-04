@@ -4,7 +4,8 @@
  *
  * assetTile() makes a <button> with a square picture and a one-line label; the caller draws the
  * picture (a canvas it paints a thumbnail into, or an img) and owns which tile is selected,
- * moving the mark with setAssetTileSelected(). A tile may carry a badge (a pill on the
+ * moving the mark with setAssetTileSelected() (and whether it can be picked with
+ * setAssetTileDisabled()). A tile may carry a badge (a pill on the
  * picture's bottom edge, "12 variants") and an action (a control on the picture's top-right
  * corner, a "…" menu button); since a button cannot hold a button, a tile with an action is
  * wrapped in a frame, and `frame` is what goes in the grid. assetGrid() makes the grid the
@@ -98,6 +99,11 @@ export function setAssetTileLayout(root: HTMLElement, layout: AssetTileLayout, p
 /** Marks a tile selected or not without firing its onActivate. */
 export function setAssetTileSelected(root: HTMLElement, selected: boolean): void {
 	root.setAttribute('aria-pressed', selected ? 'true' : 'false');
+}
+
+/** Dims a built tile and stops it being picked, or lets it be picked again. */
+export function setAssetTileDisabled(root: HTMLElement, disabled: boolean): void {
+	root.toggleAttribute('disabled', disabled);
 }
 
 /** Makes an asset grid: `<div class="ds-asset-grid">` with `columns` equal columns (default 3). */

@@ -12,8 +12,8 @@ same 416px grid at 3, 4 and 5 columns, which is what the browser's tile-size sli
 Gear Asset Tile (`38:20667`) and the NPC tiles are the same idea with more parts and are not
 covered here.
 
-Build `molecules/asset-tile.{css,ts}`: `assetTile()`, `setAssetTileSelected()`, `assetGrid()`,
-`setAssetGridColumns()`.
+Build `molecules/asset-tile.{css,ts}`: `assetTile()`, `setAssetTileSelected()`,
+`setAssetTileDisabled()`, `assetGrid()`, `setAssetGridColumns()`.
 
 Conventions match the other specs in this folder: Figma variable → code token in
 [tokens/color.css](../tokens/color.css) → value; **⚠ Figma issue**; **Proposed**.
@@ -107,3 +107,10 @@ built tile, `setAssetGridLayout(grid, 'row')` makes the grid a one-column list w
 gaps. In a row the washes, the selection border and the focus ring move from the picture to the
 tile's own `::before`/`::after`; the action is absolutely positioned at the row's end and the
 caption stops 48px short of it.
+
+## 10. Enabling a built tile (2026-11-04)
+
+`setAssetTileDisabled(root, disabled)` dims a built tile and stops it being picked, or lets it
+be picked again, the way `setAssetTileSelected()` moves the mark. The Texture swap window
+([texture-swap.md](texture-swap.md) §4.3) uses it to let a sampled texture that is missing from
+the local install fill the Existing slot, since replacing such a texture is a likely use.

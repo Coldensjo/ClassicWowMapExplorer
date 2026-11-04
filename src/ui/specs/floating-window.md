@@ -81,3 +81,18 @@ keys moved to `wdb.window.<name>.2` so a place remembered from the old default i
 
 **Update 2026-10-31:** the status bar is gone ([scene-control-panel.md](scene-control-panel.md)),
 so the windows open 16px above the viewport's bottom edge; the stored places are untouched.
+
+## 5. Title and height fit (2026-11-04, for [texture-swap.md](texture-swap.md) §4.4)
+
+The handle gained two display-only calls, so one window can serve as the Texture browser and
+the Texture swap window without a second frame:
+
+- `setTitle(title)` changes the heading and every label built from it (the header's "Move …",
+  the grip's "Resize …", the toggle's "Collapse …" / "Expand …").
+- `setHeightFit(fit)` overrides how tall the window shows without changing its stored height:
+  `'hug'` follows the content and hides the grip (`data-hug`; on a short viewport the body
+  scrolls rather than clips); `{ minHeight }` shows `max(stored, minHeight)`, limited to the
+  viewport, and a grip drag or arrow-key resize starts from the displayed height and commits as
+  usual; `null` is today's behaviour. Under a fit the **bottom edge of the stored rect stays
+  put**: the window grows and shrinks upward and its top never leaves the viewport, which suits
+  the bottom-left default. The window re-anchors itself whenever its content height changes.

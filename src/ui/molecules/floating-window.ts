@@ -5,7 +5,10 @@
  * it), resized (drag the bottom-right grip, or arrow keys on it) and collapsed to its header
  * (the button in the title row). It is kept inside the viewport, and with a storageKey its
  * place, size and collapsed state come back next session. The caller fills `body` and shows or
- * hides the whole window with show(); the molecule owns only the frame.
+ * hides the whole window with show(); the molecule owns only the frame. The caller can retitle
+ * it (setTitle) and override how tall it shows (setHeightFit: hug the content, or at least a
+ * minimum) without touching the stored size; a fit keeps the bottom edge put, so the window
+ * grows and shrinks upward.
  */
 import { icon } from '../icons';
 import { el, uid } from '../dom';
@@ -39,12 +42,22 @@ export interface FloatingWindowOptions {
 	onCollapsedChange?: (collapsed: boolean) => void;
 }
 
+/**
+ * A display-only override of the window's height: `hug` follows the content (and hides the
+ * grip); `{ minHeight }` shows at least that, within the viewport; null is the stored height.
+ */
+export type HeightFit = 'hug' | { minHeight: number } | null;
+
 export interface FloatingWindowHandle {
 	root: HTMLElement;
 	/** Where the caller's content goes. */
 	body: HTMLDivElement;
 	readonly collapsed: boolean;
 	setCollapsed(collapsed: boolean): void;
+	/** Changes the heading and the labels built from it. */
+	setTitle(title: string): void;
+	/** Overrides how tall the window shows, keeping its bottom edge and its stored height. */
+	setHeightFit(fit: HeightFit): void;
 	/** Shows or hides the window (the `hidden` attribute). */
 	show(on: boolean): void;
 	/** Removes the window and its window-level listeners. */
@@ -91,6 +104,8 @@ function save(key: string | undefined, state: State): void {
 export function floatingWindow(options: FloatingWindowOptions): FloatingWindowHandle {
 	const minWidth = options.minWidth ?? 280;
 	const minHeight = options.minHeight ?? 160;
+	let currentTitle = options.title;
+	let fit: HeightFit = null;
 	const titleId = uid('window-title');
 	const rect = options.defaultRect;
 	const state: State = load(options.storageKey) ?? {
@@ -139,12 +154,35 @@ export function floatingWindow(options: FloatingWindowOptions): FloatingWindowHa
 		state.y = Math.min(Math.max(0, state.y), Math.max(0, window.innerHeight - headerHeight));
 	};
 
+	/** The height the window shows at under a minimum-height fit. */
+	const fitHeight = () => (fit && fit !== 'hug' ? Math.min(Math.max(state.height, fit.minHeight), window.innerHeight) : state.height);
+
 	const apply = () => {
 		root.style.setProperty('--window-x', `${Math.round(state.x)}px`);
-		root.style.setProperty('--window-y', `${Math.round(state.y)}px`);
 		root.style.setProperty('--window-width', `${Math.round(state.width)}px`);
-		root.style.setProperty('--window-height', `${Math.round(state.height)}px`);
+		root.style.setProperty('--window-height', `${Math.round(fitHeight())}px`);
 		root.toggleAttribute('data-collapsed', state.collapsed);
+		root.toggleAttribute('data-hug', fit === 'hug');
+		// A fit anchors the bottom edge of the stored rect, so the window grows and shrinks upward
+		// and its top stays in the viewport; the height it shows at is measured when it is automatic.
+		let y = state.y;
+		if (fit) {
+			const shown = fit === 'hug' || state.collapsed ? root.offsetHeight : fitHeight();
+			y = Math.max(0, state.y + state.height - shown);
+		}
+		root.style.setProperty('--window-y', `${Math.round(y)}px`);
+	};
+	// Hugging the content, the height changes with it: re-anchor the bottom edge when it does.
+	const observer = new ResizeObserver(() => {
+		if (fit && (fit === 'hug' || state.collapsed)) apply();
+	});
+
+	/** Before a resize under a minimum-height fit, the drag starts from the height shown. */
+	const startResize = () => {
+		if (!fit || fit === 'hug') return;
+		const shown = fitHeight();
+		state.y = state.y + state.height - shown;
+		state.height = shown;
 	};
 
 	const commit = () => {
@@ -157,7 +195,7 @@ export function floatingWindow(options: FloatingWindowOptions): FloatingWindowHa
 		if (collapsed === state.collapsed) return;
 		state.collapsed = collapsed;
 		toggle.replaceChildren(icon(collapsed ? 'plus' : 'minus', { size: 'sm' }));
-		toggle.setAttribute('aria-label', collapsed ? `Expand ${options.title}` : `Collapse ${options.title}`);
+		toggle.setAttribute('aria-label', collapsed ? `Expand ${currentTitle}` : `Collapse ${currentTitle}`);
 		toggle.title = toggle.getAttribute('aria-label') ?? '';
 		toggle.setAttribute('aria-expanded', String(!collapsed));
 		commit();
@@ -166,7 +204,7 @@ export function floatingWindow(options: FloatingWindowOptions): FloatingWindowHa
 
 	// Pointer drags: the header moves, the grip resizes. Both capture the pointer so a fast drag
 	// that leaves the element keeps working.
-	const drag = (surface: HTMLElement, onMove: (dx: number, dy: number) => void) => {
+	const drag = (surface: HTMLElement, onMove: (dx: number, dy: number) => void, onStart?: () => void) => {
 		let startX = 0;
 		let startY = 0;
 		let from: State | null = null;
@@ -177,6 +215,7 @@ export function floatingWindow(options: FloatingWindowOptions): FloatingWindowHa
 			surface.setPointerCapture(event.pointerId);
 			startX = event.clientX;
 			startY = event.clientY;
+			onStart?.();
 			from = { ...state };
 			root.toggleAttribute('data-dragging', true);
 		});
@@ -204,7 +243,7 @@ export function floatingWindow(options: FloatingWindowOptions): FloatingWindowHa
 	drag(grip, (dx, dy) => {
 		state.width += dx;
 		state.height += dy;
-	});
+	}, startResize);
 
 	// Arrow keys on the header move it, on the grip resize it; Enter on the header toggles.
 	const arrows = (event: KeyboardEvent): [number, number] | null => {
@@ -238,6 +277,7 @@ export function floatingWindow(options: FloatingWindowOptions): FloatingWindowHa
 		const delta = arrows(event);
 		if (!delta) return;
 		event.preventDefault();
+		startResize();
 		state.width += delta[0];
 		state.height += delta[1];
 		commit();
@@ -250,6 +290,7 @@ export function floatingWindow(options: FloatingWindowOptions): FloatingWindowHa
 	window.addEventListener('resize', onResize);
 
 	document.body.append(root);
+	observer.observe(root);
 	toggle.replaceChildren(icon(state.collapsed ? 'plus' : 'minus', { size: 'sm' }));
 	commit();
 
@@ -260,11 +301,25 @@ export function floatingWindow(options: FloatingWindowOptions): FloatingWindowHa
 			return state.collapsed;
 		},
 		setCollapsed,
+		setTitle(next) {
+			currentTitle = next;
+			title.textContent = next;
+			header.setAttribute('aria-label', `Move ${next}`);
+			grip.setAttribute('aria-label', `Resize ${next}`);
+			toggle.setAttribute('aria-label', state.collapsed ? `Expand ${next}` : `Collapse ${next}`);
+			toggle.title = toggle.getAttribute('aria-label') ?? '';
+		},
+		setHeightFit(next) {
+			fit = next;
+			clamp();
+			apply();
+		},
 		show(on) {
 			root.hidden = !on;
 			if (on) onResize();
 		},
 		dispose() {
+			observer.disconnect();
 			window.removeEventListener('resize', onResize);
 			root.remove();
 		},

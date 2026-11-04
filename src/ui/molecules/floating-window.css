@@ -52,6 +52,20 @@
 	display: none;
 }
 
+/* Hugging its content (setHeightFit('hug')): as tall as what is in it, up to the viewport,
+   with the body scrolling rather than clipping on a short one, and no grip to drag. */
+.ds-floating-window[data-hug] {
+	block-size: auto;
+}
+
+.ds-floating-window[data-hug] .ds-floating-window-body {
+	overflow-y: auto;
+}
+
+.ds-floating-window[data-hug] .ds-floating-window-grip {
+	display: none;
+}
+
 /* The header is the drag surface: 8px above the dots, the 24px title row, 16px below. */
 .ds-floating-window-header {
 	flex: none;

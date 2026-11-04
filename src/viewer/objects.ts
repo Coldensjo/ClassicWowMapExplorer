@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { acceleratedRaycast, MeshBVH } from 'three-mesh-bvh';
-import type { ModelData, ModelMaterial, ObjectKind, Placement } from '../explorer/objects';
+import type { ModelData, ModelMaterial, ObjectKind, Placement, WmoAreas } from '../explorer/objects';
+import { WMO_GROUP_EXTERIOR, WMO_GROUP_NOT_A_ROOM } from '../formats/wmo';
 import type { SpawnInfo } from '../explorer/spawns';
 import type { AsyncStorageApi } from '../worker/protocol';
 import { createModelMaterial, createSkinnedDepthMaterial, type SkinUniforms } from './modelMaterials';
@@ -161,6 +162,12 @@ export interface ObjectStats {
 	drawn: number;
 	loading: number;
 }
+
+/** How far down, in yards, the room below a point is looked for: the length of the ray the client casts under the viewer (CWorldScene::LocateViewer3). */
+const ROOM_PROBE = 1760;
+/** How long (ms) an answer about a point is kept, since several things ask about the same point in a frame. Not from the client. */
+const ROOM_CACHE_MS = 250;
+const ROOM_DOWN = new THREE.Vector3(0, -1, 0);
 
 /**
  * Doodads (M2) and buildings (WMO) around the camera. Placements come per tile; each
@@ -343,8 +350,6 @@ export class ObjectManager {
 		const matrix = entry.instances.get(key);
 		const slot = entry.slots.get(key);
 		if (!matrix) return;
-		// The inverse kept for finding rooms no longer fits.
-		this.inverses.delete(matrix);
 		if (!entry.mesh || slot === undefined) return;
 		entry.mesh.setMatrixAt(slot, matrix);
 		for (const l of entry.liquids) l.mesh?.setMatrixAt(slot, matrix);
@@ -1192,43 +1197,67 @@ export class ObjectManager {
 		return false;
 	}
 
-	private readonly inverses = new WeakMap<THREE.Matrix4, THREE.Matrix4>();
+	private readonly roomRay = new THREE.Raycaster();
+	private readonly roomCache = new Map<string, { room: { wmoId: number; nameSet: number; groupId: number } | null; at: number }>();
 
 	/**
-	 * The indoor room (WMO interior group) around a point, for its WMOAreaTable name and music.
-	 * Rooms are matched by bounding box; where several hold the point, the smallest wins.
+	 * The room (WMO group) a point is in, found as the game finds the viewer's: the first group,
+	 * leaving out those the game skips (WMO_GROUP_NOT_A_ROOM), that has a triangle straight below the
+	 * point and above the ground; and if that group is an exterior one the point is outside. Portals,
+	 * which the game also tries, are not looked at. Answers are kept for a moment, since several
+	 * things ask about the same point in a frame.
 	 */
 	roomAt(at: THREE.Vector3): { wmoId: number; nameSet: number; groupId: number } | null {
-		let best: { wmoId: number; nameSet: number; groupId: number } | null = null;
-		let bestVolume = Infinity;
-		const local = new THREE.Vector3();
+		const now = performance.now();
+		const key = `${Math.round(at.x * 4)},${Math.round(at.y * 4)},${Math.round(at.z * 4)}`;
+		const cached = this.roomCache.get(key);
+		if (cached && now - cached.at < ROOM_CACHE_MS) return cached.room;
+		if (this.roomCache.size > 64) this.roomCache.clear();
+		const room = this.findRoom(at);
+		this.roomCache.set(key, { room, at: now });
+		return room;
+	}
+
+	private findRoom(at: THREE.Vector3): { wmoId: number; nameSet: number; groupId: number } | null {
+		// The ground only limits the search if it is below the point; a point under the ground (a room dug into a hill or the lake bed) has the ray down meet no terrain.
+		const surface = this.groundAt(at.x, at.z);
+		const ground = surface < at.y ? surface : -Infinity;
+		this.roomRay.set(at, ROOM_DOWN);
+		this.roomRay.far = ROOM_PROBE;
+		this.roomRay.firstHitOnly = false;
+		let best: { distance: number; wmoId: number; nameSet: number; group: WmoAreas['groups'][number] } | null = null;
+		const centre = new THREE.Vector3();
 		for (const entry of this.models.values()) {
 			const areas = entry.data?.areas;
 			const sphere = entry.geometry?.boundingSphere;
-			if (entry.kind !== 'wmo' || !areas || !sphere) continue;
-			for (const key of entry.visible) {
-				const m = entry.instances.get(key)!;
+			if (entry.kind !== 'wmo' || !areas || !sphere || !entry.mesh?.visible || !(entry.geometry?.boundsTree || entry.pendingBvh)) continue;
+			// Only if the straight line down passes some copy's bounds.
+			let near = false;
+			for (const key of entry.drawnKeys) {
+				const m = entry.instances.get(key);
+				if (!m) continue;
 				const e = m.elements;
-				const scale = Math.hypot(e[0], e[1], e[2]);
-				local.copy(sphere.center).applyMatrix4(m);
-				if (local.distanceToSquared(at) > (sphere.radius * scale) ** 2) continue;
-				let inverse = this.inverses.get(m);
-				if (!inverse) {
-					inverse = m.clone().invert();
-					this.inverses.set(m, inverse);
-				}
-				local.copy(at).applyMatrix4(inverse);
-				for (const g of areas.groups) {
-					if (!g.interior) continue;
-					if (local.x < g.min[0] || local.y < g.min[1] || local.z < g.min[2] || local.x > g.max[0] || local.y > g.max[1] || local.z > g.max[2]) continue;
-					const volume = (g.max[0] - g.min[0]) * (g.max[1] - g.min[1]) * (g.max[2] - g.min[2]);
-					if (volume >= bestVolume) continue;
-					bestVolume = volume;
-					best = { wmoId: areas.wmoId, nameSet: this.objects.get(key)?.placement.nameSet ?? 0, groupId: g.id };
+				const radius = sphere.radius * Math.hypot(e[0], e[1], e[2]);
+				centre.copy(sphere.center).applyMatrix4(m);
+				if (Math.hypot(centre.x - at.x, centre.z - at.z) <= radius && centre.y - radius <= at.y) {
+					near = true;
+					break;
 				}
 			}
+			if (!near) continue;
+			for (const hit of this.roomRay.intersectObject(entry.mesh, false)) {
+				if (best && hit.distance >= best.distance) break;
+				// Below the ground is no room's.
+				if (hit.point.y < ground) continue;
+				const group = hit.faceIndex == null ? undefined : areas.groups[areas.triangleGroups[hit.faceIndex]];
+				if (!group || group.flags & WMO_GROUP_NOT_A_ROOM) continue;
+				const key = hit.instanceId === undefined ? undefined : entry.drawnKeys[hit.instanceId];
+				best = { distance: hit.distance, wmoId: areas.wmoId, nameSet: (key && this.objects.get(key)?.placement.nameSet) || 0, group };
+				break;
+			}
 		}
-		return best;
+		if (!best || best.group.flags & WMO_GROUP_EXTERIOR) return null;
+		return { wmoId: best.wmoId, nameSet: best.nameSet, groupId: best.group.id };
 	}
 
 	private static readonly AXES = [

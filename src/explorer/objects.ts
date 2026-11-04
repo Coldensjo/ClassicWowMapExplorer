@@ -121,7 +121,9 @@ export function buildBvh(positions: Float32Array, indices: Uint32Array): Seriali
 
 export interface WmoAreas {
 	wmoId: number;
-	groups: { id: number; interior: boolean; min: [number, number, number]; max: [number, number, number] }[];
+	groups: { id: number; interior: boolean; /** MOGP flags. */ flags: number; min: [number, number, number]; max: [number, number, number] }[];
+	/** For each triangle of the model's indices (its collision triangles last), the place of its group in groups. */
+	triangleGroups: Uint16Array;
 }
 
 export interface ModelAnimation {
@@ -564,16 +566,21 @@ export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type:
 		collisionSize += g.collisionOnly.length * 3;
 	}
 	const byMaterial = new Map<number, Uint32Array>();
+	const groupsByMaterial = new Map<number, Uint16Array>();
 	const filled = new Map<number, number>();
 	for (const [material, size] of materialSizes) {
 		byMaterial.set(material, new Uint32Array(size));
+		groupsByMaterial.set(material, new Uint16Array(size / 3));
 		filled.set(material, 0);
 	}
 	const collision = new Uint32Array(collisionSize);
+	const collisionGroups = new Uint16Array(collisionSize / 3);
 	let collisionFilled = 0;
 	let base = 0;
+	let groupPlace = -1;
 	for (const g of groups) {
 		if (!g) continue;
+		groupPlace++;
 		const count = g.positions.length / 3;
 		positions.set(g.positions, base * 3);
 		if (g.normals.length === count * 3) normals.set(g.normals, base * 3);
@@ -592,10 +599,12 @@ export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type:
 		for (const batch of g.batches) {
 			const list = byMaterial.get(batch.material)!;
 			let at = filled.get(batch.material)!;
+			groupsByMaterial.get(batch.material)!.fill(groupPlace, at / 3, (at + batch.indexCount) / 3);
 			for (let i = batch.indexStart; i < batch.indexStart + batch.indexCount; i++) list[at++] = g.indices[i] + base;
 			filled.set(batch.material, at);
 		}
 		for (const t of g.collisionOnly) {
+			collisionGroups[collisionFilled / 3] = groupPlace;
 			for (let k = 0; k < 3; k++) collision[collisionFilled++] = g.indices[t * 3 + k] + base;
 		}
 		base += count;
@@ -615,12 +624,14 @@ export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type:
 	let indexTotal = collision.length;
 	for (const [, list] of layout) indexTotal += list.length;
 	const indexArray = new Uint32Array(indexTotal);
+	const triangleGroups = new Uint16Array(indexTotal / 3);
 	let indexCount = 0;
 	const batches: ModelBatch[] = [];
 	for (const [materialIndex, list] of layout) {
 		const m = root.materials[materialIndex];
 		const start = indexCount;
 		indexArray.set(list, start);
+		triangleGroups.set(groupsByMaterial.get(materialIndex)!, start / 3);
 		indexCount += list.length;
 		batches.push({
 			start,
@@ -646,6 +657,7 @@ export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type:
 		const ground = [...byGround].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 0;
 		batches.push({ start: indexCount, count: collision.length, order: 0, material: { texture: 0, blend: 0, twoSided: false, unlit: true, unfogged: false, opacity: 1, collision: true, ground } });
 		indexArray.set(collision, indexCount);
+		triangleGroups.set(collisionGroups, indexCount / 3);
 	}
 	const doodadSets = root.doodadSets.map((set) => ({
 
@@ -660,7 +672,8 @@ export async function loadWmo(storage: CascStorage, fdid: number, kindOf: (type:
 		liquids: buildWmoLiquids(groups, (root.flags & WMO_LIQUID_TYPE_IDS) !== 0, kindOf),
 		areas: {
 			wmoId: root.wmoId,
-			groups: groups.flatMap((g) => (g ? [{ id: g.groupId, interior: !!(g.flags & WMO_GROUP_INTERIOR), min: g.min, max: g.max }] : [])),
+			groups: groups.flatMap((g) => (g ? [{ id: g.groupId, interior: !!(g.flags & WMO_GROUP_INTERIOR), flags: g.flags, min: g.min, max: g.max }] : [])),
+			triangleGroups,
 		},
 	};
 }

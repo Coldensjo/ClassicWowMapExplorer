@@ -1,4 +1,5 @@
 import type { CascStorage } from '../casc/storage';
+import type { Db2 } from '../formats/db2';
 import { DB2_FILES, loadTable } from './clientDb';
 
 /** Order of the colours in a LightKey (LightData fields 3-15). */
@@ -27,7 +28,14 @@ export interface LightKey {
 	fogDensity: number;
 }
 
-/** A Light.db2 zone: global when outer is 0, otherwise a sphere in world coordinates. */
+/** A region of a map as a polygon of points (x north, y west, yards), with its box. */
+export interface Polygon {
+	points: [number, number][];
+	min: [number, number];
+	max: [number, number];
+}
+
+/** A Light.db2 zone: global when outer is 0, otherwise a sphere in world coordinates, or, with a polygon, a region of the map. */
 export interface LightZone {
 	mapId: number;
 	x: number;
@@ -37,6 +45,19 @@ export interface LightZone {
 	outer: number;
 	/** LightParams ID for clear weather (the first of the zone's parameter sets). */
 	params: number;
+	/** Where a zone light (ZoneLight) applies: all of it, at any height, to the light of its Light. Then x, y, z and the radii mean nothing. */
+	polygon?: Polygon;
+}
+
+/** Whether a point is inside a polygon. */
+export function insidePolygon(polygon: Polygon, x: number, y: number): boolean {
+	if (x < polygon.min[0] || x > polygon.max[0] || y < polygon.min[1] || y > polygon.max[1]) return false;
+	const p = polygon.points;
+	let inside = false;
+	for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+		if (p[i][1] > y !== p[j][1] > y && x < ((p[j][0] - p[i][0]) * (y - p[i][1])) / (p[j][1] - p[i][1]) + p[i][0]) inside = !inside;
+	}
+	return inside;
 }
 
 export interface LightingData {
@@ -57,6 +78,42 @@ const asFloat = (raw: number) => {
 	return f32.getFloat32(0);
 };
 
+type Rows = Pick<Db2, 'ids' | 'getInt' | 'getFloat' | 'getString' | 'getParent'>;
+
+// Fields of ZoneLight and ZoneLightPoint as Forever numbers them (the zone of a point is its parent), and of Light.
+const ZONE_MAP = 1;
+const ZONE_LIGHT = 2;
+const POINT_POS = 0;
+const POINT_ORDER = 1;
+const LIGHT_PARAMS = 4;
+
+/**
+ * The zone lights (ZoneLight, ZoneLightPoint) of the given maps: regions of a map drawn as polygons that
+ * have the light of a Light of their own, which the later clients use in place of the spheres of Light
+ * (those keep their place but have a small reach).
+ */
+export function zoneLightZones(zoneLights: Rows, zonePoints: Rows, lights: Rows, mapIds: number[]): LightZone[] {
+	const polygons = new Map<number, { order: number; point: [number, number] }[]>();
+	for (const id of zonePoints.ids()) {
+		const zone = zonePoints.getParent(id);
+		if (zone === null) continue;
+		const list = polygons.get(zone) ?? [];
+		list.push({ order: zonePoints.getInt(id, POINT_ORDER) ?? 0, point: [zonePoints.getFloat(id, POINT_POS, 0)!, zonePoints.getFloat(id, POINT_POS, 1)!] });
+		polygons.set(zone, list);
+	}
+	const zones: LightZone[] = [];
+	for (const id of zoneLights.ids()) {
+		const mapId = zoneLights.getInt(id, ZONE_MAP)!;
+		const params = lights.getInt(zoneLights.getInt(id, ZONE_LIGHT) ?? 0, LIGHT_PARAMS, 0);
+		const points = (polygons.get(id) ?? []).sort((a, b) => a.order - b.order).map((p) => p.point);
+		if (!mapIds.includes(mapId) || !params || points.length < 3) continue;
+		const xs = points.map((p) => p[0]);
+		const ys = points.map((p) => p[1]);
+		zones.push({ mapId, x: 0, y: 0, z: 0, inner: 0, outer: 0, params, polygon: { points, min: [Math.min(...xs), Math.min(...ys)], max: [Math.max(...xs), Math.max(...ys)] } });
+	}
+	return zones;
+}
+
 /** Light zones and their day-cycle keyframes for the given maps (Map.db2 IDs). */
 export async function loadLighting(storage: CascStorage, mapIds: number[]): Promise<LightingData> {
 	const [lights, data] = await Promise.all([loadTable(storage, DB2_FILES.Light), loadTable(storage, DB2_FILES.LightData)]);
@@ -75,6 +132,14 @@ export async function loadLighting(storage: CascStorage, mapIds: number[]): Prom
 			outer: lights.getFloat(id, 2)!,
 			params,
 		});
+	}
+
+	// Clients that have zone lights (not all do: Anniversary's table is empty) light a zone by its polygon.
+	try {
+		const [zoneLights, zonePoints] = await Promise.all([loadTable(storage, DB2_FILES.ZoneLight), loadTable(storage, DB2_FILES.ZoneLightPoint)]);
+		zones.push(...zoneLightZones(zoneLights, zonePoints, lights, mapIds));
+	} catch {
+		// A client without them.
 	}
 
 	const wanted = new Set(zones.map((z) => z.params));

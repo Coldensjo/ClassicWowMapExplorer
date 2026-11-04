@@ -214,6 +214,8 @@ export interface ViewSettings {
 	shadows: boolean;
 	/** Fog lying in the valleys, lit by the sun where it reaches it (Z). */
 	fog: boolean;
+	/** Zones lit as the client does it, by their polygons (ZoneLight), where the client has them; off, lit by the spheres of Light only. */
+	zoneLights: boolean;
 	/** No fog of any kind (distance, valley, weather or under water), so the far continents show. */
 	clearView: boolean;
 	/** No lighting or shading: every surface its texture's own colour, as in full daylight with no sun. */
@@ -411,6 +413,8 @@ export class Viewer {
 	private shadowStrength = 1;
 	/** World height the fog is thickest at, eased towards the lowest ground around. */
 	private fogBase: number | null = null;
+	/** Zone lights count (ViewSettings.zoneLights); kept here for the lighting, which is made after the settings. */
+	private zoneLightsOn = true;
 	/** No fog at all (ViewSettings.clearView). */
 	private clearView = false;
 	/** Flat, unlit view (ViewSettings.unlit); see updateLighting. */
@@ -949,6 +953,7 @@ export class Viewer {
 			grading: this.post.gradingOn,
 			shadows: this.shadowsOn,
 			fog: this.post.fogOn,
+			zoneLights: this.zoneLightsOn,
 			clearView: this.clearView,
 			unlit: this.unlit,
 			creatures: this.objects?.kindShown('creature') ?? true,
@@ -983,6 +988,10 @@ export class Viewer {
 		if (next.grading !== undefined) this.post.gradingOn = next.grading;
 		if (next.shadows !== undefined) this.setShadows(next.shadows);
 		if (next.fog !== undefined) this.post.fogOn = next.fog;
+		if (next.zoneLights !== undefined) {
+			this.zoneLightsOn = next.zoneLights;
+			if (this.lighting) this.lighting.zoneLights = next.zoneLights;
+		}
 		if (next.clearView !== undefined) this.clearView = next.clearView;
 		if (next.unlit !== undefined) {
 			this.unlit = next.unlit;
@@ -1108,6 +1117,7 @@ export class Viewer {
 				this.storage.loadAreas(),
 			]);
 			this.lighting = new Lighting(lighting);
+			this.lighting.zoneLights = this.zoneLightsOn;
 			for (const a of areas) this.areas.set(a.id, a);
 		} catch (e) {
 			console.warn('Lighting unavailable, using defaults:', e);

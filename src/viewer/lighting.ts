@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { LIGHT_COLORS, type LightColor, type LightingData, type LightKey, type LightZone } from '../explorer/lighting';
+import { insidePolygon, LIGHT_COLORS, type LightColor, type LightingData, type LightKey, type LightZone } from '../explorer/lighting';
 
 export const DAY = 2880; // half-minutes
 
@@ -44,6 +44,8 @@ function around<T extends { time: number }>(keys: T[], t: number): [T, T, number
  */
 export class Lighting {
 	private readonly cache = new Map<number, { t: number; value: Sampled }>();
+	/** Whether zone lights (polygons) count (the zoneLights setting); off, a zone is lit by the spheres of Light only. */
+	zoneLights = true;
 
 	constructor(private readonly data: LightingData) {}
 
@@ -77,6 +79,10 @@ export class Lighting {
 		const local: { zone: LightZone; weight: number }[] = [];
 		for (const zone of this.data.zones) {
 			if (zone.mapId !== mapId) continue;
+			if (zone.polygon) {
+				if (this.zoneLights && insidePolygon(zone.polygon, wowX, wowY)) local.push({ zone, weight: 1 });
+				continue;
+			}
 			if (zone.outer === 0) {
 				global ??= zone;
 				continue;

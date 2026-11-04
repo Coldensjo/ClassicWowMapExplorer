@@ -110,7 +110,7 @@ export class WorldMap {
 	}
 
 	private load(): Promise<void> {
-		this.loading ??= this.storage.loadWorldMaps([0, 1]).then((list) => {
+		this.loading ??= this.storage.knownMaps().then((maps) => this.storage.loadWorldMaps(maps.map((m) => m.mapId))).then((list) => {
 			this.maps = new Map(list.map((m) => [m.id, m]));
 		}, (e) => {
 			console.warn('World map unavailable:', e);

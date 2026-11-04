@@ -5,8 +5,20 @@ import { blpInfo, decodeBlp, type Image } from '../formats/blp';
 import { downscale } from './image';
 import { parseWdt, TILE_FILE_KINDS, type TileFileKind, type Wdt, type WdtTile } from '../formats/wdt';
 
-/** Continents whose file IDs are known; Map.db2 will replace this list. */
-export const KNOWN_MAPS = [
+/** A continent drawn as part of the one world, and its WDT and WDL files. */
+export interface KnownMap {
+	name: string;
+	directory: string;
+	mapId: number;
+	wdt: number;
+	wdl: number;
+}
+
+/**
+ * The continents of Classic, for the tools made for it (the explorer finds an install's own, continents.ts,
+ * from the world map's tables).
+ */
+export const KNOWN_MAPS: KnownMap[] = [
 	{ name: 'Eastern Kingdoms', directory: 'Azeroth', mapId: 0, wdt: 775971, wdl: 775970 },
 	{ name: 'Kalimdor', directory: 'Kalimdor', mapId: 1, wdt: 782779, wdl: 782778 },
 ];

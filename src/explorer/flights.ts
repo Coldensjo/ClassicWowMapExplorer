@@ -1,7 +1,6 @@
 import type { CascStorage } from '../casc/storage';
 import type { Db2 } from '../formats/db2';
 import { DB2_FILES, loadTable } from './clientDb';
-import { KNOWN_MAPS } from './maps';
 
 export interface FlightNode {
 	id: number;
@@ -135,12 +134,12 @@ export function buildFlights(nodesTable: Table, pathsTable: Table, pointsTable: 
 	return { nodes, paths };
 }
 
-/** The flight network of an install, on the continents drawn as one world. */
-export async function loadFlights(storage: CascStorage): Promise<FlightData> {
+/** The flight network of an install, on the given continents. */
+export async function loadFlights(storage: CascStorage, continents: number[]): Promise<FlightData> {
 	const [nodes, paths, points] = await Promise.all([
 		loadTable(storage, DB2_FILES.TaxiNodes),
 		loadTable(storage, DB2_FILES.TaxiPath),
 		loadTable(storage, DB2_FILES.TaxiPathNode),
 	]);
-	return buildFlights(nodes, paths, points, new Set(KNOWN_MAPS.map((m) => m.mapId)));
+	return buildFlights(nodes, paths, points, new Set(continents));
 }

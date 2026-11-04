@@ -38,7 +38,7 @@ const LAYOUTS: Record<number, Record<number, FieldMap>> = {
 	// Lock: Forever has a field in front.
 	1343608: { 0x8fa7e48a: moved(5, [1, 0, 4]) },
 	// Map: Classic has a single field where Forever has two, and no WDT file (found by name instead).
-	1349477: { 0xb47c6f05: moved(26, [0, 0, 6], [7, 6, 6], [16, 15, 1], [20, 20, 1], [25, 22, 1]) },
+	1349477: { 0xb47c6f05: moved(26, [0, 0, 6], [7, 6, 8], [16, 15, 1], [20, 20, 1], [25, 22, 1]) },
 };
 
 /** How to read a table's fields as Forever numbers them, or null if this layout needs nothing. */

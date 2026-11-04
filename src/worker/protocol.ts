@@ -1,7 +1,7 @@
 import type { ProductInfo } from '../casc/config';
 import type { StorageStats } from '../casc/storage';
 import type { AreaInfo, LightingData } from '../explorer/lighting';
-import type { MapSummary } from '../explorer/maps';
+import type { KnownMap, MapSummary } from '../explorer/maps';
 import type { FootstepSounds, LiquidLooks, LockKind } from '../explorer/clientDb';
 import type { FlightData } from '../explorer/flights';
 import type { TransportRoute } from '../explorer/transportRoutes';
@@ -24,6 +24,7 @@ export interface StorageApi {
 	setPageUrl(url: string): void;
 	setSource(source: SourceInit): ProductInfo[];
 	open(product: string): StorageStats;
+	knownMaps(): KnownMap[];
 	loadMap(wdtFdid: number): MapSummary;
 	minimapThumbnails(wdtFdid: number, coords: [number, number][], size: number): { x: number; y: number; image: Image | null }[];
 	loadFarTiles(wdtFdid: number, wdlFdid: number): FarTile[];

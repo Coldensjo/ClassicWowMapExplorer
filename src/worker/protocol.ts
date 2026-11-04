@@ -3,6 +3,8 @@ import type { StorageStats } from '../casc/storage';
 import type { AreaInfo, LightingData } from '../explorer/lighting';
 import type { MapSummary } from '../explorer/maps';
 import type { FootstepSounds, LiquidLooks, LockKind } from '../explorer/clientDb';
+import type { FlightData } from '../explorer/flights';
+import type { TransportRoute } from '../explorer/transportRoutes';
 import type { MusicData, WmoArea } from '../explorer/music';
 import type { Place } from '../explorer/places';
 import type { WorldMapInfo } from '../explorer/worldMap';
@@ -42,6 +44,8 @@ export interface StorageApi {
 	loadMusic(): MusicData;
 	loadLiquidLooks(): LiquidLooks;
 	loadLockKinds(): Record<number, LockKind>;
+	loadFlights(): FlightData;
+	loadTransportRoutes(transports: { displayId: number; path: number }[]): (TransportRoute | null)[];
 	loadFootsteps(): FootstepSounds;
 	loadPlaces(): Place[];
 	wmoArea(wmoId: number, nameSet: number, groupId: number): WmoArea | null;

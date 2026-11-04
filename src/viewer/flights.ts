@@ -1,16 +1,10 @@
 import * as THREE from 'three';
+import type { FlightData } from '../explorer/flights';
 import type { Ride } from './flyControls';
 import type { Side } from './nameplates';
 import { worldFromWow } from './regionData';
 import type { ContinentPlacement } from './terrain';
 import { behindCamera } from './screen';
-
-/** public/spawns/flights.json, from the client's TaxiNodes, TaxiPath and TaxiPathNode (tools/buildRegions.ts). */
-interface FlightFile {
-	nodes: { id: number; name: string; map: number; x: number; y: number; z: number; alliance: boolean; horde: boolean }[];
-	/** A direct route between two flight masters, as [x, y, z, ...] in WoW coordinates. */
-	paths: { id: number; from: number; to: number; cost: number; points: number[] }[];
-}
 
 export interface FlightMaster {
 	id: number;
@@ -21,12 +15,19 @@ export interface FlightMaster {
 	horde: boolean;
 }
 
+/** An unbroken stretch of a route, in the world of the continent it is on. */
+interface Leg {
+	map: number;
+	points: THREE.Vector3[];
+}
+
 interface Route {
 	from: number;
 	to: number;
-	points: THREE.Vector3[];
+	legs: Leg[];
+	/** Yards flown, not counting the jumps between legs. */
 	length: number;
-	line: THREE.Line;
+	lines: THREE.Line[];
 }
 
 /** Yards per second on a gryphon, wyvern or hippogryph, about as in the game. */
@@ -62,17 +63,8 @@ export class Flights {
 		this.group.name = 'flight paths';
 	}
 
-	static async loadFile(): Promise<FlightFile | null> {
-		try {
-			const response = await fetch('spawns/flights.json');
-			return response.ok ? ((await response.json()) as FlightFile) : null;
-		} catch (e) {
-			console.warn('Flight paths unavailable:', e);
-			return null;
-		}
-	}
-
-	setData(file: FlightFile, continents: ContinentPlacement[]): void {
+	/** The flight network the client's own tables give (TaxiNodes, TaxiPath and TaxiPathNode). */
+	setData(file: FlightData, continents: ContinentPlacement[]): void {
 		const placements = new Map(continents.filter((c) => !c.instance).map((c) => [c.mapId, c]));
 		this.masters.clear();
 		for (const n of file.nodes) {
@@ -80,22 +72,30 @@ export class Flights {
 			if (!placement) continue;
 			this.masters.set(n.id, { id: n.id, name: n.name, mapId: n.map, position: worldFromWow(placement, n.x, n.y, n.z), alliance: n.alliance, horde: n.horde });
 		}
-		for (const r of this.routes) r.line.geometry.dispose();
+		for (const r of this.routes) for (const line of r.lines) line.geometry.dispose();
 		this.group.clear();
 		this.routes = [];
 		for (const p of file.paths) {
 			const from = this.masters.get(p.from);
 			const to = this.masters.get(p.to);
 			if (!from || !to) continue;
-			const placement = placements.get(from.mapId)!;
-			const points: THREE.Vector3[] = [];
-			for (let i = 0; i < p.points.length; i += 3) points.push(worldFromWow(placement, p.points[i], p.points[i + 1], p.points[i + 2]));
+			// A leg on a map that isn't in the world can't be flown, nor so the route.
+			if (p.legs.some((leg) => !placements.has(leg.map))) continue;
+			const legs: Leg[] = p.legs.map((leg) => {
+				const placement = placements.get(leg.map)!;
+				const points: THREE.Vector3[] = [];
+				for (let i = 0; i < leg.points.length; i += 3) points.push(worldFromWow(placement, leg.points[i], leg.points[i + 1], leg.points[i + 2]));
+				return { map: leg.map, points };
+			});
 			let length = 0;
-			for (let i = 1; i < points.length; i++) length += points[i].distanceTo(points[i - 1]);
-			const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), this.materials.alliance);
-			line.frustumCulled = true;
-			this.group.add(line);
-			this.routes.push({ from: p.from, to: p.to, points, length, line });
+			const lines = legs.map((leg) => {
+				for (let i = 1; i < leg.points.length; i++) length += leg.points[i].distanceTo(leg.points[i - 1]);
+				const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(leg.points), this.materials.alliance);
+				line.frustumCulled = true;
+				this.group.add(line);
+				return line;
+			});
+			this.routes.push({ from: p.from, to: p.to, legs, length, lines });
 		}
 		this.applySide();
 	}
@@ -118,8 +118,10 @@ export class Flights {
 	/** Only the routes and flight masters the side shown can use. */
 	private applySide(): void {
 		for (const r of this.routes) {
-			r.line.visible = this.usable(r);
-			r.line.material = this.materials[this.side];
+			for (const line of r.lines) {
+				line.visible = this.usable(r);
+				line.material = this.materials[this.side];
+			}
 		}
 		this.onChange();
 	}
@@ -156,7 +158,7 @@ export class Flights {
 	 * The way the game would fly you from one flight master to another: the shortest chain of
 	 * routes the side can use. Null if there's none.
 	 */
-	plan(from: number, to: number): { points: THREE.Vector3[]; stops: string[]; length: number } | null {
+	plan(from: number, to: number): { legs: THREE.Vector3[][]; stops: string[]; length: number } | null {
 		if (from === to) return null;
 		const distance = new Map<number, number>([[from, 0]]);
 		const via = new Map<number, Route>();
@@ -183,33 +185,58 @@ export class Flights {
 		if (!via.has(to)) return null;
 		const chain: Route[] = [];
 		for (let n = to; n !== from; n = via.get(n)!.from) chain.unshift(via.get(n)!);
-		const points: THREE.Vector3[] = [];
-		for (const r of chain) points.push(...(points.length ? r.points.slice(1) : r.points));
-		return { points, stops: chain.slice(0, -1).map((r) => this.masters.get(r.to)!.name), length: distance.get(to)! };
+		// The routes one after another; where one ends the flight master the next starts at, on the same map, they join.
+		const legs: THREE.Vector3[][] = [];
+		let lastMap = -1;
+		for (const r of chain) {
+			r.legs.forEach((leg, k) => {
+				if (k === 0 && legs.length && leg.map === lastMap) legs.at(-1)!.push(...leg.points.slice(1));
+				else legs.push([...leg.points]);
+				lastMap = leg.map;
+			});
+		}
+		return { legs, stops: chain.slice(0, -1).map((r) => this.masters.get(r.to)!.name), length: distance.get(to)! };
 	}
 
-	/** A ride along a planned flight, at a multiple of the mounts' speed. */
-	ride(points: THREE.Vector3[], speedScale = 1): Ride & { remaining(): number } {
-		const lifted = points.map((p) => p.clone().setY(p.y + SEAT));
-		const curve = new THREE.CatmullRomCurve3(lifted, false, 'centripetal');
-		// Fine enough steps that the speed stays even over a path kilometres long.
-		curve.arcLengthDivisions = lifted.length * 8;
-		const length = curve.getLength();
+	/**
+	 * A ride along a planned flight, at a multiple of the mounts' speed. It flies each leg to its end and
+	 * then starts the next where it begins, a jump to the other side of the world as in the game.
+	 */
+	ride(legs: THREE.Vector3[][], speedScale = 1): Ride & { remaining(): number } {
+		const curves = legs.map((points) => {
+			const curve = new THREE.CatmullRomCurve3(points.map((p) => p.clone().setY(p.y + SEAT)), false, 'centripetal');
+			// Fine enough steps that the speed stays even over a path kilometres long.
+			curve.arcLengthDivisions = points.length * 8;
+			return { curve, length: curve.getLength() };
+		});
+		const total = curves.reduce((sum, c) => sum + c.length, 0);
 		const speed = FLIGHT_SPEED * speedScale;
 		let travelled = 0;
 		const tangent = new THREE.Vector3();
 		const point = new THREE.Vector3();
+		/** The leg a distance is on, and how far along it. */
+		const locate = (distance: number) => {
+			let start = 0;
+			for (const c of curves) {
+				if (distance < start + c.length) return { c, at: distance - start };
+				start += c.length;
+			}
+			const last = curves.at(-1)!;
+			return { c: last, at: last.length };
+		};
 		return {
 			step(dt: number) {
 				travelled += dt * speed;
-				if (travelled >= length) return null;
-				return curve.getPointAt(travelled / length, point);
+				if (travelled >= total) return null;
+				const { c, at } = locate(travelled);
+				return c.curve.getPointAt(at / c.length, point);
 			},
 			heading() {
-				// A little ahead, so turns are seen coming.
-				return curve.getTangentAt(Math.min(1, (travelled + speed * 1.5) / length), tangent).normalize();
+				// A little ahead, so turns are seen coming, but not past the end of the leg.
+				const { c, at } = locate(travelled);
+				return c.curve.getTangentAt(Math.min(1, (at + speed * 1.5) / c.length), tangent).normalize();
 			},
-			remaining: () => Math.max(0, (length - travelled) / speed),
+			remaining: () => Math.max(0, (total - travelled) / speed),
 		};
 	}
 

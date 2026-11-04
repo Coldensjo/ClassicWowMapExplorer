@@ -1533,14 +1533,14 @@ export class Viewer {
 			this.restedAreas?.setData(data, this.continents);
 		}, (e) => console.warn('Regions unavailable:', e));
 		if (this.flights) {
-			Flights.loadFile().then((file) => {
-				if (file) this.flights!.setData(file, this.continents);
-			}, (e) => console.warn('Flight paths unavailable:', e));
+			this.storage.loadFlights().then((data) => this.flights!.setData(data, this.continents), (e) => console.warn('Flight paths unavailable:', e));
 		}
 		const transports = new Transports(this.objects);
 		this.transports = transports;
-		Transports.loadFile().then((file) => {
-			if (file) transports.setData(file, this.continents, (mapId, x, y) => this.regionData?.areaAtWow(mapId, x, y)?.name ?? null);
+		Transports.loadFile().then(async (file) => {
+			if (!file) return;
+			const routes = await this.storage.loadTransportRoutes(file.transports.map((t) => ({ displayId: t.displayId, path: t.path })));
+			transports.setData(file, routes, this.continents, (mapId, x, y) => this.regionData?.areaAtWow(mapId, x, y)?.name ?? null);
 		}, (e) => console.warn('Boats and zeppelins unavailable:', e));
 		this.storage.loadTextures([SNOWFLAKE_TEXTURE], this.usesCompressedTextures).then(
 			([flake]) => {
@@ -1600,8 +1600,8 @@ export class Viewer {
 		if (!flights) return 'No flight paths';
 		const plan = flights.plan(from, to);
 		if (!plan) return 'No route between those for this side';
-		const ride = flights.ride(plan.points, speedScale);
-		const start = plan.points[0];
+		const ride = flights.ride(plan.legs, speedScale);
+		const start = plan.legs[0][0];
 		const destination = flights.list.find((m) => m.id === to)?.name ?? '';
 		this.triggersArmed = false;
 		this.controls.set(start.clone().setY(start.y + 2), this.controls.yaw, this.controls.pitch);

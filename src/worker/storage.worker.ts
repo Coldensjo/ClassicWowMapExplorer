@@ -89,6 +89,12 @@ const api: AsyncStorageApi = {
 	async loadLiquidLooks() {
 		return requireWorld().loadLiquidLooks();
 	},
+	async loadTransportRoutes(transports) {
+		return requireWorld().loadTransportRoutes(transports);
+	},
+	async loadFlights() {
+		return requireWorld().loadFlights();
+	},
 	async loadFootsteps() {
 		return requireWorld().loadFootsteps();
 	},

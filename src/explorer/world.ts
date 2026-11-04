@@ -11,6 +11,8 @@ import { MusicTables, type MusicData, type WmoArea } from './music';
 import type { MapExplorer } from './maps';
 import { loadWorldMaps, type WorldMapInfo } from './worldMap';
 import { loadPlaces, type Place } from './places';
+import { loadFlights, type FlightData } from './flights';
+import { loadTransportRoutes, type TransportRoute } from './transportRoutes';
 import { KNOWN_MAPS } from './maps';
 import { buildBvh, globalWmoPlacement, globalWmoTiles, loadM2, loadWmo, parsePlacements, type ModelData, type ObjectKind, type Placement, type SerializedBvh } from './objects';
 import { GroundEffects, type ClutterSource } from './groundEffects';
@@ -407,6 +409,16 @@ export class WorldLoader {
 
 	loadPlaces(): Promise<Place[]> {
 		return loadPlaces(this.storage);
+	}
+
+	/** The routes and models of boats and zeppelins, in the order asked. */
+	loadTransportRoutes(transports: { displayId: number; path: number }[]): Promise<(TransportRoute | null)[]> {
+		return loadTransportRoutes(this.storage, transports);
+	}
+
+	/** The flight network on the continents drawn as one world. */
+	loadFlights(): Promise<FlightData> {
+		return loadFlights(this.storage);
 	}
 
 	loadFootsteps(): Promise<FootstepSounds> {

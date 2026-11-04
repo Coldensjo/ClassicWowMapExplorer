@@ -3,7 +3,7 @@
 // the Node runner (node.ts) and the one that runs it in a Chrome worker (serve.ts, worker.ts).
 import type { FileSource } from '../../src/casc/source';
 import { CascStorage } from '../../src/casc/storage';
-import { MapExplorer, KNOWN_MAPS } from '../../src/explorer/maps';
+import { MapExplorer, type KnownMap } from '../../src/explorer/maps';
 import { WorldLoader } from '../../src/explorer/world';
 import type { ObjectKind } from '../../src/explorer/objects';
 
@@ -25,20 +25,23 @@ export interface BenchResult {
 	digests: Record<string, string>;
 }
 
-const [azeroth, kalimdor] = KNOWN_MAPS;
-
 function block(wdt: number, x0: number, y0: number, n: number) {
 	const out: { wdt: number; x: number; y: number }[] = [];
 	for (let y = y0; y < y0 + n; y++) for (let x = x0; x < x0 + n; x++) out.push({ wdt, x, y });
 	return out;
 }
 
+/** A continent of the install by its Map.db2 ID (0 the Eastern Kingdoms, 1 Kalimdor). */
+const continent = (c: { continents: KnownMap[] }, mapId: number) => c.continents.find((m) => m.mapId === mapId)!;
+
 /** Elwynn Forest, Stormwind and Goldshire; Durotar and Orgrimmar. Busy, like most flying is. */
-const NEAR = [...block(azeroth.wdt, 30, 46, 5), ...block(kalimdor.wdt, 39, 28, 3)];
+const near = (c: { continents: KnownMap[] }) => [...block(continent(c, 0).wdt, 30, 46, 5), ...block(continent(c, 1).wdt, 39, 28, 3)];
 
 interface Context {
 	world: WorldLoader;
 	explorer: MapExplorer;
+	/** The continents of the install, drawn as one world. */
+	continents: KnownMap[];
 	/** Carried between phases: what the near tiles and their objects need. */
 	textures: number[];
 	models: { fdid: number; kind: ObjectKind; variant?: string }[];
@@ -50,9 +53,9 @@ export const PHASES: Phase[] = [
 	{
 		name: 'startup',
 		// What Viewer.load asks for before the first view, in its order.
-		run: async ({ world }) => {
+		run: async ({ world, continents }) => {
 			const far = [];
-			for (const map of KNOWN_MAPS) far.push(await world.loadFarTiles(map.wdt, map.wdl));
+			for (const map of continents) far.push(await world.loadFarTiles(map.wdt, map.wdl));
 			const maps = await world.listMaps();
 			const instances = await Promise.all(maps.filter((m) => m.id > 1).map((m) => world.loadInstance(m.id)));
 			const [lighting, areas, looks] = await Promise.all([world.loadLighting(maps.map((m) => m.id)), world.loadAreas(), world.loadLiquidLooks()]);
@@ -62,9 +65,9 @@ export const PHASES: Phase[] = [
 	{
 		name: 'farTextures',
 		// Every continent tile's low-detail texture, in batches of 32 as TerrainManager asks.
-		run: async ({ world, explorer }) => {
+		run: async ({ world, explorer, continents }) => {
 			const out = [];
-			for (const map of KNOWN_MAPS) {
+			for (const map of continents) {
 				const tiles = (await explorer.loadMap(map.wdt)).tiles.map((t) => [t.x, t.y] as [number, number]);
 				for (let i = 0; i < tiles.length; i += 32) out.push(await world.loadTileTextures(map.wdt, tiles.slice(i, i + 32), 128, true));
 			}
@@ -74,10 +77,11 @@ export const PHASES: Phase[] = [
 	{
 		name: 'minimap',
 		// The minimap's 32 px thumbnails over a block of tiles round the camera.
-		run: async ({ explorer }) => {
+		run: async (c) => {
+			const azeroth = continent(c, 0);
 			const coords = block(azeroth.wdt, 26, 42, 13).map((t) => [t.x, t.y] as [number, number]);
 			const out = [];
-			for (let i = 0; i < coords.length; i += 32) out.push(await explorer.minimapThumbnails(azeroth.wdt, coords.slice(i, i + 32), 32));
+			for (let i = 0; i < coords.length; i += 32) out.push(await c.explorer.minimapThumbnails(azeroth.wdt, coords.slice(i, i + 32), 32));
 			return out;
 		},
 	},
@@ -86,7 +90,7 @@ export const PHASES: Phase[] = [
 		// Full-detail ground, three tiles in flight at a time as TerrainManager streams them.
 		run: async (c) => {
 			const out: Awaited<ReturnType<WorldLoader['loadNearTile']>>[] = [];
-			const queue = [...NEAR];
+			const queue = near(c);
 			await Promise.all(Array.from({ length: 3 }, async () => {
 				for (let t = queue.shift(); t; t = queue.shift()) out.push(await c.world.loadNearTile(t.wdt, t.x, t.y, true));
 			}));
@@ -108,7 +112,7 @@ export const PHASES: Phase[] = [
 		// Four tiles at a time, as the storage client throttles them.
 		run: async (c) => {
 			const out: { key: string; placements: Awaited<ReturnType<WorldLoader['loadTileObjects']>> }[] = [];
-			const queue = [...NEAR];
+			const queue = near(c);
 			await Promise.all(Array.from({ length: 4 }, async () => {
 				for (let t = queue.shift(); t; t = queue.shift()) out.push({ key: `${t.wdt}_${t.x}_${t.y}`, placements: await c.world.loadTileObjects(t.wdt, t.x, t.y) });
 			}));
@@ -198,7 +202,8 @@ export async function runBench(options: BenchOptions): Promise<BenchResult> {
 		const storage = await CascStorage.open(options.source, options.product);
 		if (!options.only || options.only.has('open')) record('open', performance.now() - t);
 		const explorer = new MapExplorer(storage);
-		const context: Context = { explorer, world: new WorldLoader(explorer), textures: [], models: [] };
+		const world = new WorldLoader(explorer);
+		const context: Context = { explorer, world, continents: await world.knownMaps(), textures: [], models: [] };
 		for (const phase of PHASES) {
 			const wanted = !options.only || options.only.has(phase.name);
 			t = performance.now();

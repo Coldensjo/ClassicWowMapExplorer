@@ -20,7 +20,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { CascStorage } from '../src/casc/storage';
 import { DB2_FILES, loadTable } from '../src/explorer/clientDb';
 import type { SpawnFile } from '../src/explorer/spawns';
-import { KNOWN_MAPS, MapExplorer } from '../src/explorer/maps';
+import { findContinents } from '../src/explorer/continents';
+import { MapExplorer } from '../src/explorer/maps';
 import { CHUNK_SIZE, TILE_SIZE, parseAdtRoot } from '../src/formats/adt';
 import { NodeSource } from './nodeSource';
 
@@ -64,12 +65,13 @@ function csvFields(line: string): string[] {
 const storage = await CascStorage.open(new NodeSource(wowDir), product);
 const areaTable = await loadTable(storage, DB2_FILES.AreaTable);
 const explorer = new MapExplorer(storage);
+const continents = await findContinents(storage);
 
 // --- Areas per map chunk ---
 
 /** Map ID -> area ID per chunk (row = WoW x falling, column = WoW y falling, as the ADT tiles). */
 const grids = new Map<number, Uint32Array>();
-for (const map of KNOWN_MAPS) {
+for (const map of continents) {
 	const grid = new Uint32Array(GRID * GRID);
 	const wdt = await explorer.wdt(map.wdt);
 	for (const tile of wdt.tiles) {
@@ -121,7 +123,7 @@ const sided = (template: number) => (((factions.getInt(template, 2) ?? 0) | (fac
 
 /** Creature levels per area: typical (middle half) of the ones you'd fight standing in it. */
 const levels = new Map<number, number[]>();
-for (const map of KNOWN_MAPS) {
+for (const map of continents) {
 	const file = `public/spawns/map${map.mapId}.json`;
 	if (!existsSync(file)) {
 		console.warn(`${file} missing (run bun run spawns): no creature levels for ${map.name}`);
@@ -171,7 +173,7 @@ interface AreaOut {
 }
 const SIDES = { 2: 'alliance', 4: 'horde' } as const;
 const areas: Record<number, AreaOut> = {};
-for (const map of KNOWN_MAPS) {
+for (const map of continents) {
 	const grid = grids.get(map.mapId)!;
 	const sums = new Map<number, { x: number; y: number; n: number }>();
 	for (let i = 0; i < grid.length; i++) {

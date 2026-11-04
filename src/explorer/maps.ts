@@ -14,15 +14,6 @@ export interface KnownMap {
 	wdl: number;
 }
 
-/**
- * The continents of Classic, for the tools made for it (the explorer finds an install's own, continents.ts,
- * from the world map's tables).
- */
-export const KNOWN_MAPS: KnownMap[] = [
-	{ name: 'Eastern Kingdoms', directory: 'Azeroth', mapId: 0, wdt: 775971, wdl: 775970 },
-	{ name: 'Kalimdor', directory: 'Kalimdor', mapId: 1, wdt: 782779, wdl: 782778 },
-];
-
 export type FileAvailability = Record<TileFileKind, Partial<Record<FileStatus | 'none', number>>>;
 
 export interface MapSummary {

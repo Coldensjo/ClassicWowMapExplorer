@@ -305,7 +305,7 @@ export class SceneEditor {
 		private readonly storage: AsyncStorageApi,
 		readonly model: SceneModel,
 	) {
-		this.paint = { fdid: model.textures[0], radius: 15, strength: 0.7, opacity: 1, mode: 'paint', policy: 'replace' };
+		this.paint = { fdid: model.textures[0], radius: 15, strength: 0.7, opacity: 1, mode: 'paint', policy: 'replace', swapFrom: 0, swapTo: 0 };
 		// Depth as the explorer draws it, which the post pass's fog reads back: a reversed float
 		// depth buffer where the GPU has it, else a logarithmic one. Antialiased in the pass's target.
 		const reversed = supportsClipControl();
@@ -1498,8 +1498,17 @@ export class SceneEditor {
 			return;
 		}
 		if (this.tool === 'paint') {
-			// No texture is selected in the Texture browser: only erasing makes sense (spec 7.5).
-			if (this.paint.fdid === 0 && this.paint.mode !== 'erase') {
+			if (this.paint.mode === 'swap') {
+				// Swap texture needs both slots of the Texture swap window (texture-swap.md §2.3); the
+				// brush's own texture does not matter here.
+				const { swapFrom, swapTo } = this.paint;
+				if (!swapFrom && !swapTo) this.onNotice('Choose the existing and replacement textures in the Texture swap window first');
+				else if (!swapFrom) this.onNotice('Choose the existing texture in the Texture swap window first');
+				else if (!swapTo) this.onNotice('Choose the replacement texture in the Texture swap window first');
+				else if (swapFrom === swapTo) this.onNotice('The existing and replacement textures are the same');
+				if (!swapFrom || !swapTo || swapFrom === swapTo) return;
+			} else if (this.paint.fdid === 0 && this.paint.mode !== 'erase') {
+				// No texture is selected in the Texture browser: only erasing makes sense (spec 7.5).
 				this.onNotice('Pick a texture in the Texture browser to paint with');
 				return;
 			}
@@ -1545,9 +1554,11 @@ export class SceneEditor {
 	/** Ends the open stroke, committing it as one undoable command. */
 	private endStroke(): void {
 		if (!this.stroke) return;
+		const swap = this.stroke instanceof PaintStroke && this.paint.mode === 'swap';
 		const command = this.stroke.finish();
 		this.stroke = null;
 		if (command) this.commands.push(command);
+		else if (swap) this.onNotice("That chunk doesn't use the existing texture");
 	}
 
 	/** Recomputes culling bounds of the tiles an edit touched (cheap once per edit). */

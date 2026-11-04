@@ -11,7 +11,7 @@ import type { Command } from './commands';
  * layers proportionally, and the visible blend matches what was painted.
  */
 
-export type PaintMode = 'paint' | 'erase' | 'fill' | 'base';
+export type PaintMode = 'paint' | 'erase' | 'fill' | 'base' | 'swap';
 /** What to do when a chunk already has 4 layers (spec 7.5). */
 export type LayerPolicy = 'replace' | 'block';
 
@@ -25,6 +25,10 @@ export interface PaintSettings {
 	opacity: number;
 	mode: PaintMode;
 	policy: LayerPolicy;
+	/** Swap texture (src/ui/specs/texture-swap.md): the texture to replace, as a FileDataID; 0 for none. */
+	swapFrom: number;
+	/** Swap texture: the texture to put in its place; 0 for none. */
+	swapTo: number;
 }
 
 const PAINT_LABELS: Record<PaintMode, string> = {
@@ -32,6 +36,7 @@ const PAINT_LABELS: Record<PaintMode, string> = {
 	erase: 'Erase paint',
 	fill: 'Fill chunk',
 	base: 'Set base texture',
+	swap: 'Swap texture',
 };
 
 /** Alpha texel spacing: texel i sits at i/63 of the chunk, as the splat shader samples it. */
@@ -102,6 +107,9 @@ export class PaintStroke {
 						break;
 					case 'base':
 						this.setBase(tile, tileIndex, chunkId, chunk, ccx, ccy);
+						break;
+					case 'swap':
+						this.swapChunk(tile, tileIndex, chunkId, chunk);
 						break;
 				}
 			}
@@ -330,6 +338,60 @@ export class PaintStroke {
 		this.touch(tileIndex, chunkId, chunk);
 		chunk.layers[0] = { texture: paletteIndex, effectId: this.effectFor(this.settings.fdid) || undefined };
 		this.model.markDirty(tile);
+	}
+
+	/**
+	 * Replaces every layer of the chunk that shows `swapFrom` with `swapTo`, keeping the blend
+	 * (texture-swap.md §3.2). Layers are matched by FileDataID, not palette index, and a chunk
+	 * that already holds the replacement merges the two so no texture is listed twice (§3.3).
+	 * The palette only grows, so nothing is added to it until the chunk is known to change.
+	 */
+	private swapChunk(tile: SceneTile, tileIndex: number, chunkId: number, chunk: SceneChunk): void {
+		const key = this.key(tileIndex, chunkId);
+		if (this.visited.has(key)) return;
+		this.visited.add(key);
+		const { swapFrom, swapTo } = this.settings;
+		const fdidOf = (layer: ChunkLayer) => this.model.textures[layer.texture];
+		const from: number[] = [];
+		const to: number[] = [];
+		chunk.layers.forEach((layer, i) => {
+			if (fdidOf(layer) === swapFrom) from.push(i);
+			else if (fdidOf(layer) === swapTo) to.push(i);
+		});
+		if (!from.length) return;
+		this.touch(tileIndex, chunkId, chunk);
+		const paletteIndex = this.model.textureIndex(swapTo);
+		if (from.length === 1 && !to.length) {
+			chunk.layers[from[0]] = { texture: paletteIndex, effectId: this.effectFor(swapTo) || undefined };
+		} else {
+			this.mergeLayers(chunk, [...from, ...to].sort((a, b) => a - b), paletteIndex, to.length ? chunk.layers[to[0]].effectId : this.effectFor(swapTo) || undefined);
+		}
+		this.model.markDirty(tile);
+	}
+
+	/**
+	 * Folds a group of layers into the lowest of them, which becomes `texture` (§3.3). The shader
+	 * weighs layers 1-3 by alpha and layer 0 by the remainder, so the merge is exact: a painted
+	 * survivor takes the sum of the group's alphas; a base survivor needs nothing, as the removed
+	 * layers' weight falls through to it. The other members leave, and the alpha map is rebuilt
+	 * from the remaining painted layers, null when none is left (a lone layer must have no map).
+	 */
+	private mergeLayers(chunk: SceneChunk, group: number[], texture: number, effectId: number | undefined): void {
+		const survivor = group[0];
+		const removed = new Set(group.slice(1));
+		if (survivor > 0) {
+			const map = chunk.alpha!.subarray((survivor - 1) * TEXELS, survivor * TEXELS);
+			for (const l of removed) {
+				const other = chunk.alpha!.subarray((l - 1) * TEXELS, l * TEXELS);
+				for (let i = 0; i < TEXELS; i++) map[i] = Math.min(255, map[i] + other[i]);
+			}
+		}
+		chunk.layers[survivor] = { texture, effectId };
+		const kept = chunk.layers.map((_, i) => i).filter((i) => !removed.has(i));
+		const alpha = kept.length > 1 ? new Uint8Array((kept.length - 1) * TEXELS) : null;
+		kept.slice(1).forEach((l, k) => alpha!.set(chunk.alpha!.subarray((l - 1) * TEXELS, l * TEXELS), k * TEXELS));
+		chunk.layers = kept.map((i) => chunk.layers[i]);
+		chunk.alpha = alpha;
 	}
 
 	/** The finished stroke as one command, already applied; null when nothing changed. */

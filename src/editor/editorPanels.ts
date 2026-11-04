@@ -104,6 +104,7 @@ const PAINT_KEYS: Record<PaintMode, HotkeyRow[]> = {
 	erase: [SHIFT_CLICK('Erase')],
 	fill: [SHIFT_CLICK('Fill')],
 	base: [SHIFT_CLICK('Set base')],
+	swap: [SHIFT_CLICK('Swap')],
 };
 
 /** The chip's radio option in the water Tool module: the brush (add or remove) or the flood fill. */

@@ -1,6 +1,6 @@
 /**
  * The client database tables the app reads are laid out differently in other game versions:
- * fields added, dropped or moved. The code numbers fields as Forever (wow_classic_beta) has
+ * fields added, dropped or moved. The code numbers fields as Forever (wowf, before it wow_classic_beta) has
  * them; for another version's layout of a table, map[i] is where Forever's field i is in it, or
  * null where it hasn't one. Worked out by matching the rows the versions share (the same ID
  * with the same values). A layout not listed is read as it is, a field past its end as missing.

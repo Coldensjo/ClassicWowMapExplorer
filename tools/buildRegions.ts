@@ -27,7 +27,7 @@ import { NodeSource } from './nodeSource';
 
 const [
 	wowDir = 'C:/Program Files (x86)/World of Warcraft',
-	product = 'wow_classic_beta',
+	product = 'wowf',
 	DB = '.cache/vmangos/sqlite-dump/mangos.sqlite',
 ] = process.argv.slice(2);
 /** Final vanilla content patch (1.12). */

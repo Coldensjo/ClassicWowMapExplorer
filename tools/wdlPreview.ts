@@ -7,7 +7,7 @@ import { parseWdl } from '../src/formats/wdl';
 import { NodeSource } from './nodeSource';
 
 const wdlFdid = Number(process.argv[2] ?? 775970);
-const storage = await CascStorage.open(new NodeSource('C:/Program Files (x86)/World of Warcraft'), 'wow_classic_beta');
+const storage = await CascStorage.open(new NodeSource('C:/Program Files (x86)/World of Warcraft'), 'wowf');
 const tiles = parseWdl(await storage.readFile(wdlFdid));
 const xs = tiles.map((t) => t.x);
 const ys = tiles.map((t) => t.y);

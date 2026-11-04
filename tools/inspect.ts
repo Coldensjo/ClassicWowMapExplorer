@@ -5,7 +5,7 @@ import { chunks } from '../src/formats/chunks';
 import { describeError } from '../src/explorer/maps';
 import { NodeSource } from './nodeSource';
 
-const storage = await CascStorage.open(new NodeSource('C:/Program Files (x86)/World of Warcraft'), 'wow_classic_beta');
+const storage = await CascStorage.open(new NodeSource('C:/Program Files (x86)/World of Warcraft'), 'wowf');
 const ids = process.argv.slice(2).flatMap((arg) => {
 	const [a, b] = arg.split('-').map(Number);
 	return b ? Array.from({ length: b - a + 1 }, (_, i) => a + i) : [a];

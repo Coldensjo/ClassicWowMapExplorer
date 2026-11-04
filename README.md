@@ -13,7 +13,7 @@ You need **Windows 10 or 11** and **World of Warcraft Classic** installed.
 2. Run **MapExplorer.exe**. If Windows says *"Windows protected your PC"* (the program isn't signed),
    click **More info**, then **Run anyway**.
 3. It finds World of Warcraft by itself. If not, click **Choose your World of Warcraft folder** and pick
-   the folder that contains `_classic_` or `_classic_beta_`. The files never leave your computer.
+   the folder that contains `_classic_` or `_forever_`. The files never leave your computer.
 
 Fly with **W A S D**, hold **Shift** to go faster. Press **?** for all controls.
 
@@ -31,7 +31,7 @@ bun run dev
 
 Then open **http://localhost:5173**. It looks for the game in the usual places (Wine, Lutris, Bottles,
 Steam, Heroic on Linux; `/Applications` on macOS). If it can't find it, set `WOW_DIR` to the folder that
-contains `_classic_` or `_classic_beta_`, or choose the folder in the page:
+contains `_classic_` or `_forever_`, or choose the folder in the page:
 
 ```sh
 WOW_DIR="/path/to/World of Warcraft" bun run dev
@@ -42,7 +42,7 @@ macOS is untested.
 ## Troubleshooting
 
 - **"That isn't the World of Warcraft folder"**: pick the folder one level up, the one that
-  contains `_classic_` or `_classic_beta_`.
+  contains `_classic_` or `_forever_`.
 - **Nothing shows up**: use Chrome or Edge with hardware acceleration on and an up-to-date graphics driver.
 - **Freezes or stutter**: press **F9** right after one to save a debug log and attach it to the issue.
 

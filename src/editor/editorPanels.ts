@@ -11,7 +11,7 @@ import { NpcLibrary, presetThumbKey } from './npcLibrary';
 import { NpcEditor } from './npcEditor';
 import type { NpcAsset } from './npcs';
 import { PresetLibrary } from '../scene/presetLibrary';
-import { NPC_POSES, SCENE_WEATHERS, type NpcPose, type NpcPreset, type PlacedNpc, type PlacedObject } from '../scene/types';
+import { MAX_FOG_DENSITY, NPC_POSES, SCENE_WEATHERS, type NpcPose, type NpcPreset, type PlacedNpc, type PlacedObject } from '../scene/types';
 import { animationName } from '../formats/animationNames';
 import { POSE_LABELS, poseSequences } from '../scene/npcPoses';
 import { SideControls, dockModule, dockNote, dockRow, dockSelectionName, setModuleEmpty, type DockModule } from './sideControls';
@@ -350,6 +350,48 @@ export class EditorPanels {
 
 	// ---- Environment (spec 6.1, 7.7): weather, fog and shadows, ground clutter, time of day ----
 
+	/**
+	 * A slider on one environment value: dragging previews each value live, and letting go
+	 * records the whole drag as one undoable command (as the time of day slider does).
+	 */
+	private environmentSlider(options: {
+		label: string;
+		title?: string;
+		min: number;
+		max: number;
+		step: number;
+		suffix?: string;
+		format?: (value: number) => string;
+		/** The slider's value for an environment. */
+		read: (env: Readonly<SceneEditor['environment']>) => number;
+		/** The environment change for a slider value. */
+		patch: (value: number) => Partial<SceneEditor['environment']>;
+		commitLabel: string;
+	}): { root: HTMLElement; sync: () => void } {
+		const editor = this.editor;
+		let before: typeof editor.environment | null = null;
+		const handle = slider({
+			label: options.label,
+			title: options.title,
+			value: options.read(editor.environment),
+			min: options.min,
+			max: options.max,
+			step: options.step,
+			suffix: options.suffix,
+			format: options.format,
+			onInput: (v) => {
+				before ??= { ...editor.environment };
+				editor.previewEnvironment(options.patch(v));
+			},
+			onChange: (v) => {
+				const from = before ?? { ...editor.environment };
+				before = null;
+				editor.setEnvironment(options.patch(v), options.commitLabel, from);
+			},
+		});
+		return { root: handle.root, sync: () => setSliderValue(handle.root, options.read(editor.environment)) };
+	}
+
 	private buildEnvironment(): ToolContent {
 		const editor = this.editor;
 		const weather = radioGroup({
@@ -369,6 +411,17 @@ export class EditorPanels {
 			title: "The preset's distance fog and the fog lying in the valleys; off, the whole scene shows clear",
 			onChange: (on) => editor.setEnvironment({ fogOn: on }, on ? 'Turn fog on' : 'Turn fog off'),
 		});
+		const fogDensity = this.environmentSlider({
+			label: 'Fog density',
+			title: "How thick the fog lying in the valleys is, as a percentage of the preset's; the distance fog is unchanged",
+			min: 0,
+			max: MAX_FOG_DENSITY * 100,
+			step: 10,
+			suffix: '%',
+			read: (env) => Math.round((env.fogDensity ?? 1) * 100),
+			patch: (v) => ({ fogDensity: v / 100 }),
+			commitLabel: 'Set fog density',
+		});
 		// Shadows are how the scene is viewed, not part of it: no command, and kept across scenes.
 		const shadows = toggleSwitch({
 			label: 'Shadows',
@@ -376,7 +429,7 @@ export class EditorPanels {
 			title: "The sun's shadows, cast by the ground, buildings, doodads and NPCs and moving with the time of day; a view setting kept across scenes, not saved with the scene",
 			onChange: (on) => (editor.shadows = on),
 		});
-		const weatherModule = dockModule({ title: 'Weather effects', children: [weather.root, fog.root, shadows.root] });
+		const weatherModule = dockModule({ title: 'Weather effects', children: [weather.root, fog.root, fogDensity.root, shadows.root] });
 
 		const settings = editor.clutterSettings;
 		// Switching clutter on also gives layers painted before the ground effect scan finished
@@ -436,6 +489,7 @@ export class EditorPanels {
 			const env = editor.environment;
 			setRadioValue(weather.root, env.weather ?? '');
 			setChecked(fog.root, env.fogOn !== false);
+			fogDensity.sync();
 			setChecked(shadows.root, editor.shadows);
 			setChecked(clutterOn.root, settings.enabled);
 			setSliderValue(density.root, Math.round(settings.density * 100));

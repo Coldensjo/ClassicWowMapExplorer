@@ -7,7 +7,7 @@ import type { AsyncStorageApi } from '../worker/protocol';
 import { FlyControls } from '../viewer/flyControls';
 import { WalkControls } from '../viewer/walkControls';
 import { Character } from '../viewer/character';
-import type { ChunkLayer, NpcAppearance, PlacedNpc, Scene } from '../scene/types';
+import { MAX_FOG_DENSITY, type ChunkLayer, type NpcAppearance, type PlacedNpc, type Scene } from '../scene/types';
 import { Nameplates, NAMEPLATE_RANGE, type Plate } from './nameplates';
 import { createAlphaTexture, createSplatMaterial, seaMask } from '../viewer/terrainMaterials';
 import { TextureCache } from '../viewer/textureCache';
@@ -1177,7 +1177,7 @@ export class SceneEditor {
 			fog.color.copy(c.skyFog);
 			fog.sunColor.copy(c.direct).multiplyScalar(this.shadowStrength);
 			fog.sunDir.copy(lightDir);
-			fog.density = FOG_DENSITY * state.fogDensity;
+			fog.density = FOG_DENSITY * state.fogDensity * (env.fogDensity ?? 1);
 			this.fog.color.copy(c.skyFog);
 			background.copy(c.skyFog);
 			if (state.fogEnd > 0) {
@@ -1770,6 +1770,10 @@ function tidyEnvironment(e: Scene['environment']): Scene['environment'] {
 	const out: Scene['environment'] = { lightPreset: e.lightPreset, timeOfDay: THREE.MathUtils.euclideanModulo(Math.round(e.timeOfDay), DAY) };
 	if (e.fog) out.fog = e.fog;
 	if (e.fogOn === false) out.fogOn = false;
+	if (e.fogDensity !== undefined && Number.isFinite(e.fogDensity)) {
+		const density = THREE.MathUtils.clamp(e.fogDensity, 0, MAX_FOG_DENSITY);
+		if (density !== 1) out.fogDensity = density;
+	}
 	if (e.weather) out.weather = e.weather;
 	return out;
 }

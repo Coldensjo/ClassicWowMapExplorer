@@ -231,6 +231,12 @@ test('the environment round-trips, and odd or missing values fall back to the de
 	scene.setEnvironment({ lightPreset: 12, timeOfDay: 2000, fogOn: false });
 	expect(decodeScene(encodeScene(scene)).model.meta.environment).toEqual({ lightPreset: 12, timeOfDay: 2000, fogOn: false });
 	expect(tamper((j) => (j.environment!.fogOn = 'yes'))).toEqual({ lightPreset: 12, timeOfDay: 2000 });
+	// Fog density is a multiple of the preset's, kept within 0..3 and left out at 1.
+	scene.setEnvironment({ lightPreset: 12, timeOfDay: 2000, fogDensity: 2.5 });
+	expect(decodeScene(encodeScene(scene)).model.meta.environment).toEqual({ lightPreset: 12, timeOfDay: 2000, fogDensity: 2.5 });
+	expect(tamper((j) => (j.environment!.fogDensity = 10))).toEqual({ lightPreset: 12, timeOfDay: 2000, fogDensity: 3 });
+	expect(tamper((j) => (j.environment!.fogDensity = 1))).toEqual({ lightPreset: 12, timeOfDay: 2000 });
+	expect(tamper((j) => (j.environment!.fogDensity = 'thick'))).toEqual({ lightPreset: 12, timeOfDay: 2000 });
 	// Weather is one of the game's three kinds, or clear.
 	scene.setEnvironment({ lightPreset: 12, timeOfDay: 2000, weather: 'snow' });
 	expect(decodeScene(encodeScene(scene)).model.meta.environment).toEqual({ lightPreset: 12, timeOfDay: 2000, weather: 'snow' });

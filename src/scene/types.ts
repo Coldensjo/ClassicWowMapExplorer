@@ -45,6 +45,8 @@ export interface Scene {
 		fog?: { start: number; end: number };
 		/** Whether fog is drawn at all (the preset's distance fog and the valley fog); left out when it is. */
 		fogOn?: boolean;
+		/** How thick the fog lying in the valleys is, as a multiple of the preset's (0..3); left out when 1. */
+		fogDensity?: number;
 		/** Rain, snow or a sandstorm over the whole scene; left out for clear skies. */
 		weather?: SceneWeather;
 	};
@@ -221,5 +223,7 @@ export interface PlacedNpc {
 export const MAX_BLANK_TILES = 3;
 export const MAX_COPIED_TILES = 3;
 export const MAX_SCENE_TILES = 6;
+/** The most a scene can thicken its valley fog by (environment.fogDensity). */
+export const MAX_FOG_DENSITY = 3;
 /** The format version this code writes; loaders migrate every older one (spec 6.4). */
 export const SCENE_VERSION = 2;

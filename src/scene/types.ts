@@ -49,6 +49,8 @@ export interface Scene {
 		fogDensity?: number;
 		/** Rain, snow or a sandstorm over the whole scene; left out for clear skies. */
 		weather?: SceneWeather;
+		/** Whether the preset's colour grading (the game's look for the zone and time) is applied; left out when it is. */
+		gradingOn?: boolean;
 	};
 	/** Play-mode avatar; null = default. */
 	player: NpcAppearance | null;

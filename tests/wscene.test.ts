@@ -237,6 +237,10 @@ test('the environment round-trips, and odd or missing values fall back to the de
 	expect(tamper((j) => (j.environment!.fogDensity = 10))).toEqual({ lightPreset: 12, timeOfDay: 2000, fogDensity: 3 });
 	expect(tamper((j) => (j.environment!.fogDensity = 1))).toEqual({ lightPreset: 12, timeOfDay: 2000 });
 	expect(tamper((j) => (j.environment!.fogDensity = 'thick'))).toEqual({ lightPreset: 12, timeOfDay: 2000 });
+	// Colour grading is on unless the file says it's off.
+	scene.setEnvironment({ lightPreset: 12, timeOfDay: 2000, gradingOn: false });
+	expect(decodeScene(encodeScene(scene)).model.meta.environment).toEqual({ lightPreset: 12, timeOfDay: 2000, gradingOn: false });
+	expect(tamper((j) => (j.environment!.gradingOn = 0))).toEqual({ lightPreset: 12, timeOfDay: 2000 });
 	// Weather is one of the game's three kinds, or clear.
 	scene.setEnvironment({ lightPreset: 12, timeOfDay: 2000, weather: 'snow' });
 	expect(decodeScene(encodeScene(scene)).model.meta.environment).toEqual({ lightPreset: 12, timeOfDay: 2000, weather: 'snow' });

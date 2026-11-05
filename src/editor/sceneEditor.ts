@@ -223,6 +223,8 @@ export class SceneEditor {
 	private indoors = false;
 	/** Called when the environment changes (a command, undo or redo), for the panel. */
 	onEnvironmentChange: () => void = () => {};
+	/** Whether the light preset names colour grading tables at this time of day, so the Colour grading switch does something. */
+	gradingAvailable = false;
 	/** Something the user should know, shown by the editor bar. */
 	onNotice: (text: string) => void = () => {};
 	/** Status bar data, sent every frame. */
@@ -1099,7 +1101,11 @@ export class SceneEditor {
 			if (this.model.meta.base) mapIds.add(this.model.meta.base.mapId);
 			for (const m of await this.storage.listMaps().catch(() => [])) mapIds.add(m.id);
 			const data = await this.storage.loadLighting([...mapIds]);
-			if (!this.disposed) this.lighting = new Lighting(data);
+			if (this.disposed) return;
+			this.lighting = new Lighting(data);
+			// The panel's switches depend on what the preset has (grading tables), known only now.
+			this.updateLighting();
+			this.onEnvironmentChange();
 		} catch (e) {
 			console.warn('Lighting unavailable, the scene keeps its plain daylight:', e);
 		}
@@ -1173,6 +1179,7 @@ export class SceneEditor {
 			this.ambient.groundColor.copy(c.ambient).multiplyScalar(0.8);
 			this.sky.update(state, sunDir, this.camera.position);
 			this.post.grading.set(state.grading);
+			this.gradingAvailable = [...state.grading.keys()].some((id) => id !== 0);
 			const fog = this.fogLook;
 			fog.color.copy(c.skyFog);
 			fog.sunColor.copy(c.direct).multiplyScalar(this.shadowStrength);
@@ -1185,6 +1192,7 @@ export class SceneEditor {
 				fogNear = state.fogEnd * THREE.MathUtils.clamp(state.fogScaler, 0, 0.9);
 			}
 		} else {
+			this.gradingAvailable = false;
 			this.sun.color.copy(PLAIN_SUN);
 			this.ambient.color.copy(PLAIN_AMBIENT);
 			this.ambient.groundColor.copy(PLAIN_AMBIENT);
@@ -1193,6 +1201,7 @@ export class SceneEditor {
 		}
 		this.fog.near = fogNear;
 		this.fog.far = fogFar;
+		this.post.gradingOn = env.gradingOn !== false;
 		this.applyWeatherLight(state?.colors.skyFog ?? null);
 		// Fog off: the distance fog pushed out past everything drawn (near and far apart, as smoothstep needs).
 		const fogOn = env.fogOn !== false;
@@ -1775,5 +1784,6 @@ function tidyEnvironment(e: Scene['environment']): Scene['environment'] {
 		if (density !== 1) out.fogDensity = density;
 	}
 	if (e.weather) out.weather = e.weather;
+	if (e.gradingOn === false) out.gradingOn = false;
 	return out;
 }

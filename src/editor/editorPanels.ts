@@ -34,6 +34,7 @@ import {
 	type SelectHandle,
 	type SelectOption,
 	setChecked,
+	setSwitchDisabled,
 	setDisabled,
 	setHotkeyRows,
 	setRadioValue,
@@ -422,6 +423,12 @@ export class EditorPanels {
 			patch: (v) => ({ fogDensity: v / 100 }),
 			commitLabel: 'Set fog density',
 		});
+		const grading = toggleSwitch({
+			label: 'Colour grading',
+			checked: editor.environment.gradingOn !== false,
+			title: "The game's colour grading for the preset's zone and time of day, applied over the whole view; off, colours show as lit",
+			onChange: (on) => editor.setEnvironment({ gradingOn: on }, on ? 'Turn colour grading on' : 'Turn colour grading off'),
+		});
 		// Shadows are how the scene is viewed, not part of it: no command, and kept across scenes.
 		const shadows = toggleSwitch({
 			label: 'Shadows',
@@ -429,7 +436,7 @@ export class EditorPanels {
 			title: "The sun's shadows, cast by the ground, buildings, doodads and NPCs and moving with the time of day; a view setting kept across scenes, not saved with the scene",
 			onChange: (on) => (editor.shadows = on),
 		});
-		const weatherModule = dockModule({ title: 'Weather effects', children: [weather.root, fog.root, fogDensity.root, shadows.root] });
+		const weatherModule = dockModule({ title: 'Weather effects', children: [weather.root, fog.root, fogDensity.root, shadows.root, grading.root] });
 
 		const settings = editor.clutterSettings;
 		// Switching clutter on also gives layers painted before the ground effect scan finished
@@ -491,6 +498,9 @@ export class EditorPanels {
 			setChecked(fog.root, env.fogOn !== false);
 			fogDensity.sync();
 			setChecked(shadows.root, editor.shadows);
+			setChecked(grading.root, env.gradingOn !== false);
+			// A preset without grading tables has nothing to turn off.
+			setSwitchDisabled(grading.root, !editor.gradingAvailable);
 			setChecked(clutterOn.root, settings.enabled);
 			setSliderValue(density.root, Math.round(settings.density * 100));
 			setSliderValue(time.root, minutes());

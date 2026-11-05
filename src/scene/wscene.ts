@@ -418,6 +418,7 @@ export function readEnvironment(environment: Partial<Scene['environment']> | und
 	if (e.fogOn === false) out.fogOn = false;
 	if (Number.isFinite(e.fogDensity) && e.fogDensity !== 1) out.fogDensity = Math.min(MAX_FOG_DENSITY, Math.max(0, e.fogDensity!));
 	if (e.weather && SCENE_WEATHERS.includes(e.weather)) out.weather = e.weather;
+	if (e.gradingOn === false) out.gradingOn = false;
 	return out;
 }
 

@@ -312,6 +312,8 @@ export class PostPass {
 	/** Whether the fog is drawn at all (the setting), and whether it's wanted now (not under water). */
 	private fogEnabled = true;
 	private fogWanted = true;
+	/** Whether the sun's shafts are traced through the fog (the setting); they also need the fog and a shadow map. */
+	private shaftsEnabled = true;
 	private sun: SunLight | null = null;
 	/** The compile under way: compiles go one at a time (see compileAsync). */
 	private compiling: Promise<void> = Promise.resolve();
@@ -352,6 +354,15 @@ export class PostPass {
 
 	set gradingOn(on: boolean) {
 		this.uniforms.uGrading.value = on ? 1 : 0;
+	}
+
+	/** Whether the sun's shafts are traced through the fog, where there's fog and a shadow map to trace them through. */
+	get shaftsOn(): boolean {
+		return this.shaftsEnabled;
+	}
+
+	set shaftsOn(on: boolean) {
+		this.shaftsEnabled = on;
 	}
 
 	/** Whether there's height fog and sun shafts (the setting). */
@@ -448,7 +459,7 @@ export class PostPass {
 		u.uFar.value = camera.far;
 		// Sun shafts need the shadow map, which only exists once a shadow pass has drawn it.
 		const shadow = this.sun?.castShadow ? this.sun.shadow : null;
-		const shafts = !!shadow?.map?.depthTexture && u.uFogOn.value > 0;
+		const shafts = this.shaftsEnabled && !!shadow?.map?.depthTexture && u.uFogOn.value > 0;
 		if (shadow && shafts) {
 			u.uShadowMap.value = shadow.map!.depthTexture;
 			u.uShadowMatrix.value[0].copy(shadow.getMatrix(0));

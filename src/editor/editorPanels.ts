@@ -423,6 +423,12 @@ export class EditorPanels {
 			patch: (v) => ({ fogDensity: v / 100 }),
 			commitLabel: 'Set fog density',
 		});
+		const shafts = toggleSwitch({
+			label: 'Sun shafts',
+			checked: editor.environment.sunShafts !== false,
+			title: 'Beams of sunlight through the fog where the sun reaches it, traced through the shadows; needs Fog and Shadows on',
+			onChange: (on) => editor.setEnvironment({ sunShafts: on }, on ? 'Turn sun shafts on' : 'Turn sun shafts off'),
+		});
 		const grading = toggleSwitch({
 			label: 'Colour grading',
 			checked: editor.environment.gradingOn !== false,
@@ -434,9 +440,12 @@ export class EditorPanels {
 			label: 'Shadows',
 			checked: editor.shadows,
 			title: "The sun's shadows, cast by the ground, buildings, doodads and NPCs and moving with the time of day; a view setting kept across scenes, not saved with the scene",
-			onChange: (on) => (editor.shadows = on),
+			onChange: (on) => {
+				editor.shadows = on;
+				sync();
+			},
 		});
-		const weatherModule = dockModule({ title: 'Weather effects', children: [weather.root, fog.root, fogDensity.root, shadows.root, grading.root] });
+		const weatherModule = dockModule({ title: 'Weather effects', children: [weather.root, fog.root, fogDensity.root, shadows.root, shafts.root, grading.root] });
 
 		const settings = editor.clutterSettings;
 		// Switching clutter on also gives layers painted before the ground effect scan finished
@@ -498,6 +507,9 @@ export class EditorPanels {
 			setChecked(fog.root, env.fogOn !== false);
 			fogDensity.sync();
 			setChecked(shadows.root, editor.shadows);
+			setChecked(shafts.root, env.sunShafts !== false);
+			// Shafts are traced through the fog by the shadow maps: nothing to show without either.
+			setSwitchDisabled(shafts.root, env.fogOn === false || !editor.shadows);
 			setChecked(grading.root, env.gradingOn !== false);
 			// A preset without grading tables has nothing to turn off.
 			setSwitchDisabled(grading.root, !editor.gradingAvailable);

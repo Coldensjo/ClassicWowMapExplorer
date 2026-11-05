@@ -1202,6 +1202,7 @@ export class SceneEditor {
 		this.fog.near = fogNear;
 		this.fog.far = fogFar;
 		this.post.gradingOn = env.gradingOn !== false;
+		this.post.shaftsOn = env.sunShafts !== false;
 		this.applyWeatherLight(state?.colors.skyFog ?? null);
 		// Fog off: the distance fog pushed out past everything drawn (near and far apart, as smoothstep needs).
 		const fogOn = env.fogOn !== false;
@@ -1785,5 +1786,6 @@ function tidyEnvironment(e: Scene['environment']): Scene['environment'] {
 	}
 	if (e.weather) out.weather = e.weather;
 	if (e.gradingOn === false) out.gradingOn = false;
+	if (e.sunShafts === false) out.sunShafts = false;
 	return out;
 }

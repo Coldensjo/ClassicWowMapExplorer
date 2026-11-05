@@ -241,6 +241,10 @@ test('the environment round-trips, and odd or missing values fall back to the de
 	scene.setEnvironment({ lightPreset: 12, timeOfDay: 2000, gradingOn: false });
 	expect(decodeScene(encodeScene(scene)).model.meta.environment).toEqual({ lightPreset: 12, timeOfDay: 2000, gradingOn: false });
 	expect(tamper((j) => (j.environment!.gradingOn = 0))).toEqual({ lightPreset: 12, timeOfDay: 2000 });
+	// Sun shafts are on unless the file says they're off.
+	scene.setEnvironment({ lightPreset: 12, timeOfDay: 2000, sunShafts: false });
+	expect(decodeScene(encodeScene(scene)).model.meta.environment).toEqual({ lightPreset: 12, timeOfDay: 2000, sunShafts: false });
+	expect(tamper((j) => (j.environment!.sunShafts = 'no'))).toEqual({ lightPreset: 12, timeOfDay: 2000 });
 	// Weather is one of the game's three kinds, or clear.
 	scene.setEnvironment({ lightPreset: 12, timeOfDay: 2000, weather: 'snow' });
 	expect(decodeScene(encodeScene(scene)).model.meta.environment).toEqual({ lightPreset: 12, timeOfDay: 2000, weather: 'snow' });

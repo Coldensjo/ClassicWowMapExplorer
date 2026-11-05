@@ -51,6 +51,8 @@ export interface Scene {
 		weather?: SceneWeather;
 		/** Whether the preset's colour grading (the game's look for the zone and time) is applied; left out when it is. */
 		gradingOn?: boolean;
+		/** Whether the sun's shafts are traced through the fog (needs fog and shadows); left out when they are. */
+		sunShafts?: boolean;
 	};
 	/** Play-mode avatar; null = default. */
 	player: NpcAppearance | null;

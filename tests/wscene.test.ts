@@ -245,6 +245,12 @@ test('the environment round-trips, and odd or missing values fall back to the de
 	scene.setEnvironment({ lightPreset: 12, timeOfDay: 2000, sunShafts: false });
 	expect(decodeScene(encodeScene(scene)).model.meta.environment).toEqual({ lightPreset: 12, timeOfDay: 2000, sunShafts: false });
 	expect(tamper((j) => (j.environment!.sunShafts = 'no'))).toEqual({ lightPreset: 12, timeOfDay: 2000 });
+	// A sky tint needs a hex colour and a strength above 0, kept within 1; the colour is lower-cased.
+	scene.setEnvironment({ lightPreset: 12, timeOfDay: 2000, skyTint: { color: '#FF9A5A', amount: 0.4 } });
+	expect(decodeScene(encodeScene(scene)).model.meta.environment).toEqual({ lightPreset: 12, timeOfDay: 2000, skyTint: { color: '#ff9a5a', amount: 0.4 } });
+	expect(tamper((j) => (j.environment!.skyTint = { color: '#ff9a5a', amount: 3 }))).toEqual({ lightPreset: 12, timeOfDay: 2000, skyTint: { color: '#ff9a5a', amount: 1 } });
+	expect(tamper((j) => (j.environment!.skyTint = { color: '#ff9a5a', amount: 0 }))).toEqual({ lightPreset: 12, timeOfDay: 2000 });
+	expect(tamper((j) => (j.environment!.skyTint = { color: 'orange', amount: 0.5 }))).toEqual({ lightPreset: 12, timeOfDay: 2000 });
 	// Weather is one of the game's three kinds, or clear.
 	scene.setEnvironment({ lightPreset: 12, timeOfDay: 2000, weather: 'snow' });
 	expect(decodeScene(encodeScene(scene)).model.meta.environment).toEqual({ lightPreset: 12, timeOfDay: 2000, weather: 'snow' });

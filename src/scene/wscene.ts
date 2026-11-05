@@ -4,7 +4,7 @@ import { CHUNK_HEIGHTS, CHUNKS_PER_TILE } from '../formats/adt';
 import { ALPHA_SIZE } from '../formats/adtTex';
 import { baseObjectsFromCopy, baseTileFromCopy, cloneChunk, composeObjects, matchesTemplate } from './copyScene';
 import { sameWater, SceneModel, type SceneBaseData, type SceneChunk, type SceneTile, type SceneWater } from './sceneModel';
-import { MAX_FOG_DENSITY, MAX_SCENE_TILES, SCENE_VERSION, SCENE_WEATHERS, type BinRef, type Chunk, type ChunkLayer, type ChunkOverride, type EquipSlot, type NpcAppearance, type NpcPreset, type PlacedNpc, type PlacedObject, type Scene, type Tile, type Vec3, type WaterSettings } from './types';
+import { HEX_COLOR, MAX_FOG_DENSITY, MAX_SCENE_TILES, SCENE_VERSION, SCENE_WEATHERS, type BinRef, type Chunk, type ChunkLayer, type ChunkOverride, type EquipSlot, type NpcAppearance, type NpcPreset, type PlacedNpc, type PlacedObject, type Scene, type Tile, type Vec3, type WaterSettings } from './types';
 import { isNpcPose } from './npcPoses';
 
 /**
@@ -417,6 +417,10 @@ export function readEnvironment(environment: Partial<Scene['environment']> | und
 	if (e.fog && Number.isFinite(e.fog.start) && Number.isFinite(e.fog.end)) out.fog = { start: e.fog.start, end: e.fog.end };
 	if (e.fogOn === false) out.fogOn = false;
 	if (Number.isFinite(e.fogDensity) && e.fogDensity !== 1) out.fogDensity = Math.min(MAX_FOG_DENSITY, Math.max(0, e.fogDensity!));
+	const tint = e.skyTint;
+	if (tint && typeof tint.color === 'string' && HEX_COLOR.test(tint.color) && Number.isFinite(tint.amount) && tint.amount > 0) {
+		out.skyTint = { color: tint.color.toLowerCase(), amount: Math.min(1, tint.amount) };
+	}
 	if (e.weather && SCENE_WEATHERS.includes(e.weather)) out.weather = e.weather;
 	if (e.gradingOn === false) out.gradingOn = false;
 	if (e.sunShafts === false) out.sunShafts = false;

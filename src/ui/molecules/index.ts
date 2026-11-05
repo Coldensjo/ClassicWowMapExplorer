@@ -19,6 +19,7 @@ export * from './toast';
 export * from './grab-bar';
 export * from './loading';
 export * from './swatch-picker';
+export * from './color-input';
 export * from './tile';
 export * from './mode-controller';
 export * from './asset-tile';

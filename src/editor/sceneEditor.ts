@@ -7,7 +7,7 @@ import type { AsyncStorageApi } from '../worker/protocol';
 import { FlyControls } from '../viewer/flyControls';
 import { WalkControls } from '../viewer/walkControls';
 import { Character } from '../viewer/character';
-import { MAX_FOG_DENSITY, type ChunkLayer, type NpcAppearance, type PlacedNpc, type Scene } from '../scene/types';
+import { HEX_COLOR, MAX_FOG_DENSITY, type ChunkLayer, type NpcAppearance, type PlacedNpc, type Scene } from '../scene/types';
 import { Nameplates, NAMEPLATE_RANGE, type Plate } from './nameplates';
 import { createAlphaTexture, createSplatMaterial, seaMask } from '../viewer/terrainMaterials';
 import { TextureCache } from '../viewer/textureCache';
@@ -215,6 +215,8 @@ export class SceneEditor {
 	};
 	/** World height the fog is thickest at, eased towards the lowest ground around. */
 	private fogBase: number | null = null;
+	/** The scene's sky tint, read from its hex each update (sRGB to the working space). */
+	private readonly tintColor = new THREE.Color();
 	/** Whether the camera is under the scene's water, where the sky and fog don't show. */
 	private underwater = false;
 	/** Rain, snow or a sandstorm round the camera (spec 6.1), outdoors and above water. */
@@ -1201,6 +1203,16 @@ export class SceneEditor {
 		}
 		this.fog.near = fogNear;
 		this.fog.far = fogFar;
+		// The scene's own sky colour (spec 6.1): the sky, the fog and the background pulled towards
+		// it, before the weather clouds them over, so rain still greys a tinted sky.
+		if (env.skyTint) {
+			const tint = this.tintColor.set(env.skyTint.color);
+			const amount = env.skyTint.amount;
+			this.sky.tint(tint, amount);
+			this.fogLook.color.lerp(tint, amount);
+			this.fog.color.lerp(tint, amount);
+			background.lerp(tint, amount);
+		}
 		this.post.gradingOn = env.gradingOn !== false;
 		this.post.shaftsOn = env.sunShafts !== false;
 		this.applyWeatherLight(state?.colors.skyFog ?? null);
@@ -1783,6 +1795,10 @@ function tidyEnvironment(e: Scene['environment']): Scene['environment'] {
 	if (e.fogDensity !== undefined && Number.isFinite(e.fogDensity)) {
 		const density = THREE.MathUtils.clamp(e.fogDensity, 0, MAX_FOG_DENSITY);
 		if (density !== 1) out.fogDensity = density;
+	}
+	const tint = e.skyTint;
+	if (tint && HEX_COLOR.test(tint.color) && Number.isFinite(tint.amount) && tint.amount > 0) {
+		out.skyTint = { color: tint.color.toLowerCase(), amount: THREE.MathUtils.clamp(tint.amount, 0, 1) };
 	}
 	if (e.weather) out.weather = e.weather;
 	if (e.gradingOn === false) out.gradingOn = false;

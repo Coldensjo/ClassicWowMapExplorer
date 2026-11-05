@@ -20,6 +20,7 @@ import { MOD_PLACEHOLDER, onHotkeyFormatChange, resolveKeys } from './hotkeyForm
 import {
 	attachTooltip,
 	button,
+	colorInput,
 	confirmDialog,
 	fieldShell,
 	hotkeyList,
@@ -34,6 +35,7 @@ import {
 	type SelectHandle,
 	type SelectOption,
 	setChecked,
+	setColorValue,
 	setSwitchDisabled,
 	setDisabled,
 	setHotkeyRows,
@@ -59,6 +61,9 @@ function modeOf(tool: Tool): ModeId | null {
 
 /** The command key in a row, written as Cmd or Ctrl by the hotkey format when the list is made (hotkeyFormat.ts). */
 const MOD = MOD_PLACEHOLDER;
+/** The sky colour offered before a scene has one, and the strength a first pick starts at. */
+const DEFAULT_SKY_TINT = '#ff9a5a';
+const DEFAULT_SKY_TINT_AMOUNT = 0.5;
 
 const SHIFT_CLICK = (label: string): HotkeyRow => ({ label, keys: ['Shift'], tail: 'click' });
 const MOD_CLICK = (label: string): HotkeyRow => ({ label, keys: [MOD], tail: 'click' });
@@ -501,6 +506,41 @@ export class EditorPanels {
 		});
 		const timeModule = dockModule({ title: 'Time of day', children: [time.root] });
 
+		// The sky's colour (spec 6.1): a colour and how far the sky is pulled towards it. The colour
+		// is kept here while the strength is at 0 (no tint in the scene), so it comes back when the
+		// strength goes up again; picking a colour with no tint starts one at half strength.
+		let skyColor = editor.environment.skyTint?.color ?? DEFAULT_SKY_TINT;
+		let colorBefore: typeof editor.environment | null = null;
+		const tintPatch = (color: string, amount: number) => ({ skyTint: amount > 0 ? { color, amount } : undefined });
+		const skyColorInput = colorInput({
+			label: 'Sky colour',
+			value: skyColor,
+			title: "A colour of your own for the sky: the sky's bands, the fog and the distance are pulled towards it by the tint strength, through the day and weather",
+			onInput: (color) => {
+				colorBefore ??= { ...editor.environment };
+				skyColor = color;
+				editor.previewEnvironment(tintPatch(color, editor.environment.skyTint?.amount ?? DEFAULT_SKY_TINT_AMOUNT));
+			},
+			onChange: (color) => {
+				const from = colorBefore ?? { ...editor.environment };
+				colorBefore = null;
+				skyColor = color;
+				editor.setEnvironment(tintPatch(color, editor.environment.skyTint?.amount ?? DEFAULT_SKY_TINT_AMOUNT), 'Set sky colour', from);
+			},
+		});
+		const tintStrength = this.environmentSlider({
+			label: 'Tint strength',
+			title: "How far the sky is pulled towards the sky colour: 0% leaves the preset's sky, 100% shows the colour alone",
+			min: 0,
+			max: 100,
+			step: 5,
+			suffix: '%',
+			read: (env) => Math.round((env.skyTint?.amount ?? 0) * 100),
+			patch: (v) => tintPatch(skyColor, v / 100),
+			commitLabel: 'Set sky tint strength',
+		});
+		const skyModule = dockModule({ title: 'Sky', children: [skyColorInput.root, tintStrength.root] });
+
 		const sync = () => {
 			const env = editor.environment;
 			setRadioValue(weather.root, env.weather ?? '');
@@ -516,12 +556,15 @@ export class EditorPanels {
 			setChecked(clutterOn.root, settings.enabled);
 			setSliderValue(density.root, Math.round(settings.density * 100));
 			setSliderValue(time.root, minutes());
+			if (env.skyTint) skyColor = env.skyTint.color;
+			setColorValue(skyColorInput.root, skyColor);
+			tintStrength.sync();
 		};
 		editor.onEnvironmentChange = sync;
 		this.cleanups.push(() => {
 			editor.onEnvironmentChange = () => {};
 		});
-		return { title: 'Environment', description: () => null, modules: [weatherModule.root, clutterModule.root, timeModule.root], sync };
+		return { title: 'Environment', description: () => null, modules: [weatherModule.root, skyModule.root, clutterModule.root, timeModule.root], sync };
 	}
 
 	// ---- Sculpt (spec 7.4) ----

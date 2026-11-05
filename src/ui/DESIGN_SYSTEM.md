@@ -250,6 +250,7 @@ was drawn, what was decided and what is proposed. File names follow the specs (s
 | `menu` | `menu()`, `menuPanel()`, `menuOption()`, `menuHeading()`, `menuSeparator()` | the floating panel, and an action menu on any button, with headings, separators and checkable choices between its items |
 | `select` | `select()`, `setSelectValue()`, `setSelectOptions()` | a select-only combobox on the field box and the menu panel |
 | `swatch-picker` | `swatchPicker()`, `setSwatchValue()` | a radiogroup of colour squares |
+| `color-input` | `colorInput()`, `setColorValue()`, `setColorInputDisabled()` | a row with one swatch that opens the browser's colour picker (proposed, not drawn) |
 | `tile` | `tile()` | an outlined card that navigates |
 | `mode-controller` | `modeController()`, `setMode()`, `bindModeShortcuts()` | the editor's tool bar of seven chips |
 | `key-command` | `kbd()`, `kbdChord()` | keycaps |

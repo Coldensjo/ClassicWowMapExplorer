@@ -47,6 +47,12 @@ export interface Scene {
 		fogOn?: boolean;
 		/** How thick the fog lying in the valleys is, as a multiple of the preset's (0..3); left out when 1. */
 		fogDensity?: number;
+		/**
+		 * The sky's colour pulled towards one of the user's own: the sky's bands, the fog and the
+		 * background each mixed with `color` (#rrggbb) by `amount` (0..1, 1 the colour alone, with
+		 * only the sun left of the preset's); left out when the amount is 0.
+		 */
+		skyTint?: { color: string; amount: number };
 		/** Rain, snow or a sandstorm over the whole scene; left out for clear skies. */
 		weather?: SceneWeather;
 		/** Whether the preset's colour grading (the game's look for the zone and time) is applied; left out when it is. */
@@ -227,6 +233,8 @@ export interface PlacedNpc {
 export const MAX_BLANK_TILES = 3;
 export const MAX_COPIED_TILES = 3;
 export const MAX_SCENE_TILES = 6;
+/** A sky tint's colour: six hex digits (environment.skyTint). */
+export const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 /** The most a scene can thicken its valley fog by (environment.fogDensity). */
 export const MAX_FOG_DENSITY = 3;
 /** The format version this code writes; loaders migrate every older one (spec 6.4). */

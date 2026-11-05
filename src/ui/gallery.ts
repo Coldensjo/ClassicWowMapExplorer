@@ -8,6 +8,7 @@ import {
 	attachTooltip,
 	bindModeShortcuts,
 	button,
+	colorInput,
 	confirmDialog,
 	formDialog,
 	floatingWindow,
@@ -229,6 +230,14 @@ const status = () => el('div', { class: 'status' }, '—');
 	const colours = ['#e6c09e', '#c99a6b', '#a9734a', '#7c4f2e', '#4a2e1b', '#f2d6c0', '#006fb4', '#181818'];
 	const picker = swatchPicker({ label: 'Skin colour', name: 'skin', value: '2', options: colours.map((color, i) => ({ value: String(i), color, disabled: i === 5 })), onChange: (v) => (s.textContent = `Skin colour ${Number(v) + 1}`) });
 	section('Swatch picker', 'color-swatch.md', 'The selected swatch has the accent ring and dot; hover outlines; each swatch has a name in a tooltip. The blue and near-black swatches show the issue flagged in the spec.', col(picker.root), s);
+}
+
+// Colour input
+{
+	const s = status();
+	const sky = colorInput({ label: 'Sky colour', value: '#ff9a5a', onInput: (v) => (s.textContent = `Previewing ${v}`), onChange: (v) => (s.textContent = `Sky colour ${v}`) });
+	const disabled = colorInput({ label: 'Fog colour', value: '#9ec4e4', disabled: true });
+	section('Colour input', 'color-input.md', "A row whose swatch opens the browser's own colour picker; onInput previews while it is open and onChange records the colour it closes on.", col(sky.root, disabled.root), s);
 }
 
 // Tile

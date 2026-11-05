@@ -1,0 +1,75 @@
+/*
+ * Colour input. Spec: specs/color-input.md (proposed: not drawn in Figma).
+ *
+ * .ds-color-input is a <label> row like the switch's: the text on the left, and on the right a
+ * swatch the size of the swatch picker's (32px, radius 4) filled with the colour
+ * (--swatch-color, set inline from the value: the one raw colour the system expects). The
+ * native colour input lies over the swatch, invisible, so a click or Space opens the browser's
+ * picker; the swatch shows focus with the focus ring.
+ */
+.ds-color-input {
+	--swatch-size: 32px;
+	--swatch-hover-outline: var(--color-border);
+	--color-input-row-gap: var(--space-2);
+
+	display: flex;
+	align-items: center;
+	gap: var(--color-input-row-gap);
+	inline-size: 100%;
+	min-block-size: var(--swatch-size);
+	color: var(--color-text);
+	font: var(--type-body-secondary);
+	cursor: pointer;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.ds-color-input-label {
+	flex: 1 1 auto;
+	min-inline-size: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ds-color-input-swatch {
+	position: relative;
+	flex: none;
+	inline-size: var(--swatch-size);
+	block-size: var(--swatch-size);
+	border-radius: var(--radius-sm);
+	background-color: var(--swatch-color);
+	overflow: hidden;
+}
+
+.ds-color-input-control {
+	position: absolute;
+	inset: 0;
+	inline-size: 100%;
+	block-size: 100%;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	opacity: 0;
+	cursor: pointer;
+}
+
+@media (hover: hover) {
+	.ds-color-input:not(:has(:disabled)):hover .ds-color-input-swatch {
+		outline: var(--border-width) solid var(--swatch-hover-outline);
+	}
+}
+
+.ds-color-input-swatch:has(:focus-visible) {
+	outline: var(--focus-ring-width) solid var(--color-focus);
+	outline-offset: var(--focus-ring-offset);
+}
+
+.ds-color-input:has(:disabled) {
+	opacity: var(--opacity-disabled);
+	cursor: not-allowed;
+}
+
+.ds-color-input:has(:disabled) .ds-color-input-control {
+	cursor: not-allowed;
+}

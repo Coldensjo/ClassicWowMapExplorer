@@ -224,6 +224,12 @@ export class Sky {
 		this.mesh.position.copy(camera);
 	}
 
+	/** Tints the sky (a scene's own colour): every band pulled towards one colour, the sun left as it is. Call after update. */
+	tint(color: THREE.Color, amount: number): void {
+		const u = this.uniforms;
+		for (const c of [u.uTop, u.uMiddle, u.uBand1, u.uBand2, u.uSmog, u.uFog]) c.value.lerp(color, amount);
+	}
+
 	/** Clouds the sky over (weather): every band pulled towards one colour, the sun hidden as much. Call after update. */
 	overcast(color: THREE.Color, amount: number): void {
 		const u = this.uniforms;

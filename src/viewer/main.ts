@@ -1546,6 +1546,7 @@ async function setUpLockedMaps(): Promise<void> {
 	const keys = savedKeys();
 	const entered = Object.keys(keys).length > 0;
 	if (!locked.length && !entered) return;
+	$('locked').hidden = false;
 	const form = $<HTMLFormElement>('unlock');
 	const status = $('unlock-status');
 	const showButton = $<HTMLButtonElement>('unlock-show');

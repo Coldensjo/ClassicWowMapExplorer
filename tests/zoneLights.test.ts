@@ -71,3 +71,20 @@ test('inside a zone light the light is its own, and outside it the map\'s global
 	expect(lighting.sample(530, 5, 5, 0)!.colors.skyTop.getHex()).toBe(0x0000ff);
 	expect(lighting.sample(530, 50, 5, 0)!.colors.skyTop.getHex()).toBe(0xff0000);
 });
+
+test('a light sphere inside a zone light blends over it, as over the map\'s global light', () => {
+	const key = (color: number) => [{ time: 0, colors: new Array(17).fill(color), fogEnd: 0, fogScaler: 0, grading: 0, fogDensity: 1 }];
+	const data: LightingData = {
+		zones: [
+			{ mapId: 530, x: 0, y: 0, z: 0, inner: 0, outer: 0, params: 1 },
+			{ mapId: 530, x: 0, y: 0, z: 0, inner: 0, outer: 0, params: 2, polygon: square(0, 0, 100, 100) },
+			{ mapId: 530, x: 50, y: 50, z: 0, inner: 10, outer: 20, params: 3 },
+		],
+		keys: { 1: key(0xff0000), 2: key(0x0000ff), 3: key(0x00ff00) },
+	};
+	const lighting = new Lighting(data);
+	// Within the sphere's inner radius only its light; halfway out of it, half the zone light's; past it, the zone light's.
+	expect(lighting.sample(530, 50, 50, 0)!.colors.skyTop.getHex()).toBe(0x00ff00);
+	expect(lighting.sample(530, 65, 50, 0)!.colors.skyTop.getHex()).toBe(0x00bcbc);
+	expect(lighting.sample(530, 90, 50, 0)!.colors.skyTop.getHex()).toBe(0x0000ff);
+});

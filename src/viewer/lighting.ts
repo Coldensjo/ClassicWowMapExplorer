@@ -77,10 +77,12 @@ export class Lighting {
 	sample(mapId: number, wowX: number, wowY: number, t: number): LightState | null {
 		let global: LightZone | null = null;
 		const local: { zone: LightZone; weight: number }[] = [];
+		let region: LightZone | null = null;
 		for (const zone of this.data.zones) {
 			if (zone.mapId !== mapId) continue;
 			if (zone.polygon) {
-				if (this.zoneLights && insidePolygon(zone.polygon, wowX, wowY)) local.push({ zone, weight: 1 });
+				// A zone light stands in for the map's global light there; the spheres still blend over it.
+				if (this.zoneLights && !region && insidePolygon(zone.polygon, wowX, wowY)) region = zone;
 				continue;
 			}
 			if (zone.outer === 0) {
@@ -93,6 +95,7 @@ export class Lighting {
 			local.push({ zone, weight });
 		}
 
+		if (region) global = region;
 		const parts: { value: Sampled; weight: number }[] = [];
 		let total = 0;
 		for (const { zone, weight } of local) {

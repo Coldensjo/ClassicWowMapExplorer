@@ -9,7 +9,7 @@ import { shadeHeights } from '../src/explorer/heightColors';
 import { KNOWN_MAPS, MapExplorer } from '../src/explorer/maps';
 import { NodeSource } from './nodeSource';
 
-const [wowDir = 'C:/Program Files (x86)/World of Warcraft', product = 'wow_classic_beta', tx = '32', ty = '48'] = process.argv.slice(2);
+const [wowDir = 'C:/Program Files (x86)/World of Warcraft', product = 'wowf', tx = '32', ty = '48'] = process.argv.slice(2);
 const OUT = 'out';
 mkdirSync(OUT, { recursive: true });
 

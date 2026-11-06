@@ -2,7 +2,7 @@ import { CascStorage } from '../src/casc/storage';
 import { Db2 } from '../src/formats/db2';
 import { NodeSource } from './nodeSource';
 
-const s = await CascStorage.open(new NodeSource('C:/Program Files (x86)/World of Warcraft'), 'wow_classic_beta');
+const s = await CascStorage.open(new NodeSource('C:/Program Files (x86)/World of Warcraft'), 'wowf');
 const load = async (fdid: number) => new Db2((await s.readFileWithStatus(fdid, true)).data);
 const row = (db: Db2, id: number) => Array.from({ length: db.fieldCount }, (_, f) => {
 	const n = db.arrayLength(f);

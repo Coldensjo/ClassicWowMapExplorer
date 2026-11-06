@@ -27,6 +27,8 @@ export const DB2_FILES = {
 	UiMapAssignment: 1957219,
 	WMOAreaTable: 1355528,
 	ZoneIntroMusicTable: 1310251,
+	ZoneLight: 1310253,
+	ZoneLightPoint: 1310256,
 	ZoneMusic: 1310254,
 } as const;
 

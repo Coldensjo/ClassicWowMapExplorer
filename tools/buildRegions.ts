@@ -16,7 +16,7 @@
 //   TaxiPathNode, split where it jumps (to the other map, or across one), with its stops at the docks.
 //
 // Usage: bun run regions -- [wowDir] [product] [path/to/mangos.sqlite]
-import { execFileSync } from 'node:child_process';
+import { Database } from 'bun:sqlite';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { CascStorage } from '../src/casc/storage';
 import { DB2_FILES, loadTable } from '../src/explorer/clientDb';
@@ -52,9 +52,10 @@ const NODE_STOP = 2;
 /** creature_template.type: critters don't count towards an area's level. */
 const TYPE_CRITTER = 8;
 
+const db = new Database(DB, { readonly: true });
+
 function query<T>(sql: string): T[] {
-	const out = execFileSync('sqlite3', ['-json', DB, sql], { maxBuffer: 1 << 30 }).toString();
-	return out.trim() ? (JSON.parse(out) as T[]) : [];
+	return db.query(sql).all() as T[];
 }
 
 const round = (v: number, digits = 2) => Math.round(v * 10 ** digits) / 10 ** digits;

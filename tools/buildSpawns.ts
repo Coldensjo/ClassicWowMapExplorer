@@ -3,7 +3,7 @@
 // appear during world events (Hallow's End, Winter Veil, ...) are left out.
 // Usage: bun run spawns -- [path/to/mangos.sqlite]
 // Get the database from https://github.com/vmangos/core/releases/tag/db_latest (db-sqlite-*.zip).
-import { execFileSync } from 'node:child_process';
+import { Database } from 'bun:sqlite';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 const DB = process.argv[2] ?? '.cache/vmangos/sqlite-dump/mangos.sqlite';
@@ -13,9 +13,10 @@ const LISTFILE = '.cache/listfile.csv';
 /** Final vanilla content patch (1.12). */
 const PATCH = 10;
 
+const db = new Database(DB, { readonly: true });
+
 function query<T>(sql: string): T[] {
-	const out = execFileSync('sqlite3', ['-json', DB, sql], { maxBuffer: 1 << 30 }).toString();
-	return out.trim() ? (JSON.parse(out) as T[]) : [];
+	return db.query(sql).all() as T[];
 }
 
 const round = (v: number, digits = 2) => Math.round(v * 10 ** digits) / 10 ** digits;

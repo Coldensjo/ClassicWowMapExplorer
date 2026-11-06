@@ -25,11 +25,11 @@ const ASSIGN_REGION = 2;
 const ASSIGN_UI_MAP = 4;
 const ASSIGN_MAP = 6;
 const ASSIGN_AREA = 7;
-/** AreaPOI fields: 0 name, 1 player condition, 3 position, 5 world state, 8 flags, 13 map. */
+/** AreaPOI fields: 0 name, 1 description, 3 position, 5 player condition, 8 flags, 13 map (15, the world state, isn't read). */
 const POI_NAME = 0;
-const POI_CONDITION = 1;
+const POI_DESCRIPTION = 1;
 const POI_POSITION = 3;
-const POI_WORLD_STATE = 5;
+const POI_PLAYER_CONDITION = 5;
 const POI_FLAGS = 8;
 const POI_MAP = 13;
 /** Shown on the world map at all times (towns and landmarks, not battleground objectives). */
@@ -77,7 +77,8 @@ export async function loadPlaces(storage: CascStorage): Promise<Place[]> {
 	for (const id of pois.ids()) {
 		const name = pois.getString(id, POI_NAME)?.trim();
 		const flags = pois.getInt(id, POI_FLAGS) ?? 0;
-		if (!name || !(flags & POI_SHOWN) || pois.getInt(id, POI_CONDITION) || pois.getInt(id, POI_WORLD_STATE)) continue;
+		// Points with a description ("Alliance Controlled") or a player condition are objectives and the like, not towns or landmarks.
+		if (!name || !(flags & POI_SHOWN) || pois.getString(id, POI_DESCRIPTION)?.trim() || pois.getInt(id, POI_PLAYER_CONDITION)) continue;
 		const mapId = pois.getInt(id, POI_MAP) ?? 0;
 		const x = pois.getFloat(id, POI_POSITION, 0) ?? 0;
 		const y = pois.getFloat(id, POI_POSITION, 1) ?? 0;

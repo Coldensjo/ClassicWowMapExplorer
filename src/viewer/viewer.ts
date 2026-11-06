@@ -2243,7 +2243,9 @@ export class Viewer {
 	private liquidOver(p: THREE.Vector3): { surface: number; sea: boolean } | null {
 		const meshes = this.liquidMeshes;
 		meshes.length = 0;
-		meshes.push(...this.terrain.liquidsAt(p.x, p.z));
+		// Inside a building's room only its own liquid counts, as in the game: the lake the building stands in doesn't reach in.
+		const room = !!this.objects.roomAt(p);
+		if (!room) meshes.push(...this.terrain.liquidsAt(p.x, p.z));
 		this.objects.liquidMeshes(meshes);
 		if (meshes.length) {
 			// Surfaces are only hit on the side they're drawn from, which flips while the camera is
@@ -2262,7 +2264,7 @@ export class Viewer {
 			if (surface > -Infinity) return { surface, sea: false };
 		}
 		const here = this.terrain.locate(p.x, p.z);
-		if (!here?.continent.apart && !here?.continent.building && p.y < 0 && this.terrain.surfaceAt(p.x, p.z) < p.y && this.terrain.isSea(p.x, p.z)) {
+		if (!room && !here?.continent.apart && !here?.continent.building && p.y < 0 && this.terrain.surfaceAt(p.x, p.z) < p.y && this.terrain.isSea(p.x, p.z)) {
 			return { surface: 0, sea: true };
 		}
 		return null;
@@ -2276,7 +2278,9 @@ export class Viewer {
 	private liquidAt(p: THREE.Vector3): { kind: LiquidKind; type: number; surface: number } | null {
 		const meshes = this.liquidMeshes;
 		meshes.length = 0;
-		meshes.push(...this.terrain.liquidsAt(p.x, p.z));
+		// Inside a building's room only its own liquid counts, as in the game: the lake the building stands in doesn't reach in.
+		const room = !!this.objects.roomAt(p);
+		if (!room) meshes.push(...this.terrain.liquidsAt(p.x, p.z));
 		this.objects.liquidMeshes(meshes);
 		if (meshes.length) {
 			// Surfaces only hit on the side they're drawn from: from above out of the water (down
@@ -2294,7 +2298,7 @@ export class Viewer {
 		}
 		const here = this.terrain.locate(p.x, p.z);
 		// Not in a map laid out apart (no sea there) or over a building-only one (the sea opens up).
-		if (!here?.continent.apart && !here?.continent.building && p.y < 0 && this.terrain.surfaceAt(p.x, p.z) < p.y && this.terrain.isSea(p.x, p.z)) {
+		if (!room && !here?.continent.apart && !here?.continent.building && p.y < 0 && this.terrain.surfaceAt(p.x, p.z) < p.y && this.terrain.isSea(p.x, p.z)) {
 			return { kind: 'ocean', type: this.liquidLooks?.ocean ?? 0, surface: 0 };
 		}
 		return null;

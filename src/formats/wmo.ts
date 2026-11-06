@@ -11,6 +11,12 @@ export const WMO_GROUP_EXTERIOR = 0x8;
 export const WMO_GROUP_UNREACHABLE = 0x80;
 export const WMO_GROUP_INTERIOR = 0x2000;
 export const WMO_GROUP_ALWAYS_DRAW = 0x10000;
+/**
+ * Group flags that keep a group from being the room the viewer is in: the client skips such groups
+ * when it looks for it (CMap::LocateViewerMapObjs, group flags & 0x410080). 0x80 is WMO_GROUP_UNREACHABLE
+ * and 0x10000 WMO_GROUP_ALWAYS_DRAW; 0x400000 is not named here.
+ */
+export const WMO_GROUP_NOT_A_ROOM = 0x410080;
 /** MOPY triangle flag: things collide with it. */
 const MOPY_COLLISION = 0x8;
 

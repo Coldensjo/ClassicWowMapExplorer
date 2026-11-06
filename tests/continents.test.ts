@@ -18,3 +18,8 @@ test('the continents are the open-world maps the world map shows whole, with sev
 	];
 	expect(pickContinents(maps).map((m) => m.name)).toEqual(['Azeroth', 'Kalimdor', 'Outland', 'Pandaria']);
 });
+
+test('where the world map names no continent, the Eastern Kingdoms and Kalimdor are drawn', () => {
+	const maps = [map(1, 'Kalimdor', { root: false, zones: 0 }), map(0, 'Azeroth', { root: false, zones: 0 }), map(36, 'Deadmines', { instanceType: 1, root: false, zones: 0 })];
+	expect(pickContinents(maps).map((m) => m.name)).toEqual(['Azeroth', 'Kalimdor']);
+});

@@ -58,8 +58,11 @@ const POINT_FLAGS = 5;
 const POINT_DELAY = 6;
 const POINT_TELEPORT = 1;
 
-/** Nodes of the client's tables that aren't flight masters in use: old, removed or never opened. */
-const UNUSED_NODE = /^zzOLD|Riverglades|Hyjal|Tidegear/i;
+/**
+ * Nodes of the client's tables that aren't flight masters in use: old, removed or never opened. Forever's
+ * unopened Hyjal nodes are named "..., Mount Hyjal"; the later versions' real ones "..., Hyjal".
+ */
+const UNUSED_NODE = /^zzOLD|Riverglades|Mount Hyjal|Tidegear/i;
 
 export const round = (v: number, digits = 2) => Math.round(v * 10 ** digits) / 10 ** digits;
 

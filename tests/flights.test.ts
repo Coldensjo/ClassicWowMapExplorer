@@ -70,3 +70,8 @@ test('a route that changes map, or passes a teleport node, is a leg on each side
 	expect(flights.paths.find((p) => p.id === 11)!.legs).toEqual([{ map: 0, points: [5, 0, 0, 6, 0, 0] }, { map: 0, points: [7, 0, 0, 8, 0, 0] }]);
 	expect(flights.paths.find((p) => p.id === 12)!.legs).toEqual([{ map: 0, points: [9, 0, 0, 10, 0, 0] }]);
 });
+
+test('the later versions\' Hyjal flight masters are kept, Forever\'s unopened Mount Hyjal ones are not', () => {
+	const nodes = table({ 1: node(1, 'Shrine of Aviana, Hyjal', 1, 1), 2: node(1, 'Summit of Eternity, Mount Hyjal', 1, 2) });
+	expect(buildFlights(nodes, table({}), table({}), new Set([1])).nodes.map((n) => n.name)).toEqual(['Shrine of Aviana, Hyjal']);
+});

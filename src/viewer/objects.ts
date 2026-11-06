@@ -168,6 +168,14 @@ const ROOM_PROBE = 1760;
 /** How long (ms) an answer about a point is kept, since several things ask about the same point in a frame. Not from the client. */
 const ROOM_CACHE_MS = 250;
 const ROOM_DOWN = new THREE.Vector3(0, -1, 0);
+/** How far (yards) a point may be outside a group's box and still count as in it: a point on the floor sits on its edge. */
+const ROOM_BOX_MARGIN = 0.5;
+
+/** Whether a point in a model's own space is within a box of it, give or take ROOM_BOX_MARGIN. */
+function insideBox(p: THREE.Vector3, min: [number, number, number], max: [number, number, number]): boolean {
+	const m = ROOM_BOX_MARGIN;
+	return p.x >= min[0] - m && p.y >= min[1] - m && p.z >= min[2] - m && p.x <= max[0] + m && p.y <= max[1] + m && p.z <= max[2] + m;
+}
 
 /**
  * Doodads (M2) and buildings (WMO) around the camera. Placements come per tile; each
@@ -1227,6 +1235,8 @@ export class ObjectManager {
 		this.roomRay.firstHitOnly = false;
 		let best: { distance: number; wmoId: number; nameSet: number; group: WmoAreas['groups'][number] } | null = null;
 		const centre = new THREE.Vector3();
+		const local = new THREE.Vector3();
+		const inverse = new THREE.Matrix4();
 		for (const entry of this.models.values()) {
 			const areas = entry.data?.areas;
 			const sphere = entry.geometry?.boundingSphere;
@@ -1252,6 +1262,10 @@ export class ObjectManager {
 				const group = hit.faceIndex == null ? undefined : areas.groups[areas.triangleGroups[hit.faceIndex]];
 				if (!group || group.flags & WMO_GROUP_NOT_A_ROOM) continue;
 				const key = hit.instanceId === undefined ? undefined : entry.drawnKeys[hit.instanceId];
+				// Only a group whose box holds the point, as the game asks (and TrinityCore's GroupModel::IsInsideObject):
+				// otherwise a roof far below, seen from high over a town, would put the camera indoors.
+				const matrix = key === undefined ? undefined : entry.instances.get(key);
+				if (matrix && !insideBox(local.copy(at).applyMatrix4(inverse.copy(matrix).invert()), group.min, group.max)) continue;
 				best = { distance: hit.distance, wmoId: areas.wmoId, nameSet: (key && this.objects.get(key)?.placement.nameSet) || 0, group };
 				break;
 			}

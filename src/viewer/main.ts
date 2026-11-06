@@ -482,7 +482,7 @@ async function explore(): Promise<void> {
 	button.disabled = true;
 	$<HTMLButtonElement>('pick').disabled = true;
 	try {
-		await storage.open($<HTMLSelectElement>('product').value);
+		await storage.open($<HTMLSelectElement>('product').value, savedKeys());
 		const ui = loadUiAssets(storage);
 		const viewer = new Viewer($('view'), storage, showHud, showInfo, $('nameplates'));
 		infoViewer = viewer;
@@ -511,6 +511,7 @@ async function explore(): Promise<void> {
 		console.info('[MapExplorer] Freezes of 100 ms or more are written here as they happen. F9 saves the full debug log to a file; mapExplorerPerf.verbose = true writes every log line here too.');
 		setUpMinimap(viewer, minimapArrow);
 		void setUpGoTo(viewer);
+		void setUpLockedMaps();
 		setUpHighlights(viewer);
 		setUpVersions();
 		// Chosen in the menu before: still open, for comparing the next.
@@ -1520,6 +1521,98 @@ async function setUpGoTo(viewer: Viewer): Promise<void> {
 		if (document.pointerLockElement) document.exitPointerLock();
 		menu.open = true;
 		input.focus();
+	});
+}
+
+// --- Encrypted maps ---
+
+/** TACT keys the user entered, hex by key name: what encrypted maps are opened with. */
+const KEYS_KEY = 'mapExplorer.keys';
+
+function savedKeys(): Record<string, string> {
+	return readSaved<Record<string, string>>(KEYS_KEY) as Record<string, string>;
+}
+
+/**
+ * Under Go to: the maps the install has but Blizzard keeps encrypted until they're released, and a
+ * box per key to enter it. A key is checked against the maps before it's kept; the page then reloads,
+ * as the storage reads with its keys from the start.
+ */
+async function setUpLockedMaps(): Promise<void> {
+	const locked = await storage.lockedMaps().catch((e): { key: string; maps: number }[] => {
+		console.warn('Encrypted maps unknown:', e);
+		return [];
+	});
+	const keys = savedKeys();
+	const entered = Object.keys(keys).length > 0;
+	if (!locked.length && !entered) return;
+	const form = $<HTMLFormElement>('unlock');
+	const status = $('unlock-status');
+	const showButton = $<HTMLButtonElement>('unlock-show');
+	const count = locked.reduce((n, l) => n + l.maps, 0);
+	$('locked-text').textContent = locked.length
+		? `${count} ${count === 1 ? 'map is' : 'maps are'} in the game files but encrypted by Blizzard until released. Enter the key to show ${count === 1 ? 'it' : 'them'}.`
+		: 'Maps encrypted until released are shown with keys you entered.';
+	showButton.hidden = !locked.length;
+	$('keys-forget').hidden = !entered;
+	if (!locked.length) form.hidden = false;
+	form.querySelector<HTMLButtonElement>('button[type=submit]')!.hidden = !locked.length;
+	$('unlock-keys').replaceChildren(...locked.map(({ key, maps }) => {
+		const label = document.createElement('label');
+		label.className = 'unlock-key';
+		const what = document.createElement('span');
+		what.append('Key ');
+		const name = document.createElement('code');
+		name.textContent = key;
+		what.append(name, ` · ${maps} ${maps === 1 ? 'map' : 'maps'}`);
+		const input = document.createElement('input');
+		input.type = 'text';
+		input.dataset.key = key;
+		input.placeholder = '32 hex digits';
+		input.autocomplete = 'off';
+		input.spellcheck = false;
+		label.append(what, input);
+		return label;
+	}));
+	$<HTMLDetailsElement>('goto').addEventListener('toggle', () => {
+		status.textContent = '';
+		if (locked.length) form.hidden = true;
+		showButton.hidden = !locked.length;
+	});
+	showButton.addEventListener('click', () => {
+		form.hidden = false;
+		showButton.hidden = true;
+		form.querySelector('input')?.focus();
+	});
+	const say = (text: string, bad = false) => {
+		status.textContent = text;
+		status.classList.toggle('bad', bad);
+	};
+	form.addEventListener('submit', async (e) => {
+		e.preventDefault();
+		const inputs = [...form.querySelectorAll<HTMLInputElement>('input[data-key]')].filter((i) => i.value.trim());
+		if (!inputs.length) return say('Enter a key first.', true);
+		const found: Record<string, string> = {};
+		for (const input of inputs) {
+			const name = input.dataset.key!;
+			// The key itself, or a line of a key list with its name before it.
+			const hex = input.value.match(/[0-9a-f]{32}/i)?.[0];
+			if (!hex) return say(`The key for ${name} should be 32 characters, 0-9 and A-F.`, true);
+			say('Checking…');
+			if (!(await storage.checkKey(name, hex).catch(() => false))) return say(`That isn’t the key for ${name}.`, true);
+			found[name] = hex.toUpperCase();
+		}
+		save(KEYS_KEY, { ...savedKeys(), ...found });
+		say('Unlocked. Reloading…');
+		reloadWith(currentState());
+	});
+	$('keys-forget').addEventListener('click', () => {
+		try {
+			localStorage.removeItem(KEYS_KEY);
+		} catch {
+			// Storage blocked: nothing was kept.
+		}
+		reloadWith(currentState());
 	});
 }
 

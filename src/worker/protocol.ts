@@ -23,7 +23,12 @@ export interface StorageApi {
 	/** Where the page is served from, for files beside it (the worker's own URL is under assets/). */
 	setPageUrl(url: string): void;
 	setSource(source: SourceInit): ProductInfo[];
-	open(product: string): StorageStats;
+	/** keys: TACT keys the user entered, hex by name, to decrypt what Blizzard ships encrypted. */
+	open(product: string, keys: Record<string, string>): StorageStats;
+	/** The maps the install has but can't read without a key: the key's name and how many maps it holds. */
+	lockedMaps(): { key: string; maps: number }[];
+	/** Whether a key (32 hex digits) is the right one for maps locked with that key name. */
+	checkKey(name: string, key: string): boolean;
 	knownMaps(): KnownMap[];
 	loadMap(wdtFdid: number): MapSummary;
 	minimapThumbnails(wdtFdid: number, coords: [number, number][], size: number): { x: number; y: number; image: Image | null }[];

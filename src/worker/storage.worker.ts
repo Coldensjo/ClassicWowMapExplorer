@@ -1,6 +1,8 @@
 import { FileListSource, HttpSource, type FileSource } from '../casc/source';
 import { CascStorage, StorageChangedError } from '../casc/storage';
 import { describeError, MapExplorer } from '../explorer/maps';
+import { DB2_FILES, loadTable } from '../explorer/clientDb';
+import { parseKey } from '../casc/blte';
 import { setPageUrl } from '../explorer/spawns';
 import { WorldLoader } from '../explorer/world';
 import type { AsyncStorageApi, Request, Response, SourceInit } from './protocol';
@@ -33,13 +35,27 @@ const api: AsyncStorageApi = {
 		world = null;
 		return CascStorage.listProducts(source);
 	},
-	async open(product) {
+	async open(product, keys) {
 		if (!source) throw new Error('No folder selected');
 		const storage = await CascStorage.open(source, product, (progress) => send({ id: -1, progress }));
+		storage.setKeys(new Map(Object.entries(keys).flatMap(([name, hex]) => {
+			const key = parseKey(hex);
+			return key ? [[name.toUpperCase(), key] as const] : [];
+		})));
 		storage.onChanged(() => send({ id: -1, changed: true }));
 		explorer = new MapExplorer(storage);
 		world = null;
 		return storage.stats;
+	},
+	async lockedMaps() {
+		const table = await loadTable(requireExplorer().storage, DB2_FILES.Map);
+		const byKey = new Map<string, number>();
+		for (const { key, rows } of table.lockedSections) byKey.set(key, (byKey.get(key) ?? 0) + rows);
+		return [...byKey].map(([key, maps]) => ({ key, maps }));
+	},
+	async checkKey(name, hex) {
+		const key = parseKey(hex);
+		return !!key && (await requireExplorer().storage.checkKey(DB2_FILES.Map, name.toUpperCase(), key)) === true;
 	},
 	async knownMaps() {
 		return requireWorld().knownMaps();

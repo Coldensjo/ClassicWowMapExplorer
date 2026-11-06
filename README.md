@@ -46,6 +46,13 @@ macOS is untested.
 - **Nothing shows up**: use Chrome or Edge with hardware acceleration on and an up-to-date graphics driver.
 - **Freezes or stutter**: press **F9** right after one to save a debug log and attach it to the issue.
 
+## Encrypted maps
+
+Blizzard often ships new maps in the game files before they're released, encrypted. **Go to** says how many
+your install has and which key opens them. Click **Enter a key…** and paste it (32 hex digits); it is checked
+against the maps before it's kept. Map Explorer holds no keys itself and never fetches any. **Forget my keys**
+locks them again.
+
 ## For developers
 
 - `bun run dev`: start the dev server

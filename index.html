@@ -257,6 +257,19 @@
 			<div class="menu-body panel">
 				<input id="goto-query" type="search" placeholder="A zone, town or map…" autocomplete="off" spellcheck="false" aria-label="Go to a zone, town or map" aria-controls="goto-results" aria-expanded="false" role="combobox">
 				<ul id="goto-results" role="listbox"></ul>
+				<!-- Maps Blizzard ships encrypted until they're released: open with a key the user enters. -->
+				<div id="locked" hidden>
+					<p id="locked-text" class="muted small"></p>
+					<button id="unlock-show" type="button">Enter a key…</button>
+					<form id="unlock" hidden>
+						<div id="unlock-keys"></div>
+						<div class="unlock-actions">
+							<button type="submit" class="primary">Unlock</button>
+							<button type="button" id="keys-forget" hidden>Forget my keys</button>
+						</div>
+						<p id="unlock-status" class="small" aria-live="polite"></p>
+					</form>
+				</div>
 			</div>
 		</details>
 		<button id="help-hint" class="plain"><kbd>?</kbd> Controls</button>

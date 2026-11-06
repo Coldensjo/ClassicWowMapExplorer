@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { zlibSync } from 'fflate';
-import { EncryptedError, decodeBlte, decodeBlteAsync } from '../src/casc/blte';
+import { EncryptedError, checkKey, decodeBlte, decodeBlteAsync, parseKey } from '../src/casc/blte';
+import { salsa20 } from '../src/casc/salsa20';
 
 const u32be = (n: number) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
 const MAGIC = [0x42, 0x4c, 0x54, 0x45];
@@ -111,4 +112,47 @@ test('the async decoder falls back to the sync one for a chunk native zlib rejec
 	const trailing = blte([{ block: Uint8Array.from([...zlib(sample(50)), 1, 2, 3]), size: 50 }]);
 	expect(await decodeBlteAsync(trailing)).toEqual(decodeBlte(trailing));
 	await expect(decodeBlteAsync(Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]))).rejects.toThrow(/Not a BLTE stream/);
+});
+
+// A known Salsa20 output (pycryptodome's), for a 128-bit key over more than two 64-byte blocks.
+test('salsa20 matches a reference implementation', () => {
+	const key = Uint8Array.from({ length: 16 }, (_, i) => i + 1);
+	const nonce = Uint8Array.from([9, 8, 7, 6, 5, 4, 3, 2]);
+	const data = Uint8Array.from({ length: 150 }, (_, i) => (i * 7) & 255);
+	const expected = 'aaec91301001a38b62fd5bced187eee203b06e0680768fa4e3d546450404ffaa7c01260f3df7136d424bf70440ca70ca8c7972082d38ed8480e40116075a353b853ae99b0f9ca3f385cb2da857babc249c8ca8d6313af9957697248ff434ce6272684b9e940504b5fbb2956177d1ff227dc5924e8df0c4664848de202a4123a98e177e7d32f152ab4b854047dfe42cde998f6a4eab14';
+	expect(Buffer.from(salsa20(key, nonce, data)).toString('hex')).toBe(expected);
+});
+
+const KEY_NAME = 'EFCDAB8967452301';
+const KEY = parseKey('00112233445566778899AABBCCDDEEFF')!;
+
+/** An encrypted chunk as BLTE stores it: the inner chunk under Salsa20, its nonce the IV XORed with the chunk's index. */
+function encrypt(inner: Uint8Array, index: number, key = KEY): Uint8Array {
+	const iv = [0x11, 0x22, 0x33, 0x44];
+	const nonce = new Uint8Array(8);
+	nonce.set(iv);
+	for (let i = 0; i < 4; i++) nonce[i] ^= (index >>> (i * 8)) & 0xff;
+	return Uint8Array.from([0x45, 8, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 4, ...iv, 0x53, ...salsa20(key, nonce, inner)]);
+}
+
+test('encrypted chunks decrypt with their key, sync and async', async () => {
+	const input = blte([
+		{ block: raw([1, 2]), size: 2 },
+		{ block: encrypt(zlib(sample(500)), 1), size: 500 },
+		{ block: encrypt(raw([9, 9]), 2), size: 2 },
+	]);
+	const keys = new Map([[KEY_NAME, KEY]]);
+	const expected = Uint8Array.from([1, 2, ...sample(500), 9, 9]);
+	expect(decodeBlte(input, false, keys).data).toEqual(expected);
+	expect((await decodeBlteAsync(input, false, keys)).data).toEqual(expected);
+	// Without it, as before.
+	expect(() => decodeBlte(input)).toThrow(EncryptedError);
+});
+
+test('checkKey tells the right key from a wrong one', () => {
+	const input = blte([{ block: raw([1]), size: 1 }, { block: encrypt(zlib(sample(300)), 1), size: 300 }]);
+	expect(checkKey(input, KEY_NAME, KEY)).toBe(true);
+	expect(checkKey(input, KEY_NAME, parseKey('FF'.repeat(16))!)).toBe(false);
+	expect(checkKey(input, 'AAAAAAAAAAAAAAAA', KEY)).toBeNull();
+	expect(parseKey('not a key')).toBeNull();
 });

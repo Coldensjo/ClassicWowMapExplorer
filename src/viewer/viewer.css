@@ -1016,6 +1016,62 @@ body.reordering * {
 	color: var(--muted);
 }
 
+/* Under Go to: maps encrypted until released, and a box per key to unlock them. */
+#locked {
+	margin-top: 8px;
+	padding-top: 8px;
+	border-top: 1px solid var(--line);
+}
+
+#locked-text {
+	margin: 0 0 6px;
+}
+
+#unlock-show {
+	padding: 3px 10px;
+	font-size: 12px;
+}
+
+.unlock-key {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	margin-bottom: 6px;
+	font-size: 12px;
+}
+
+.unlock-key input {
+	font: 12px ui-monospace, Consolas, monospace;
+	color: var(--text);
+	background: #1b1f25;
+	border: 1px solid var(--line);
+	border-radius: 4px;
+	padding: 4px 6px;
+}
+
+.unlock-key input:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.unlock-actions {
+	display: flex;
+	gap: 6px;
+}
+
+.unlock-actions button {
+	padding: 3px 10px;
+	font-size: 12px;
+}
+
+#unlock-status {
+	margin: 6px 0 0;
+}
+
+#unlock-status:empty {
+	display: none;
+}
+
 /* Info for a clicked creature or object. */
 #info {
 	position: relative;

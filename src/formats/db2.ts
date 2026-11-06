@@ -53,6 +53,8 @@ export class Db2 {
 	private readonly recordsStart: number[] = [];
 	private readonly stringTables: { start: number; size: number; before: number }[] = [];
 	readonly skippedSections: number;
+	/** The sections skipped: the TACT key each is encrypted with (as key lists write its name) and how many rows it holds. */
+	readonly lockedSections: { key: string; rows: number }[] = [];
 	/** Which arrangement of fields this file has: the same table differs between game versions. */
 	readonly layoutHash: number;
 	/** Field numbers as asked for, to this file's own (see mapFields); null for one it hasn't. */
@@ -174,6 +176,7 @@ export class Db2 {
 			const encrypted = section.keyHash !== 0n && section.records > 0 && isZero(bytes, recordsStart, Math.min(64, section.records * this.recordSize));
 			if (encrypted) {
 				skipped++;
+				this.lockedSections.push({ key: section.keyHash.toString(16).padStart(16, '0').toUpperCase(), rows: section.records });
 			} else {
 				for (let i = 0; i < section.records; i++) {
 					const offset = recordsStart + i * this.recordSize;

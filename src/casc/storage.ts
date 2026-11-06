@@ -1,4 +1,4 @@
-import { decodeBlteAsync, EncryptedError, type BlteResult } from './blte';
+import { checkKey, decodeBlteAsync, EncryptedError, type BlteResult, type TactKeys } from './blte';
 import { readBuildInfo, readConfig, type ProductInfo } from './config';
 import { EncodingTable } from './encoding';
 import { hashPath } from './jenkins96';
@@ -52,6 +52,8 @@ class ArchiveReader {
 	private changed = false;
 	/** Whether any read has worked yet. */
 	private hasRead = false;
+	/** What encrypted chunks are decrypted with (see CascStorage.setKeys). */
+	keys: TactKeys = new Map();
 	/** A check under way, shared by the reads that fail meanwhile. */
 	private checking: Promise<boolean> | null = null;
 	/** Called once, when the install is found to have changed. */
@@ -111,14 +113,14 @@ class ArchiveReader {
 		const archive = await this.archive(entry.archive);
 		const bytes = await archive.read(entry.offset + ARCHIVE_ENTRY_HEADER, entry.size - ARCHIVE_ENTRY_HEADER);
 		try {
-			return await decodeBlteAsync(bytes, allowPartial);
+			return await decodeBlteAsync(bytes, allowPartial, this.keys);
 		} catch (e) {
 			if (!(e instanceof Error) || !e.message.startsWith('Not a BLTE stream')) throw e;
 			// The entry header holds the key reversed; if it differs, the index points at the wrong place.
 			const header = await archive.read(entry.offset, ARCHIVE_ENTRY_HEADER);
 			// Some installs (seen with Forever Beta) store the stream right at the offset, with no entry header.
 			if (header[0] === 0x42 && header[1] === 0x4c && header[2] === 0x54 && header[3] === 0x45) {
-				return await decodeBlteAsync(await archive.read(entry.offset, Math.min(entry.size, archive.size - entry.offset)), allowPartial);
+				return await decodeBlteAsync(await archive.read(entry.offset, Math.min(entry.size, archive.size - entry.offset)), allowPartial, this.keys);
 			}
 			const headerKey = toHex(header.subarray(0, 16).slice().reverse());
 			const where = `data.${entry.archive.toString().padStart(3, '0')} offset ${entry.offset} size ${entry.size}` +
@@ -128,6 +130,20 @@ class ArchiveReader {
 				: `entry header key is ${headerKey}, not ${toHex(ekey)}, so the entry is not where the index says or has an unknown layout`;
 			throw new Error(`${what}: ${e.message} at ${where}; ${keyNote}`);
 		}
+	}
+
+	/** checkKey (see blte.ts) on the stored stream of a file. */
+	async checkKey(ekey: Uint8Array, what: string, name: string, key: Uint8Array): Promise<boolean | null> {
+		const entry = this.index.find(ekey);
+		if (!entry) throw new NotLocalError(what, '');
+		const archive = await this.archive(entry.archive);
+		const header = await archive.read(entry.offset, ARCHIVE_ENTRY_HEADER);
+		// As in readEntry: some installs store the stream right at the offset, with no entry header.
+		const bare = header[0] === 0x42 && header[1] === 0x4c && header[2] === 0x54 && header[3] === 0x45;
+		const bytes = bare
+			? await archive.read(entry.offset, Math.min(entry.size, archive.size - entry.offset))
+			: await archive.read(entry.offset + ARCHIVE_ENTRY_HEADER, entry.size - ARCHIVE_ENTRY_HEADER);
+		return checkKey(bytes, name, key);
 	}
 
 	private archive(n: number): Promise<RandomAccessFile> {
@@ -364,6 +380,21 @@ export class CascStorage {
 
 	async readFile(fdid: number): Promise<Uint8Array> {
 		return (await this.readFileWithStatus(fdid)).data;
+	}
+
+	/**
+	 * TACT keys to decrypt encrypted files and table sections with, by name. Set before reading:
+	 * what's been read before (the tables, cached) stays as it was.
+	 */
+	setKeys(keys: TactKeys): void {
+		this.archives.keys = keys;
+	}
+
+	/** Whether a key is the right one for a file encrypted with it (see checkKey in blte.ts); null if the file doesn't use it. */
+	async checkKey(fdid: number, name: string, key: Uint8Array): Promise<boolean | null> {
+		const { status, ekey } = this.resolve(fdid);
+		if (status !== 'ok' || !ekey) return null;
+		return this.archives.checkKey(ekey, `File ${fdid}`, name, key);
 	}
 
 	/**

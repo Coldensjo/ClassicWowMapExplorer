@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { SunLight } from 'three/addons/lights/SunLight.js';
 import { TILE_SIZE } from '../formats/adt';
-import { KNOWN_MAPS } from '../explorer/maps';
+import type { KnownMap } from '../explorer/maps';
 import type { FarTile, InstanceMap, MapCategory } from '../explorer/world';
 import type { AsyncStorageApi } from '../worker/protocol';
 import type { AreaInfo } from '../explorer/lighting';
@@ -1084,8 +1084,8 @@ export class Viewer {
 		this.terrain.clutter = this.clutter;
 		this.scene.add(this.terrain.group, this.objects.group, this.clutter.group);
 
-		const loaded: { map: (typeof KNOWN_MAPS)[number]; tiles: FarTile[] }[] = [];
-		for (const map of KNOWN_MAPS) {
+		const loaded: { map: KnownMap; tiles: FarTile[] }[] = [];
+		for (const map of await this.storage.knownMaps()) {
 			onStatus(`Reading ${map.name} heightmap`);
 			loaded.push({ map, tiles: await this.storage.loadFarTiles(map.wdt, map.wdl) });
 		}
@@ -1533,14 +1533,14 @@ export class Viewer {
 			this.restedAreas?.setData(data, this.continents);
 		}, (e) => console.warn('Regions unavailable:', e));
 		if (this.flights) {
-			Flights.loadFile().then((file) => {
-				if (file) this.flights!.setData(file, this.continents);
-			}, (e) => console.warn('Flight paths unavailable:', e));
+			this.storage.loadFlights().then((data) => this.flights!.setData(data, this.continents), (e) => console.warn('Flight paths unavailable:', e));
 		}
 		const transports = new Transports(this.objects);
 		this.transports = transports;
-		Transports.loadFile().then((file) => {
-			if (file) transports.setData(file, this.continents, (mapId, x, y) => this.regionData?.areaAtWow(mapId, x, y)?.name ?? null);
+		Transports.loadFile().then(async (file) => {
+			if (!file) return;
+			const routes = await this.storage.loadTransportRoutes(file.transports.map((t) => ({ displayId: t.displayId, path: t.path })));
+			transports.setData(file, routes, this.continents, (mapId, x, y) => this.regionData?.areaAtWow(mapId, x, y)?.name ?? null);
 		}, (e) => console.warn('Boats and zeppelins unavailable:', e));
 		this.storage.loadTextures([SNOWFLAKE_TEXTURE], this.usesCompressedTextures).then(
 			([flake]) => {
@@ -1600,8 +1600,8 @@ export class Viewer {
 		if (!flights) return 'No flight paths';
 		const plan = flights.plan(from, to);
 		if (!plan) return 'No route between those for this side';
-		const ride = flights.ride(plan.points, speedScale);
-		const start = plan.points[0];
+		const ride = flights.ride(plan.legs, speedScale);
+		const start = plan.legs[0][0];
 		const destination = flights.list.find((m) => m.id === to)?.name ?? '';
 		this.triggersArmed = false;
 		this.controls.set(start.clone().setY(start.y + 2), this.controls.yaw, this.controls.pitch);
@@ -2453,8 +2453,8 @@ function layoutMaps(maps: { map: InstanceMap; category: MapCategory }[], world: 
 	});
 }
 
-/** Places Kalimdor west of the Eastern Kingdoms, vertically centred, with open sea between. */
-function layoutContinents(loaded: { map: (typeof KNOWN_MAPS)[number]; tiles: FarTile[] }[]): ContinentPlacement[] {
+/** Places each continent west of the one before (Kalimdor of the Eastern Kingdoms), vertically centred on the first, with open sea between. */
+function layoutContinents(loaded: { map: KnownMap; tiles: FarTile[] }[]): ContinentPlacement[] {
 	const extent = (tiles: FarTile[]) => {
 		const land = tiles.filter((t) => t.hasAdt);
 		const xs = land.map((t) => t.x);
@@ -2463,18 +2463,25 @@ function layoutContinents(loaded: { map: (typeof KNOWN_MAPS)[number]; tiles: Far
 	};
 	const placements: ContinentPlacement[] = [];
 	let anchor: ReturnType<typeof extent> | null = null;
+	// Where the land and the WDL grid of the continent last placed begin, in the world's tiles.
+	let landMinX = 0;
+	let wdlMinX = 0;
 	for (const { map, tiles } of loaded) {
 		const e = extent(tiles);
+		const wdlMin = Math.min(...tiles.map((t) => t.x));
 		if (!anchor) {
 			placements.push({ name: map.name, mapId: map.mapId, wdt: map.wdt, offsetX: 0, offsetY: 0 });
 			anchor = e;
+			landMinX = e.minX;
+			wdlMinX = wdlMin;
 			continue;
 		}
 		// WDL tiles extend past the land; keep the whole WDL grid clear of the previous continent.
 		const wdlMaxX = Math.max(...tiles.map((t) => t.x));
-		const anchorWdlMin = Math.min(...loaded[0].tiles.map((t) => t.x));
-		const offsetX = Math.min(anchor.minX - CONTINENT_GAP - e.maxX - 1, anchorWdlMin - wdlMaxX - 1);
+		const offsetX = Math.min(landMinX - CONTINENT_GAP - e.maxX - 1, wdlMinX - wdlMaxX - 1);
 		placements.push({ name: map.name, mapId: map.mapId, wdt: map.wdt, offsetX, offsetY: Math.round(anchor.midY - e.midY) });
+		landMinX = e.minX + offsetX;
+		wdlMinX = wdlMin + offsetX;
 	}
 	return placements;
 }

@@ -1,8 +1,10 @@
 import type { ProductInfo } from '../casc/config';
 import type { StorageStats } from '../casc/storage';
 import type { AreaInfo, LightingData } from '../explorer/lighting';
-import type { MapSummary } from '../explorer/maps';
+import type { KnownMap, MapSummary } from '../explorer/maps';
 import type { FootstepSounds, LiquidLooks, LockKind } from '../explorer/clientDb';
+import type { FlightData } from '../explorer/flights';
+import type { TransportRoute } from '../explorer/transportRoutes';
 import type { MusicData, WmoArea } from '../explorer/music';
 import type { Place } from '../explorer/places';
 import type { WorldMapInfo } from '../explorer/worldMap';
@@ -22,6 +24,7 @@ export interface StorageApi {
 	setPageUrl(url: string): void;
 	setSource(source: SourceInit): ProductInfo[];
 	open(product: string): StorageStats;
+	knownMaps(): KnownMap[];
 	loadMap(wdtFdid: number): MapSummary;
 	minimapThumbnails(wdtFdid: number, coords: [number, number][], size: number): { x: number; y: number; image: Image | null }[];
 	loadFarTiles(wdtFdid: number, wdlFdid: number): FarTile[];
@@ -42,6 +45,8 @@ export interface StorageApi {
 	loadMusic(): MusicData;
 	loadLiquidLooks(): LiquidLooks;
 	loadLockKinds(): Record<number, LockKind>;
+	loadFlights(): FlightData;
+	loadTransportRoutes(transports: { displayId: number; path: number }[]): (TransportRoute | null)[];
 	loadFootsteps(): FootstepSounds;
 	loadPlaces(): Place[];
 	wmoArea(wmoId: number, nameSet: number, groupId: number): WmoArea | null;

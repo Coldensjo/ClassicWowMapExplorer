@@ -41,6 +41,9 @@ const api: AsyncStorageApi = {
 		world = null;
 		return storage.stats;
 	},
+	async knownMaps() {
+		return requireWorld().knownMaps();
+	},
 	async loadMap(wdtFdid) {
 		return requireExplorer().loadMap(wdtFdid);
 	},
@@ -88,6 +91,12 @@ const api: AsyncStorageApi = {
 	},
 	async loadLiquidLooks() {
 		return requireWorld().loadLiquidLooks();
+	},
+	async loadTransportRoutes(transports) {
+		return requireWorld().loadTransportRoutes(transports);
+	},
+	async loadFlights() {
+		return requireWorld().loadFlights();
 	},
 	async loadFootsteps() {
 		return requireWorld().loadFootsteps();

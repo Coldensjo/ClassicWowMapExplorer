@@ -8,10 +8,12 @@ import { DB2_FILES, footstepSounds, liquidKinds, liquidLooks, loadTable, lockKin
 import { loadAreas, loadLighting, type AreaInfo, type LightingData } from './lighting';
 import { buildLiquidMeshes, type LiquidMesh } from './liquidMesh';
 import { MusicTables, type MusicData, type WmoArea } from './music';
-import type { MapExplorer } from './maps';
+import type { KnownMap, MapExplorer } from './maps';
+import { findContinents, mapWdt, MAP_INSTANCE_TYPE, MAP_NAME } from './continents';
 import { loadWorldMaps, type WorldMapInfo } from './worldMap';
 import { loadPlaces, type Place } from './places';
-import { KNOWN_MAPS } from './maps';
+import { loadFlights, type FlightData } from './flights';
+import { loadTransportRoutes, type TransportRoute } from './transportRoutes';
 import { buildBvh, globalWmoPlacement, globalWmoTiles, loadM2, loadWmo, parsePlacements, type ModelData, type ObjectKind, type Placement, type SerializedBvh } from './objects';
 import { GroundEffects, type ClutterSource } from './groundEffects';
 import { PortalSource } from './portals';
@@ -59,11 +61,6 @@ export interface MapListing {
 	category: MapCategory;
 }
 
-/** Map.db2 fields. */
-const MAP_DIRECTORY = 0;
-const MAP_NAME = 1;
-const MAP_INSTANCE_TYPE = 8;
-const MAP_WDT = 21;
 const CATEGORIES: MapCategory[] = ['other', 'dungeon', 'raid', 'battleground'];
 
 export interface FarTile {
@@ -122,21 +119,21 @@ export class WorldLoader {
 	}
 
 	private mapIds: Promise<Map<number, number>> | null = null;
+	private continents: Promise<KnownMap[]> | null = null;
 
-	/**
-	 * A map's WDT file (0 if none): from Map.db2, or where that hasn't the field (Classic), by its
-	 * path, world/maps/<directory>/<directory>.wdt, the directory being the map's first field.
-	 */
+	/** The continents of the install, drawn as one world: the maps its world map shows whole. */
+	knownMaps(): Promise<KnownMap[]> {
+		this.continents ??= findContinents(this.storage);
+		return this.continents;
+	}
+
 	private mapWdt(table: Db2, mapId: number): number {
-		const listed = table.getInt(mapId, MAP_WDT);
-		if (listed !== null) return listed;
-		const directory = table.getString(mapId, MAP_DIRECTORY)?.toLowerCase();
-		return directory ? this.storage.lookupPath(`world/maps/${directory}/${directory}.wdt`) ?? 0 : 0;
+		return mapWdt(this.storage, table, mapId);
 	}
 
 	/** The Map.db2 ID of a map's WDT, or null for a WDT no map uses. */
 	private async mapIdOf(wdtFdid: number): Promise<number | null> {
-		const known = KNOWN_MAPS.find((m) => m.wdt === wdtFdid);
+		const known = (await this.knownMaps()).find((m) => m.wdt === wdtFdid);
 		if (known) return known.mapId;
 		this.mapIds ??= loadTable(this.storage, DB2_FILES.Map).then((table) => {
 			const byWdt = new Map<number, number>();
@@ -180,10 +177,11 @@ export class WorldLoader {
 	async listMaps(): Promise<MapListing[]> {
 		const table = await loadTable(this.storage, DB2_FILES.Map);
 		const out: MapListing[] = [];
+		const continents = await this.knownMaps();
 		for (const id of table.ids()) {
 			const wdt = this.mapWdt(table, id);
 			if (!wdt || this.storage.status(wdt) !== 'ok') continue;
-			const known = KNOWN_MAPS.find((m) => m.mapId === id);
+			const known = continents.find((m) => m.mapId === id);
 			out.push({
 				id,
 				name: known?.name ?? table.getString(id, MAP_NAME) ?? `Map ${id}`,
@@ -407,6 +405,16 @@ export class WorldLoader {
 
 	loadPlaces(): Promise<Place[]> {
 		return loadPlaces(this.storage);
+	}
+
+	/** The routes and models of boats and zeppelins, in the order asked. */
+	loadTransportRoutes(transports: { displayId: number; path: number }[]): Promise<(TransportRoute | null)[]> {
+		return loadTransportRoutes(this.storage, transports);
+	}
+
+	/** The flight network on the continents drawn as one world. */
+	async loadFlights(): Promise<FlightData> {
+		return loadFlights(this.storage, (await this.knownMaps()).map((m) => m.mapId));
 	}
 
 	loadFootsteps(): Promise<FootstepSounds> {

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { TransportRoute } from '../explorer/transportRoutes';
 import type { Ride } from './flyControls';
 import type { ObjectManager } from './objects';
 import { worldFromWow } from './regionData';
@@ -6,24 +7,26 @@ import type { ContinentPlacement } from './terrain';
 
 export type TransportKind = 'ship' | 'zeppelin';
 
-/** public/spawns/transports.json, from VMaNGOS's transports and the client's TaxiPathNode (tools/buildRegions.ts). */
+/**
+ * public/spawns/transports.json, from VMaNGOS's transports (tools/buildRegions.ts); the client's tables give each
+ * one's model and route (TransportRoute: a leg per unbroken stretch, [x, y, z, wait in seconds, ...] in WoW
+ * coordinates). As in the game's splines, a leg's first and last nodes only shape the curve; the transport travels
+ * from its second to its second-last.
+ */
 interface TransportFile {
 	transports: {
 		entry: number;
 		name: string;
 		kind: TransportKind;
-		/** The WMO it's drawn with. */
-		model: number;
+		/** The GameObjectDisplayInfo it's drawn with. */
+		displayId: number;
 		/** A round trip, in ms. */
 		period: number;
-		/**
-		 * The route, a leg per unbroken stretch (it jumps between them, and from the last back to the
-		 * first): [x, y, z, wait in seconds, ...] in WoW coordinates. As in the game's splines, a leg's
-		 * first and last nodes only shape the curve; the transport travels from its second to its second-last.
-		 */
-		legs: { map: number; points: number[] }[];
+		/** The TaxiPath it follows. */
+		path: number;
 	}[];
 }
+
 
 /** Where the camera sits on board, in the model's own space (x aft, y right, z up). */
 const SEATS: Record<TransportKind, THREE.Vector3> = {
@@ -132,10 +135,12 @@ export class Transports {
 	}
 
 	/** areaName names a dock from where it is, when the transport's own name doesn't say. */
-	setData(file: TransportFile, continents: ContinentPlacement[], areaName: (mapId: number, x: number, y: number) => string | null): void {
+	setData(file: TransportFile, routes: (TransportRoute | null)[], continents: ContinentPlacement[], areaName: (mapId: number, x: number, y: number) => string | null): void {
 		this.placements = new Map(continents.filter((c) => !c.instance).map((c) => [c.mapId, c]));
 		for (const t of this.list) this.objects.removeLoose(`transport:${t.entry}`);
-		this.list = file.transports.map((t) => {
+		// A transport whose route the client doesn't have isn't shown.
+		const known = file.transports.flatMap((t, i) => (routes[i] ? [{ ...t, ...routes[i]! }] : []));
+		this.list = known.map((t) => {
 			const nodes = t.legs.map((l) => {
 				const points: THREE.Vector3[] = [];
 				const waits: number[] = [];

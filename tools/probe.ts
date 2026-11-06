@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { CascStorage } from '../src/casc/storage';
 import { CHUNK_SIZE } from '../src/formats/adt';
 import { shadeHeights } from '../src/explorer/heightColors';
-import { KNOWN_MAPS, MapExplorer } from '../src/explorer/maps';
+import { findContinents } from '../src/explorer/continents';
+import { MapExplorer } from '../src/explorer/maps';
 import { NodeSource } from './nodeSource';
 
 const [wowDir = 'C:/Program Files (x86)/World of Warcraft', product = 'wowf', tx = '32', ty = '48'] = process.argv.slice(2);
@@ -23,8 +24,9 @@ const source = new NodeSource(wowDir);
 const storage = await CascStorage.open(source, product);
 console.log(storage.stats);
 const explorer = new MapExplorer(storage);
+const continents = await findContinents(storage);
 
-for (const map of KNOWN_MAPS) {
+for (const map of continents) {
 	const summary = await explorer.loadMap(map.wdt);
 	console.log(`\n${map.name}: ${summary.tileCount} tiles, flags 0x${summary.flags.toString(16)}`);
 	console.table(summary.availability);
@@ -50,7 +52,7 @@ for (const map of KNOWN_MAPS) {
 	writePng(`overview-${map.directory}`, w, h, mosaic);
 }
 
-const tile = await explorer.loadTile(KNOWN_MAPS[0].wdt, Number(tx), Number(ty));
+const tile = await explorer.loadTile(continents[0].wdt, Number(tx), Number(ty));
 console.log(`\nTile ${tx}_${ty}:`, {
 	...tile,
 	heightGrid: tile.heightGrid && { size: tile.heightGrid.size, min: tile.heightGrid.min, max: tile.heightGrid.max },

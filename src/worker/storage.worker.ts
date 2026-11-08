@@ -2,12 +2,14 @@ import { FileListSource, HttpSource, type FileSource } from '../casc/source';
 import { CascStorage, StorageChangedError } from '../casc/storage';
 import { describeError, MapExplorer } from '../explorer/maps';
 import { DB2_FILES, loadTable } from '../explorer/clientDb';
-import { parseKey } from '../casc/blte';
+import { parseKey, type TactKeys } from '../casc/blte';
+import { loadTactKeys } from '../explorer/tactKeys';
 import { setPageUrl } from '../explorer/spawns';
 import { WorldLoader } from '../explorer/world';
 import type { AsyncStorageApi, Request, Response, SourceInit } from './protocol';
 
 let source: FileSource | null = null;
+let pageUrl = '';
 let explorer: MapExplorer | null = null;
 let world: WorldLoader | null = null;
 
@@ -28,6 +30,7 @@ function send(message: Response, transfer: Transferable[] = []): void {
 const api: AsyncStorageApi = {
 	async setPageUrl(url) {
 		setPageUrl(url);
+		pageUrl = url;
 	},
 	async setSource(init: SourceInit) {
 		source = init.kind === 'http' ? new HttpSource(init.base) : new FileListSource(init.files);
@@ -38,10 +41,13 @@ const api: AsyncStorageApi = {
 	async open(product, keys) {
 		if (!source) throw new Error('No folder selected');
 		const storage = await CascStorage.open(source, product, (progress) => send({ id: -1, progress }));
-		storage.setKeys(new Map(Object.entries(keys).flatMap(([name, hex]) => {
+		const entered: TactKeys = new Map(Object.entries(keys).flatMap(([name, hex]) => {
 			const key = parseKey(hex);
 			return key ? [[name.toUpperCase(), key] as const] : [];
-		})));
+		}));
+		const { keys: all, report } = await loadTactKeys(storage, source, product, pageUrl, entered);
+		storage.setKeys(all);
+		console.info(`[MapExplorer] TACT keys: ${report.game} from the game's tables and hotfix caches, ${report.entered} entered, ${report.files} added by ${report.fileCount} list(s) beside the app`);
 		storage.onChanged(() => send({ id: -1, changed: true }));
 		explorer = new MapExplorer(storage);
 		world = null;

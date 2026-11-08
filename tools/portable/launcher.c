@@ -31,8 +31,12 @@
 #define HELLO_BODY "Map Explorer"
 // The World of Warcraft install, served to the page here so it opens without asking for the folder.
 #define WOW_PATH "/__wow/"
+// The TACT key lists (tactkey*.txt, tactkey*.csv) beside the exe, listed and served by name.
+#define KEYS_PATH "/__keys/"
 
 static wchar_t appDir[MAX_PATH];
+// The folder the exe is in, with no '\' at the end: where the key lists are looked for.
+static wchar_t keysDir[MAX_PATH];
 // The install found at startup (the folder holding .build.info); empty if there's none.
 static wchar_t wowDir[MAX_PATH];
 // The port being served, which requests for the game files must be addressed to.
@@ -209,8 +213,20 @@ static void sendFile(SOCKET s, const char *method, const wchar_t *file, const ch
 	CloseHandle(f);
 }
 
-// Lists a folder for the page: the names in it, one per line, in UTF-8.
-static void sendListing(SOCKET s, const char *method, const wchar_t *dir) {
+// A name the page may read from the key folder: tactkey*.txt or tactkey*.csv, nothing else.
+static int isKeyFileName(const char *name) {
+	size_t n = strlen(name);
+	return n >= 11 && _strnicmp(name, "tactkey", 7) == 0 && !strchr(name, '/') && (_stricmp(name + n - 4, ".txt") == 0 || _stricmp(name + n - 4, ".csv") == 0);
+}
+
+// The hotfix cache of a game folder (_forever_/Cache/ADB/...), which holds the TACT keys sent since the build.
+static int isCachePath(const char *relative) {
+	const char *slash = strchr(relative, '/');
+	return relative[0] == '_' && slash && slash > relative + 1 && slash[-1] == '_' && _strnicmp(slash, "/Cache/ADB/", 11) == 0;
+}
+
+// Lists a folder for the page: the names in it, one per line, in UTF-8; only key lists if keysOnly.
+static void sendListing(SOCKET s, const char *method, const wchar_t *dir, int keysOnly) {
 	wchar_t pattern[MAX_PATH * 2];
 	swprintf(pattern, sizeof pattern / sizeof pattern[0], L"%ls\\*", dir);
 	WIN32_FIND_DATAW found;
@@ -226,7 +242,7 @@ static void sendListing(SOCKET s, const char *method, const wchar_t *dir) {
 		if (!body || wcscmp(found.cFileName, L".") == 0 || wcscmp(found.cFileName, L"..") == 0) continue;
 		char name[MAX_PATH * 4];
 		int n = WideCharToMultiByte(CP_UTF8, 0, found.cFileName, -1, name, sizeof name, NULL, NULL);
-		if (n <= 1) continue;
+		if (n <= 1 || (keysOnly && !isKeyFileName(name))) continue;
 		while (length + n > capacity) {
 			char *bigger = realloc(body, capacity *= 2);
 			if (!bigger) free(body);
@@ -270,16 +286,26 @@ static int answer(SOCKET s, const char *request) {
 		sendStatus(s, method, "404 Not Found", "Not found");
 	} else if (strcmp(path, HELLO_PATH) == 0) {
 		sendStatus(s, method, "200 OK", HELLO_BODY);
+	} else if (strncmp(path, KEYS_PATH, strlen(KEYS_PATH)) == 0) {
+		const char *name = path + strlen(KEYS_PATH);
+		if (!addressedHere(request) || (*name && !isKeyFileName(name))) {
+			sendStatus(s, method, "404 Not Found", "Not found");
+		} else if (!*name) {
+			sendListing(s, method, keysDir, 1);
+		} else {
+			localPath(keysDir, name, file, sizeof file / sizeof file[0]);
+			sendFile(s, method, file, "text/plain; charset=utf-8", NULL);
+		}
 	} else if (strncmp(path, WOW_PATH, strlen(WOW_PATH)) == 0) {
 		const char *relative = path + strlen(WOW_PATH);
-		// Only what the page reads: .build.info and the Data folder.
-		int allowed = wowDir[0] && addressedHere(request) && (strcmp(relative, ".build.info") == 0 || _strnicmp(relative, "Data/", 5) == 0);
+		// Only what the page reads: .build.info, the Data folder and the hotfix caches.
+		int allowed = wowDir[0] && addressedHere(request) && (strcmp(relative, ".build.info") == 0 || _strnicmp(relative, "Data/", 5) == 0 || isCachePath(relative));
 		char range[128];
 		if (!allowed) {
 			sendStatus(s, method, "404 Not Found", "Not found");
 		} else {
 			localPath(wowDir, relative, file, sizeof file / sizeof file[0]);
-			if (relative[strlen(relative) - 1] == '/') sendListing(s, method, file);
+			if (relative[strlen(relative) - 1] == '/') sendListing(s, method, file, 0);
 			else sendFile(s, method, file, "application/octet-stream", headerValue(request, "Range", range, sizeof range) ? range : NULL);
 		}
 	} else {
@@ -517,6 +543,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR arguments, int
 	wchar_t *slash = wcsrchr(exeDir, L'\\');
 	if (slash) slash[1] = 0;
 	swprintf(appDir, MAX_PATH, L"%lsapp", exeDir);
+	wcscpy(keysDir, exeDir);
+	if (slash) keysDir[slash - exeDir] = 0;
 	wchar_t index[MAX_PATH * 2];
 	swprintf(index, sizeof index / sizeof index[0], L"%ls\\index.html", appDir);
 	if (GetFileAttributesW(index) == INVALID_FILE_ATTRIBUTES) {

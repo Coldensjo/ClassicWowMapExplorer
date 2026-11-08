@@ -55,6 +55,8 @@ export class Db2 {
 	readonly skippedSections: number;
 	/** The sections skipped: the TACT key each is encrypted with (as key lists write its name) and how many rows it holds. */
 	readonly lockedSections: { key: string; rows: number }[] = [];
+	/** The table's own hash from its header; the rows of a hotfix cache carry it to say which table they belong to. */
+	readonly tableHash: number;
 	/** Which arrangement of fields this file has: the same table differs between game versions. */
 	readonly layoutHash: number;
 	/** Field numbers as asked for, to this file's own (see mapFields); null for one it hasn't. */
@@ -72,7 +74,7 @@ export class Db2 {
 		const fieldCount = u32();
 		this.recordSize = u32();
 		u32(); // string table size
-		u32(); // table hash
+		this.tableHash = u32();
 		this.layoutHash = u32();
 		u32(); u32(); // min id, max id
 		u32(); // locale
@@ -235,6 +237,12 @@ export class Db2 {
 
 	has(id: number): boolean {
 		return this.rows.has(id);
+	}
+
+	/** The stored bytes of a row, as they are in the file: for a table that is nothing but bytes, like the TACT keys. */
+	recordBytes(id: number): Uint8Array | null {
+		const row = this.rows.get(id);
+		return row ? this.bytes.subarray(row.offset, row.offset + this.recordSize) : null;
 	}
 
 	private readBits(recordOffset: number, bitOffset: number, bitCount: number): number {

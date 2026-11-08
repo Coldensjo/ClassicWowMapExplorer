@@ -4,3 +4,7 @@ release/
 out/
 .cache/
 *.stackdump
+
+# TACT key lists kept beside the app (see the README)
+/[Tt]act[Kk]ey*.txt
+/[Tt]act[Kk]ey*.csv

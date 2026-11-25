@@ -28,7 +28,7 @@ test('flight masters are those with a side by their flags and a bit in the mask,
 	const nodes = table({
 		1: node(0, 'Stormwind', 1, 1, [1.234, 2, 3]),
 		2: node(0, 'Orgrimmar', 3, 2, [4, 5, 6]),
-		// No side, no bit, off the continents, and an old one.
+		// No side, no bit, off the continents, and an old one that no route reaches.
 		3: node(0, 'Quest', 0, 3),
 		4: node(0, 'Nobit', 1, 0),
 		5: node(530, 'Outland', 1, 5),
@@ -48,6 +48,13 @@ test('flight masters are those with a side by their flags and a bit in the mask,
 	]);
 	// Only the route between two of them, its points in the order of their nodes and rounded.
 	expect(flights.paths).toEqual([{ id: 7, from: 1, to: 2, cost: 1, legs: [{ map: 0, points: [1, 0, 0, 10.1, 20, 30] }] }]);
+});
+
+test('the bit in the mask is the low 16 bits of its field: junk above them is not a bit', () => {
+	// Anniversary's table keeps 0x10000 above every node's bit, and nothing else on a quest flight's.
+	const nodes = table({ 1: node(0, 'Stormwind', 1, 0x10002), 2: node(0, 'Plaguewood Tower', 3, 0x10000) });
+	const flights = buildFlights(nodes, table({ 7: route(1, 2) }), table({ 1: point(7, 0, 0, 0, 1), 2: point(7, 1, 0, 0, 2) }), new Set([0]));
+	expect(flights.nodes.map((n) => n.name)).toEqual(['Stormwind']);
 });
 
 test('a route that changes map, or passes a teleport node, is a leg on each side of the jump', () => {
@@ -71,7 +78,17 @@ test('a route that changes map, or passes a teleport node, is a leg on each side
 	expect(flights.paths.find((p) => p.id === 12)!.legs).toEqual([{ map: 0, points: [9, 0, 0, 10, 0, 0] }]);
 });
 
-test('the later versions\' Hyjal flight masters are kept, Forever\'s unopened Mount Hyjal ones are not', () => {
-	const nodes = table({ 1: node(1, 'Shrine of Aviana, Hyjal', 1, 1), 2: node(1, 'Summit of Eternity, Mount Hyjal', 1, 2) });
-	expect(buildFlights(nodes, table({}), table({}), new Set([1])).nodes.map((n) => n.name)).toEqual(['Shrine of Aviana, Hyjal']);
+test('a flight master is kept by its routes, not its name: Riverglades and Hyjal ones stay, an old row with no route goes', () => {
+	const nodes = table({
+		1: node(0, "Rog'mar, Riverglades", 2, 1),
+		2: node(1, 'Summit of Eternity, Mount Hyjal', 3, 2),
+		3: node(1, 'Shrine of Aviana, Hyjal', 1, 3),
+		// A side and a bit, but no route runs to it: a row the client keeps from before.
+		4: node(0, "zzOLDBolder'ok, Riverglades", 2, 4),
+	});
+	const paths = table({ 10: route(1, 2), 11: route(2, 3) });
+	const points = table({ 1: point(10, 0, 0, 0, 1), 2: point(10, 1, 0, 0, 2), 3: point(11, 0, 1, 0, 3), 4: point(11, 1, 1, 0, 4) });
+	const flights = buildFlights(nodes, paths, points, new Set([0, 1]));
+	expect(flights.nodes.map((n) => n.name)).toEqual(["Rog'mar, Riverglades", 'Summit of Eternity, Mount Hyjal', 'Shrine of Aviana, Hyjal']);
+	expect(flights.paths.map((p) => p.id)).toEqual([10, 11]);
 });

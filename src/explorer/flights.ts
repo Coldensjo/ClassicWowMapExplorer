@@ -42,8 +42,9 @@ export interface FlightData {
 const NODE_NAME = 0;
 const NODE_POS = 1;
 const NODE_MAP = 5;
-/** The bit of the node in the character's known-nodes mask. */
+/** The bit of the node in the character's known-nodes mask: a u16, but Anniversary's table keeps it in a pallet whose 4-byte values have junk above it (0x10000 on every node). */
 const NODE_BIT = 7;
+const NODE_BIT_MASK = 0xffff;
 /** 1 Alliance, 2 Horde. */
 const NODE_FLAGS = 8;
 const PATH_FROM = 1;
@@ -57,12 +58,6 @@ const POINT_MAP = 4;
 const POINT_FLAGS = 5;
 const POINT_DELAY = 6;
 const POINT_TELEPORT = 1;
-
-/**
- * Nodes of the client's tables that aren't flight masters in use: old, removed or never opened. Forever's
- * unopened Hyjal nodes are named "..., Mount Hyjal"; the later versions' real ones "..., Hyjal".
- */
-const UNUSED_NODE = /^zzOLD|Riverglades|Mount Hyjal|Tidegear/i;
 
 export const round = (v: number, digits = 2) => Math.round(v * 10 ** digits) / 10 ** digits;
 
@@ -103,15 +98,22 @@ export function readPathNodes(pointsTable: Table): Map<number, PathNode[]> {
 
 /**
  * The flight network from TaxiNodes, TaxiPath and TaxiPathNode, on the given continents. Flight
- * masters players can use are on a continent, have a side and a bit in the character's known-nodes
- * mask; the rest are transports, quest flights and tests.
+ * masters players can use are on a continent, have a side, a bit in the character's known-nodes
+ * mask and a route to somewhere; the rest are transports, quest flights, tests, and the old rows
+ * the client keeps (named "zzOLD...", with no route).
  */
 export function buildFlights(nodesTable: Table, pathsTable: Table, pointsTable: Table, continents: Set<number>): FlightData {
+	// A node no route starts or ends at isn't in use, whatever its name.
+	const routed = new Set<number>();
+	for (const id of pathsTable.ids()) {
+		routed.add(pathsTable.getInt(id, PATH_FROM)!);
+		routed.add(pathsTable.getInt(id, PATH_TO)!);
+	}
 	const nodes = nodesTable.ids().flatMap((id): FlightNode[] => {
 		const map = nodesTable.getInt(id, NODE_MAP) ?? -1;
 		const flags = nodesTable.getInt(id, NODE_FLAGS) ?? 0;
 		const name = nodesTable.getString(id, NODE_NAME) ?? '';
-		if (!continents.has(map) || !(flags & 3) || !nodesTable.getInt(id, NODE_BIT) || UNUSED_NODE.test(name)) return [];
+		if (!continents.has(map) || !(flags & 3) || !((nodesTable.getInt(id, NODE_BIT) ?? 0) & NODE_BIT_MASK) || !routed.has(id)) return [];
 		const [x, y, z] = [0, 1, 2].map((i) => round(nodesTable.getFloat(id, NODE_POS, i)!));
 		return [{ id, name, map, x, y, z, alliance: !!(flags & 1), horde: !!(flags & 2) }];
 	});

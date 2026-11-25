@@ -23,7 +23,7 @@ export interface TexLayer {
 
 export interface TexChunk {
 	layers: TexLayer[];
-	/** 64x64 alpha per layer after the first (up to 3), row-major. */
+	/** 64x64 alpha per layer after the first, row-major. */
 	alpha: Uint8Array[];
 }
 

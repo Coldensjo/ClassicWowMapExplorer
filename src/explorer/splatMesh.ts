@@ -1,8 +1,12 @@
 import { CHUNKS_PER_TILE, TILE_CELLS, TILE_SIZE, tileGrids, type AdtRoot } from '../formats/adt';
-import { ALPHA_SIZE, type AdtTex } from '../formats/adtTex';
+import { ALPHA_SIZE, type AdtTex, type TexChunk } from '../formats/adtTex';
 import { buildTerrainMesh } from './terrainMesh';
 
 export const ALPHA_ATLAS_SIZE = ALPHA_SIZE * CHUNKS_PER_TILE;
+/** The layers a chunk can have: the client ignores any past the eighth. */
+export const MAX_LAYERS = 8;
+/** The layers one draw blends (four of colour and four of height); a chunk with more is drawn again for the next four. */
+export const PASS_LAYERS = 4;
 
 export interface SplatLayer {
 	diffuse: number;
@@ -34,14 +38,40 @@ export interface SplatGeometry {
 export interface SplatTerrain {
 	geometry: SplatGeometry;
 	groups: SplatGroup[];
-	/** 1024x1024 RGBA atlas: each chunk's 64x64 alpha maps for layers 1-3 in R, G, B. */
+	/** 1024x1024 RGBA atlas: each chunk's 64x64 alpha maps for layers 1-4 in R, G, B, A. */
 	alpha: Uint8Array;
+	/** The same for layers 5-7 in R, G, B; null when no chunk has more than five layers. */
+	alphaExtra: Uint8Array | null;
 	/** Every texture file the groups reference. */
 	textures: number[];
 	/** 129x129 outer heights. */
 	heights: Float32Array;
 	/** 128x128 cells, 1 where the terrain has a hole (cave and mine entrances). */
 	holes: Uint8Array;
+}
+
+/**
+ * The alpha maps of a tile's chunks packed for the shader: an atlas holds each chunk's maps of
+ * layers 1-4 (R, G, B, A), a second one those of layers 5-7 (R, G, B), made only if a chunk has them.
+ */
+export function alphaAtlases(chunks: TexChunk[]): { alpha: Uint8Array; extra: Uint8Array | null } {
+	const size = ALPHA_ATLAS_SIZE * ALPHA_ATLAS_SIZE * 4;
+	const alpha = new Uint8Array(size);
+	let extra: Uint8Array<ArrayBuffer> | null = null;
+	for (const [id, chunk] of chunks.entries()) {
+		const cx = id % CHUNKS_PER_TILE;
+		const cy = Math.floor(id / CHUNKS_PER_TILE);
+		for (const [k, map] of chunk.alpha.slice(0, MAX_LAYERS - 1).entries()) {
+			let atlas = alpha;
+			if (k >= PASS_LAYERS) atlas = extra ??= new Uint8Array(size);
+			const channel = k % PASS_LAYERS;
+			for (let y = 0; y < ALPHA_SIZE; y++) {
+				const row = ((cy * ALPHA_SIZE + y) * ALPHA_ATLAS_SIZE + cx * ALPHA_SIZE) * 4 + channel;
+				for (let x = 0; x < ALPHA_SIZE; x++) atlas[row + x * 4] = map[y * ALPHA_SIZE + x];
+			}
+		}
+	}
+	return { alpha, extra };
 }
 
 const OUTER = 9;
@@ -143,7 +173,7 @@ export function buildSplatTerrain(root: AdtRoot, tex: AdtTex, skirtDepth = 30): 
 	const layersOf = (id: number): SplatLayer[] => {
 		const tc = tex.chunks[id];
 		if (!tc) return [];
-		return tc.layers.slice(0, 4).map((l) => ({
+		return tc.layers.slice(0, MAX_LAYERS).map((l) => ({
 			diffuse: tex.diffuse[l.texture] ?? 0,
 			height: tex.height[l.texture] ?? 0,
 			repeats: tex.params[l.texture]?.repeats ?? 8,
@@ -174,19 +204,7 @@ export function buildSplatTerrain(root: AdtRoot, tex: AdtTex, skirtDepth = 30): 
 		groups.push({ start, count: filled - start, layers: group.layers });
 	}
 
-	// Alpha atlas.
-	const alpha = new Uint8Array(ALPHA_ATLAS_SIZE * ALPHA_ATLAS_SIZE * 4);
-	for (let a = 3; a < alpha.length; a += 4) alpha[a] = 255;
-	tex.chunks.forEach((tc, id) => {
-		const cx = id % CHUNKS_PER_TILE;
-		const cy = Math.floor(id / CHUNKS_PER_TILE);
-		tc.alpha.slice(0, 3).forEach((map, layer) => {
-			for (let y = 0; y < ALPHA_SIZE; y++) {
-				const row = ((cy * ALPHA_SIZE + y) * ALPHA_ATLAS_SIZE + cx * ALPHA_SIZE) * 4 + layer;
-				for (let x = 0; x < ALPHA_SIZE; x++) alpha[row + x * 4] = map[y * ALPHA_SIZE + x];
-			}
-		});
-	});
+	const { alpha, extra: alphaExtra } = alphaAtlases(tex.chunks);
 
 	const textures = new Set<number>();
 	for (const g of groups) for (const l of g.layers) {
@@ -197,6 +215,7 @@ export function buildSplatTerrain(root: AdtRoot, tex: AdtTex, skirtDepth = 30): 
 		geometry: { positions, normals, uvs, colors, chunks: chunkIds, skirt, indices },
 		groups,
 		alpha,
+		alphaExtra,
 		textures: [...textures],
 		heights: grids.outer,
 		holes: grids.holes,

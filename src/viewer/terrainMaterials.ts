@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { SplatLayer } from '../explorer/splatMesh';
+import { PASS_LAYERS, type SplatLayer } from '../explorer/splatMesh';
 import type { LiquidLooks } from '../explorer/clientDb';
 import type { LiquidKind } from '../formats/mh2o';
 import { applyRegions } from './regionOverlay';
@@ -96,6 +96,7 @@ varying float vSkirt;
 ${SEA_MASK}
 #ifdef TERRAIN_SPLAT
 	uniform sampler2D uAlpha;
+	uniform sampler2D uAlphaExtra;
 	uniform sampler2D uDiffuse0;
 	uniform sampler2D uDiffuse1;
 	uniform sampler2D uDiffuse2;
@@ -119,8 +120,10 @@ ${SEA_MASK}
 #endif
 `;
 
-// Replaces <map_fragment>: blends up to four layers with the chunk's alpha maps, like the
-// client's terrain shader (weights 1 - sum(a), a1, a2, a3, optionally sharpened by height).
+// Replaces <map_fragment>: blends four layers with the chunk's alpha maps, like the client's
+// terrain shader (weights 1 - sum(a), a1, a2, a3, optionally sharpened by height). A chunk has up
+// to eight layers: the first draw takes layers 0-3 as they would be alone, and a second one
+// (TERRAIN_SPLAT_EXTRA) layers 4-7, laid over the first by the share of the ground they cover.
 const FRAGMENT_MAP = /* glsl */ `
 	// Skirts only fill cracks seen from above. From below the terrain's edge (under the ground)
 	// they'd stand as walls around the tiles, so they go. vWorldY + vSkirt is the edge's height here.
@@ -131,7 +134,11 @@ const FRAGMENT_MAP = /* glsl */ `
 	vec2 chunk = vec2(mod(ci, 16.0), floor(ci / 16.0));
 	vec2 local = clamp(vTileUv * 16.0 - chunk, 0.0, 1.0);
 	// Sample the 64x64 map from its first to last texel centre, never the neighbour chunk.
-	vec3 a = texture2D(uAlpha, (chunk + (0.5 + local * 63.0) / 64.0) / 16.0).rgb;
+	vec2 at = (chunk + (0.5 + local * 63.0) / 64.0) / 16.0;
+	vec4 a = texture2D(uAlpha, at);
+	vec3 b = texture2D(uAlphaExtra, at).rgb;
+	// Layer 0 takes what the others leave; where they add up to more than one, they share it out.
+	float spread = a.r + a.g + a.b + a.a + b.r + b.g + b.b;
 
 	vec2 c = vTileUv * 16.0;
 	vec4 d0 = texture2D(uDiffuse0, c * uRepeats.x);
@@ -139,7 +146,12 @@ const FRAGMENT_MAP = /* glsl */ `
 	vec4 d2 = texture2D(uDiffuse2, c * uRepeats.z);
 	vec4 d3 = texture2D(uDiffuse3, c * uRepeats.w);
 
-	vec4 w = vec4(1.0 - clamp(a.r + a.g + a.b, 0.0, 1.0), a.r, a.g, a.b) * uLayerMask;
+	#ifdef TERRAIN_SPLAT_EXTRA
+		vec4 w = vec4(a.a, b.r, b.g, b.b) * uLayerMask;
+	#else
+		vec4 w = vec4(1.0 - min(spread, 1.0), a.r, a.g, a.b) * uLayerMask;
+	#endif
+		float coverage = dot(w, vec4(1.0)) / max(spread, 1.0);
 	if (uHeightBlend > 0.5) {
 		vec4 h = vec4(
 			texture2D(uHeight0, c * uRepeats.x).a,
@@ -153,6 +165,9 @@ const FRAGMENT_MAP = /* glsl */ `
 	}
 	w /= max(dot(w, vec4(1.0)), 1e-4);
 	diffuseColor.rgb *= d0.rgb * w.x + d1.rgb * w.y + d2.rgb * w.z + d3.rgb * w.w;
+	#ifdef TERRAIN_SPLAT_EXTRA
+		diffuseColor.a *= coverage;
+	#endif
 }
 #elif defined(TERRAIN_FAR_BATCH)
 {
@@ -204,30 +219,51 @@ export function createFarBatchMaterial(uniforms: FarBatchUniforms): THREE.MeshLa
 	return material;
 }
 
-/** Full-detail terrain for one group of chunks sharing the same texture layers. */
+/**
+ * Full-detail terrain for one group of chunks sharing the same texture layers (up to eight). One draw
+ * blends four of them: pass 0 layers 0-3, pass 1 layers 4-7, which it lays over the first draw by the
+ * share of the ground they cover. Each blends its own layers, height textures included, as if they
+ * were all there were.
+ */
 export function createSplatMaterial(
 	alpha: THREE.Texture,
+	alphaExtra: THREE.Texture | null,
 	layers: SplatLayer[],
 	textures: Map<number, THREE.Texture | null>,
+	pass: 0 | 1 = 0,
 ): THREE.MeshLambertMaterial {
 	const material = new THREE.MeshLambertMaterial({ vertexColors: true });
 	material.defines = { TERRAIN_SPLAT: '' };
-	const slot = (i: number, key: 'diffuse' | 'height') => (layers[i] && textures.get(layers[i][key])) || white;
+	const own = layers.slice(pass * PASS_LAYERS, (pass + 1) * PASS_LAYERS);
+	if (pass === 1) {
+		material.defines.TERRAIN_SPLAT_EXTRA = '';
+		// Over the ground the first draw made, at the same depth and without changing it.
+		material.blending = THREE.CustomBlending;
+		material.blendSrc = THREE.SrcAlphaFactor;
+		material.blendDst = THREE.OneMinusSrcAlphaFactor;
+		material.depthWrite = false;
+		material.depthFunc = THREE.LessEqualDepth;
+		material.polygonOffset = true;
+		material.polygonOffsetFactor = -1;
+		material.polygonOffsetUnits = -1;
+	}
+	const slot = (i: number, key: 'diffuse' | 'height') => (own[i] && textures.get(own[i][key])) || white;
 	const vec = (fn: (l: SplatLayer) => number, fallback: number) =>
-		new THREE.Vector4(...[0, 1, 2, 3].map((i) => (layers[i] ? fn(layers[i]) : fallback)) as [number, number, number, number]);
+		new THREE.Vector4(...[0, 1, 2, 3].map((i) => (own[i] ? fn(own[i]) : fallback)) as [number, number, number, number]);
 	const uniforms: Record<string, THREE.IUniform> = {
 		uAlpha: { value: alpha },
+		uAlphaExtra: { value: alphaExtra ?? black },
 		uRepeats: { value: vec((l) => l.repeats, 8) },
 		uHeightScale: { value: vec((l) => l.heightScale, 0) },
 		uHeightOffset: { value: vec((l) => l.heightOffset, 1) },
 		uLayerMask: { value: vec(() => 1, 0) },
-		uHeightBlend: { value: layers.some((l) => l.height) ? 1 : 0 },
+		uHeightBlend: { value: own.some((l) => l.height) ? 1 : 0 },
 	};
-	for (let i = 0; i < 4; i++) {
+	for (let i = 0; i < PASS_LAYERS; i++) {
 		uniforms[`uDiffuse${i}`] = { value: slot(i, 'diffuse') };
 		uniforms[`uHeight${i}`] = { value: slot(i, 'height') };
 	}
-	patch(material, uniforms, 'terrain-splat');
+	patch(material, uniforms, pass ? 'terrain-splat-extra' : 'terrain-splat');
 	return material;
 }
 

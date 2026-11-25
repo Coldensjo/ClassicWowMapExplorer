@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CHUNKS_PER_TILE, TILE_CELLS, TILE_SIZE } from '../formats/adt';
 import { WDL_CELLS } from '../formats/wdl';
-import { ALPHA_ATLAS_SIZE, type SplatGeometry } from '../explorer/splatMesh';
+import { ALPHA_ATLAS_SIZE, PASS_LAYERS, type SplatGeometry } from '../explorer/splatMesh';
 import type { FarTile, NearTile } from '../explorer/world';
 import type { TerrainGeometry } from '../explorer/terrainMesh';
 import type { AsyncStorageApi } from '../worker/protocol';
@@ -580,11 +580,23 @@ export class TerrainManager {
 		if (tile.terrain) {
 			const alpha = createAlphaTexture(tile.terrain.alpha, ALPHA_ATLAS_SIZE);
 			state.ownTextures.push(alpha);
+			let alphaExtra: THREE.DataTexture | null = null;
+			if (tile.terrain.alphaExtra) {
+				alphaExtra = createAlphaTexture(tile.terrain.alphaExtra, ALPHA_ATLAS_SIZE);
+				state.ownTextures.push(alphaExtra);
+			}
 			const geometry = toBufferGeometry(tile.terrain.geometry);
-			const materials = tile.terrain.groups.map((g, i) => {
-				geometry.addGroup(g.start, g.count, i);
-				return createSplatMaterial(alpha, g.layers, textures);
-			});
+			const materials: THREE.Material[] = [];
+			for (const g of tile.terrain.groups) {
+				geometry.addGroup(g.start, g.count, materials.length);
+				materials.push(createSplatMaterial(alpha, alphaExtra, g.layers, textures));
+			}
+			// Layers past the fourth: the same chunks drawn again over the first draw (see createSplatMaterial).
+			for (const g of tile.terrain.groups) {
+				if (g.layers.length <= PASS_LAYERS) continue;
+				geometry.addGroup(g.start, g.count, materials.length);
+				materials.push(createSplatMaterial(alpha, alphaExtra, g.layers, textures, 1));
+			}
 			state.materials.push(...materials);
 			add(geometry, materials);
 		} else if (tile.fallback) {

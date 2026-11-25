@@ -1,5 +1,6 @@
 // Serves the World of Warcraft install found on this computer under /__wow/ in the dev server,
-// as the portable launcher does, so the page opens it without asking for the folder.
+// as the portable launcher does, so the page opens it without asking for the folder. It serves the
+// TACT key lists in the project folder under /__keys/ too.
 // WOW_DIR=<folder> picks the install; otherwise it's looked up as the launcher does on Windows,
 // in the Wine prefixes of Lutris, Bottles, Steam (Proton) and Heroic on Linux, and in Applications on macOS.
 import { execFileSync } from 'node:child_process';
@@ -9,6 +10,10 @@ import { dirname, join, resolve } from 'node:path';
 import type { Plugin } from 'vite';
 
 const PREFIX = '/__wow/';
+/** TACT key lists in the folder the server runs from, listed here and served by name. */
+const KEYS_PREFIX = '/__keys/';
+/** The names of those lists; the same as KEY_FILE_NAME in src/casc/tactKeys.ts, which this file can't import (the config is loaded without a bundler). */
+const KEY_FILE_NAME = /^tactkey[^/\\]*\.(txt|csv)$/i;
 const UNINSTALL_KEYS = [
 	'HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
 	'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
@@ -142,14 +147,30 @@ export function wowFiles(): Plugin {
 		name: 'wow-files',
 		apply: 'serve',
 		configureServer(server) {
+			server.middlewares.use((req, res, next) => {
+				if (!req.url?.startsWith(KEYS_PREFIX)) return next();
+				const name = decodeURIComponent(req.url.slice(KEYS_PREFIX.length).split('?')[0]);
+				const path = join(server.config.root, name);
+				res.setHeader('Cache-Control', 'no-cache');
+				if (!name) {
+					res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+					return res.end(readdirSync(server.config.root).filter((file) => KEY_FILE_NAME.test(file)).join('\n'));
+				}
+				if (!KEY_FILE_NAME.test(name) || !existsSync(path) || !statSync(path).isFile()) {
+					res.statusCode = 404;
+					return res.end();
+				}
+				res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+				createReadStream(path).pipe(res);
+			});
 			const root = findWow();
 			server.config.logger.info(root ? `  World of Warcraft: ${root}` : '  World of Warcraft not found; choose the folder in the page (or set WOW_DIR).');
 			if (!root) return;
 			server.middlewares.use((req, res, next) => {
 				if (!req.url?.startsWith(PREFIX)) return next();
 				const relative = decodeURIComponent(req.url.slice(PREFIX.length).split('?')[0]);
-				// Only what the storage reader needs, and nothing outside the install.
-				const allowed = relative === '.build.info' || /^data\//i.test(relative);
+				// Only what the storage reader needs (and the hotfix caches, for their TACT keys), and nothing outside the install.
+				const allowed = relative === '.build.info' || /^data\//i.test(relative) || /^_[^/]+_\/Cache\/ADB\//i.test(relative);
 				if (!allowed || relative.includes('..') || relative.includes('\\')) {
 					res.statusCode = 404;
 					return res.end();

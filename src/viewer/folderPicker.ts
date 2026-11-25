@@ -2,14 +2,17 @@ import type { SourceInit } from '../worker/protocol';
 
 /**
  * Converts an <input webkitdirectory> selection into a source, keeping only the files the
- * storage reader needs. Paths become relative to the picked folder. Browsers on macOS and
+ * storage reader needs, and the hotfix caches, which hold TACT keys. Paths become relative to the picked folder. Browsers on macOS and
  * Linux leave hidden files (.build.info) out of that selection; it is then rebuilt from the
  * build configs in Data/config.
  */
+/** A game folder's hotfix cache (_forever_/Cache/ADB/enUS/DBCache.bin), read for the TACT keys the server has sent. */
+const HOTFIX_CACHE = /^_[^/]+_\/Cache\/ADB\/[^/]+\/DBCache\.bin$/i;
+
 export async function filesToSource(files: FileList | File[]): Promise<SourceInit> {
 	const entries = [...files]
 		.map((file) => ({ path: file.webkitRelativePath.split('/').slice(1).join('/'), file }))
-		.filter(({ path }) => path === '.build.info' || /^data\/(config|data)\//i.test(path));
+		.filter(({ path }) => path === '.build.info' || /^data\/(config|data)\//i.test(path) || HOTFIX_CACHE.test(path));
 	if (!entries.some(({ path }) => path === '.build.info')) {
 		const rebuilt = await rebuildBuildInfo(entries);
 		if (rebuilt) entries.push({ path: '.build.info', file: rebuilt });
@@ -52,11 +55,22 @@ function readDir(dir: FileSystemDirectoryEntry): Promise<FileSystemEntry[]> {
 	});
 }
 
-const fileOf = (entry: FileSystemFileEntry) => new Promise<File>((resolve, reject) => entry.file(resolve, reject));
+/** The folder at a path of names below a folder, or null if it isn't there. */
+async function findDir(dir: FileSystemDirectoryEntry, names: string[]): Promise<FileSystemDirectoryEntry | null> {
+	let here = dir;
+	for (const name of names) {
+		const next = (await readDir(here)).find((e) => e.isDirectory && e.name.toLowerCase() === name.toLowerCase());
+		if (!next) return null;
+		here = next as FileSystemDirectoryEntry;
+	}
+	return here;
+}
+
+const fileOf =(entry: FileSystemFileEntry) => new Promise<File>((resolve, reject) => entry.file(resolve, reject));
 
 /**
  * A folder dropped on the page, as a source: only the files the storage reader needs
- * (.build.info, Data/config and Data/data), so even a large install is quick to list.
+ * (.build.info, Data/config and Data/data) and the hotfix caches, so even a large install is quick to list.
  */
 export async function droppedFolderToSource(root: FileSystemDirectoryEntry): Promise<SourceInit> {
 	const files: { path: string; file: File }[] = [];
@@ -70,6 +84,11 @@ export async function droppedFolderToSource(root: FileSystemDirectoryEntry): Pro
 	const top = await readDir(root);
 	const buildInfo = top.find((e) => e.isFile && e.name === '.build.info');
 	if (buildInfo) files.push({ path: '.build.info', file: await fileOf(buildInfo as FileSystemFileEntry) });
+	// Each game folder's Cache/ADB: a folder a locale, a DBCache.bin in each.
+	for (const flavor of top.filter((e) => e.isDirectory && /^_.+_$/.test(e.name))) {
+		const cache = await findDir(flavor as FileSystemDirectoryEntry, ['Cache', 'ADB']);
+		if (cache) await walk(cache, `${flavor.name}/Cache/ADB/`);
+	}
 	const data = top.find((e) => e.isDirectory && e.name.toLowerCase() === 'data');
 	if (data) {
 		for (const entry of await readDir(data as FileSystemDirectoryEntry)) {

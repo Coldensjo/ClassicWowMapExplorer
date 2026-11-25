@@ -48,10 +48,20 @@ macOS is untested.
 
 ## Encrypted maps
 
-Blizzard often ships new maps in the game files before they're released, encrypted. **Go to** says how many
-your install has and which key opens them. Click **Enter a key…** and paste it (32 hex digits); it is checked
-against the maps before it's kept. Map Explorer holds no keys itself and never fetches any. **Forget my keys**
-locks them again.
+Blizzard often ships new maps in the game files before they're released, encrypted. Map Explorer opens them
+by itself when your game has the key: in its own table of keys, or in the hotfixes it has received
+(`Cache/ADB/<locale>/DBCache.bin` of every product and locale, also the keys the server sends at the end of
+some BroadcastText rows), both read from your install.
+
+For a key your game doesn't have, put a list beside `MapExplorer.exe` (when running from source, in the
+project folder), named `tactkey…` with `.txt` or `.csv`. Either lines of a name and a key, as key lists write
+them (`D2C028CB7AC14D0B D31C74FE3705AF574888E4A230785481`; spaces, commas or semicolons between), or the two
+tables as CSV (`TactKey….csv` and `TactKeyLookup….csv`, as wow.tools exports them), which are joined by ID.
+The game's own keys come first; the lists fill in what it doesn't have.
+
+A key still missing is asked for under **Go to**, which says how many maps your install has and which key
+opens them. Click **Enter a key…** and paste it (32 hex digits); it is checked against the maps before it's
+kept. Map Explorer holds no keys itself and never fetches any. **Forget my keys** drops the ones you entered.
 
 ## For developers
 

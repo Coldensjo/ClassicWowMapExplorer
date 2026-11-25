@@ -50,6 +50,10 @@ you're done.
 Keep MapExplorer.exe next to the "app" folder. The window is Microsoft Edge (or Chrome) showing
 the app, served from the "app" folder to this computer only; nothing is sent anywhere. Its
 settings are kept in the "data" folder, apart from your own browser.
+
+Maps that Blizzard ships encrypted open by themselves when the game has their key. For a key it
+doesn't have, put a list named tactkeys.txt (one key a line: its name, a space, the key) or the
+TactKey and TactKeyLookup .csv files next to MapExplorer.exe.
 `.replace(/\n/g, '\r\n'));
 
 if (existsSync(ZIP)) rmSync(ZIP);
